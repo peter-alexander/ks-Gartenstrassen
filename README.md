@@ -198,6 +198,52 @@ Die erzeugten Dateien stehen ausschließlich unter `data/processed/street_space/
 **Nicht behaupten:** Die Beurteilung einer bewusst ausgewählten Stichprobe liefert weder eine Fehlerrate für ganz Wien noch eine allgemeine Genauigkeit der Heuristik. Dafür wären später zusätzliche zufällig gezogene Kontrollfälle nötig.
 
 
+## Schritt 5: Kataster-Grundstücke und vollständige Nutzung prüfen
+
+In der **Kartensammlung** ist der aktuelle BEV-Kataster als Vector-Tile-Layer eingebunden:
+`https://kataster.bev.gv.at/tiles/kataster/{z}/{x}/{y}.pbf`. Die Kacheln enthalten unter anderem `gst` (Grundstücke) und `nfl` (Nutzungsflächen). Wie dort verwendet, kann die vollständige Nutzungsbilanz eines bekannten Grundstücks separat über `https://kataster.bev.gv.at/api/gst/<kgez>/<gnr>/` abgerufen werden.
+
+Die separate Analyse `scripts/analyze_kataster.py`:
+
+1. Liest den **bisherigen FMZK-Testausschnitt** aus `data/processed/fmzk_test.gpkg` und berechnet den bestehenden Kern **21/23/24/33/39**.
+2. Lädt die BEV-Kacheln auf **Zoomstufe 16**, einschließlich einer zusätzlichen Kachel rings um die Test-BBOX. Die GeoPackage- und Tile-Geometrien werden in **EPSG:31256** verschnitten. Kernflächen mit echtem Flächenschnitt identifizieren getroffene `gst`-Grundstücke anhand **Katastralgemeinde + Grundstücksnummer**.
+3. Ruft für jedes getroffene Grundstück **einmal** die öffentliche BEV-Detail-API ab. Aus der **gesamten**, nicht auf die Test-BBOX beschnittenen Nutzungsbilanz werden die Fälle A/B/C/D bestimmt.
+4. Exportiert die `nfl`-Teilflächen zur Sichtkontrolle. Diese stammen weiterhin nur aus den verwendeten Kacheln und werden für die Klassifizierung **nicht** als vollständiger Flächennachweis verwendet.
+
+Installation nach dem Synchronisieren und erster Durchlauf:
+
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m pip install -r requirements-analysis.txt
+.venv/bin/python -m scripts.analyze_kataster
+```
+
+**Einstufung der ganzen Grundstücke anhand der BEV-API:**
+
+| Klasse | Bedingung | Aussage |
+| --- | --- | --- |
+| **A** | Nur Nutzung 95 (Straßenverkehrsanlagen) und/oder 65 (Verkehrsrandflächen) | Hohe Plausibilität für Verkehrsraum; nicht rechtlich als öffentliche Straße bewiesen |
+| **B** | Mindestens 95 oder 65, außerdem weitere Nutzungen (z. B. 41 Gebäude, 52 Gärten, 42 Parkplätze) | Gemischtes Grundstück, nur Teilflächen weiter prüfen |
+| **C** | Kein 95/65, obwohl der FMZK-Kern das Grundstück schneidet | Widerspruch oder andere Nutzung; reine Parkplätze/Schienenverkehr als Sonderfall kenntlich |
+| **D** | Detail-API nicht erreichbar, Nutzungsbilanz fehlt, Code unbekannt oder fehlerhaft | **Keine Entscheidung**; niemals automatisch als A behandeln |
+
+Die Bezeichnung A steht für **hohe Plausibilität, nicht hohe rechtliche Autorität**: Kataster-Benützungsarten beweisen keine Eigentümerschaft oder straßenrechtliche Widmung. Für Gruppe B übernehmen wir **nicht das gesamte Grundstück**. Die FMZK bleibt die feinere Nutzungsgeometrie.
+
+**Lokale Ausgaben** unter `data/processed/kataster/`:
+
+- `kataster_grundstuecke.geojson`: vom Kern getroffene Grundstücksfragmente innerhalb der BBOX, eingefärbt nach `klasse` möglich.
+- `kataster_nfl_ausschnitt.geojson`: Nutzungsflächen **nur innerhalb des verfügbaren Ausschnitts** (Eigenschaft `vollstaendig=false`); zur Kartenkontrolle, **nicht** als Nutzungsbilanz des Grundstücks.
+- `kataster_grundstuecke.csv`: je Grundstück KG, Nummer, A/B/C/D, Kernüberschneidung, API-Nutzungscodes und Flächensummen sowie im Tile beobachtete `nfl.ns`-Codes.
+- `kataster_bericht.json`: Gesamtstatistik, alle vollständigen API-Nutzungsbilanzen, Fehlermeldungen und Liste der verwendeten Kacheln.
+
+Alle Abrufe werden lokal in `data/cache/kataster/` gespeichert. Dadurch ist der zweite Lauf schnell und reproduzierbar. Für **erneuten Onlineabruf** der aktuellen BEV-Daten `--refresh` angeben. Mit `--offline` werden ausschließlich bereits vorhandene Cache-Dateien gelesen. Der Testausschnitt ist über die Metadaten der FMZK-Extraktion vorgegeben; es erfolgen keine bundesweiten Massendownloads. Schutzgrenzen: maximal 36 Kacheln und 250 Grundstücksabfragen pro Lauf.
+
+**Achtung zur Vollständigkeit:** Aus Vector Tiles lassen sich keine rechtsverbindlichen vollständigen Grundstücksgrenzen rekonstruieren; sie werden an Tilekanten geschnitten. **Die A/B/C/D-Einstufung beruht ausschließlich auf der vom BEV zurückgegebenen vollständigen Grundstücks-Nutzungsbilanz.** Ohne diese Daten erhält das Grundstück D. Die ausgelieferten GeoJSON-Geometrien sind *Ausschnitte*, keine vollständigen Grundstückspolygone.
+
+Wir prüfen die Ergebnisse zuerst anhand des bekannten Testgebietes und der bereits bewerteten 25 FMZK-Polygone. Erst danach entwickeln wir Regeln, mit denen Verkehrsgrundstücke und Grünflächen tatsächlich flächendeckend zugeordnet werden können.
+
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
