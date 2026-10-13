@@ -140,14 +140,44 @@ Lokale OSM-Daten benötigen **GeoJSON-Punkte** für `natural=tree`. Sie können 
 
 Die A/B-Gegenüberstellung ist zunächst nur möglich, wenn eine geeignete OSM-GeoJSON-Datei bereitgestellt wird. **Es gibt im Repo noch keinen fertig geprüften OSM-Downloaddienst.** Eine später angebotene kombinierte Tilequelle könnte dafür als eigener weiterer Quelladapter dienen, ohne das Messmodul zu verändern.
 
-## Nächster Arbeitsschritt C: Grünraummonitoring 2023
+## Variante C: Grünraummonitoring 2023 – WMS-Diagnose implementiert
 
-1. Den **exakten WMS-Layernamen** und seine tatsächliche Ausgabe aus **GetCapabilities** ermitteln.
-2. Im FMZK-Testausschnitt eine möglichst **verlustfreie oder kategorial eindeutige** Baumschicht-Maske herunterladen, **keine RGB/NIR-Darstellung ungeprüft zu Kronen umetikettieren**.
-3. Pixel-/Raster-Weltkoordinaten und NoData vollständig dokumentieren. Die **Fläche** des Baumschicht-Rasters schneiden bzw. als Polygonmaske exportieren; keine künstliche Feingeometrie vorgaukeln (50-cm-Pixel).
-4. Diese Maske in dasselbe **Kronen-Polygon-GeoJSON** überführen und in `scripts.compare_canopy_methods` gegen A und B vergleichen.
+**Datengrundlage:** Grünraummonitoring 2023 der Stadt Wien, Rasterbasis 50 cm, **Baumschicht als thematische Klasse 3**. Der WMS-Ebenenname ist **`GRM2023OGD`**, Dienst **`https://data.wien.gv.at/daten/wms`**. Die amtliche Methodik verwendet 2023er Sommer-Infrarotbilder und Höhendaten; diese Quelle unterscheidet sich grundlegend von der Kreisapproximation des Baumkatasters.
 
-Erst **nach** der tatsächlichen Gegenprüfung von Geometrien, Aufnahmedaten und Randartefakten entscheiden, welchen Ansatz wir als Standard verwenden oder ob eigene BEV-NIR-Segmentierung sinnvoll ist.
+**Wichtige Unterscheidung:** „Baumschicht = Klasse 3“ ist eine **fachliche Bedeutung der Quellklassifikation**. Es ist **nicht nachgewiesen**, dass ein WMS-`GetMap`-PNG Pixelwert 3 oder eine bestimmte RGB-Farbe für die Baumschicht verwendet. PNG-Rendering kann klassenspezifische Farben, NoData-Transparenz, Rasterresampling und Mischpixel enthalten. Deshalb wäre automatisches Extrahieren einer „grünen“ WMS-Farbe ohne Legendenprüfung unzuverlässig.
+
+### Schritt C1 – Metadaten, Legende und Test-Raster sichern
+
+**Neues, isoliertes Modul:** `scripts/probe_grm2023_wms.py`. Die Berechnung aus `scripts/measure_canopy_cover.py` und die Straßenraum-Maske aus Modul 2 werden **nicht geändert**.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.probe_grm2023_wms
+```
+
+Voraussetzung: das lokale `data/processed/fmzk_test.gpkg` mit zugehörigem `fmzk_test.json`.
+
+Unter `data/processed/baumkronen/grm2023/` entstehen:
+
+- **`getcapabilities.xml`** – unveränderte WMS-Metadaten einschließlich der angebotenen Projektionen und Stile.
+- **`grm2023_testausschnitt.png`** – originale PNG-GetMap-Antwort für das Testgebiet plus 10 m Puffer; Größenverhältnis und BBOX werden dokumentiert.
+- **`grm2023_legende.png`** – falls der WMS sie tatsächlich als PNG liefert; Fehlen ist als Diagnose-Status dokumentiert und verhindert nicht den Raster-Abruf.
+- **`grm2023_wms_diagnose.json`** – WMS-Layer/SRS, Abfrageparameter, SHA-256, BBOX/Pixelabmessungen, Bildmodus, Anzahl und Häufigkeiten der RGBA-Farben, Transparenz-/Legendenstatus.
+
+Es wird die vom WMS deklarierte **EPSG:31256**-Projektion bevorzugt, sonst **EPSG:3857**; kein unkontrolliertes Achsentauschen. Standardmäßig wird für den kleinen Ausschnitt ein etwa 0,5-m-**Anfragegitter** gewählt, mit striktem Limit für Bildbreite/-höhe und Antwortgröße. **Die Anfrage-Pixelgröße entspricht nicht zwingend der nativen Rasterauflösung.** BBOX und tatsächliche Pixelbreiten sind für eine spätere quantitative Auswertung exakt mitzunehmen.
+
+Das Modul **berechnet noch keine Baumkronenfläche und erzeugt absichtlich kein Kronen-GeoJSON**, solange wir nicht sicher wissen, welche Farben/Pixelwerte der Klasse 3 entsprechen. Der Code verweigert Nicht-PNG-Antworten (z. B. XML-WMS-Fehlermeldungen) und unerwartete Bildabmessungen, anstatt sie als gültige Rasterdaten zu behandeln. Die Abfrage gegen den **echten Wiener Dienst ist von GitHub Actions nicht erreichbar** und muss lokal überprüft werden.
+
+**Bitte nach dem ersten Lauf die `grm2023_wms_diagnose.json` und die beiden PNGs (Legende, Kartenausschnitt) gemeinsam ansehen bzw. bereitstellen.** Erst dadurch können wir klären, ob WMS-Pixel wirklich eindeutige Klassen ermöglichen.
+
+### Schritt C2 – Baumschicht fachlich verifizieren (noch offen)
+
+1. GetCapabilities/Stile und die tatsächlich gelieferte WMS-Legende auf eine **eindeutige, dokumentierte Farbzordnung zur Baumschicht Klasse 3** prüfen; alternativ nach **klassencodierten Quellrastern** suchen, was methodisch vorzuziehen wäre.
+2. Überprüfen, ob Pixel **exakte Klassenfarben** oder Antialiasing-/Resampling-Mischfarben enthalten, und wie NoData/Transparenz aussieht. Ambige Mischpixel dürfen nicht stillschweigend als „Baum“ zählen.
+3. Ein Rasterexportmodul erst **nach bestätigter Klassenabbildung** implementieren, mit dokumentierter Georeferenzierung und Rundungseffekten, Auswertung am Straßenraum und GeoJSON-Polygonvertrag für Modul 4.
+4. Danach dieselbe Überschirmungsberechnung auf die Baumschicht anwenden und gegen die vorläufige Baumkataster-Kreisnäherung (**7,82 %**) mit IoU/Einzelflächen vergleichen. Das ist ein **Methodenvergleich**, keine automatisch festgestellte Genauigkeit.
+
+**Status:** C1 implementiert, Live-Test und C2 offen. Ein Verfahren wird erst nach Sichtprüfung und Referenzbeispielen als bevorzugt eingestuft. Variante D (eigene Infrarot-Segmentierung) kommt nur infrage, wenn die untersuchten Quellen dafür nicht ausreichend sind.
 
 ## Langfristige Modularität
 
