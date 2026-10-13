@@ -409,7 +409,22 @@ Die WMS-Diagnose ist bereits lokal erfolgt; sie muss für denselben Bildstand **
 
 Die Details, geprüfte Farbtabelle und Qualitätsgrenzen sind in [Modul 4 – Baumkronen-Vergleich](docs/Modul-4-Baumkronen-Vergleich.md) dokumentiert.
 
-### Variante D: BEV Orthofoto RGBI – erste Quellen- und Rasterdiagnose
+### Methode D – Vorrangig vorhandener BEV-WMS aus der Kartensammlung
+
+In [`Kartensammlung/src/app/basemaps/providers/imagery.js`](https://github.com/peter-alexander/Kartensammlung/blob/main/src/app/basemaps/providers/imagery.js) werden bereits **fünf BEV-Orthofoto-Darstellungen** über `https://kataster.bev.gv.at/ortho/ows` verwendet: `bev:RGB`, `bev:IRGB`, `bev:RGIR`, `bev:RIRB` und `bev:IR`. Damit können wir **ohne vorzeitigen Download riesiger 50-km-RGBI-Kacheln** einen ersten Versuch beginnen.
+
+**Erster Schritt: WMS-Kanäle auf demselben Rastergitter vergleichen.** Dafür existiert der eigenständige Adapter `scripts/probe_bev_wms.py`:
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.probe_bev_wms
+```
+
+Er fordert **einen** gepufferten Testausschnitt im selben WMS-Pixelgitter (EPSG:3857) in allen fünf Darstellungen an, speichert die fünf `PNG/PGW/PRJ`-Tripel lokal unter `data/processed/baumkronen/bev_wms/` und erstellt **`bev_wms_diagnose.json`** mit den Bildgrößen, Anfrage-/Dateiprüfsummen und dem pixelweisen Vergleich der Rot-, Grün-, Blau- und NIR-Kanäle. **Kein NDVI, keine Kronenmaske, keine Überschirmungsmessung**: Die WMS-Werte sind Darstellungswerte und müssen erst auf Gleichheit/Skalierung geprüft werden. Der echte Abruf ist noch lokal zu testen; die automatisierten Offline-Tests wurden implementiert. Bitte danach zunächst nur den JSON-Diagnosebericht vorlegen.
+
+**Die TIFF-/RGBI-Diagnose bleibt als Fallback**, falls die Kanäle des gerenderten BEV-WMS nicht geeignet sind. Sie ist im folgenden Abschnitt beschrieben.
+
+### Optionale Originaldaten: BEV Orthofoto RGBI – Rasterdiagnose
 
 **Stand 14.10.2026:** Der BEV bietet echte digitale RGBI-Orthofotos mit etwa **20 cm** Bodenauflösung an. **RGBI** enthält den Nahinfrarotkanal zusätzlich zu RGB. [Offizielle BEV-Produktbeschreibung](https://www.bev.gv.at/Services/Produkte/Luftbildprodukte/Orthophoto-Farbe.html). Die frei verfügbaren [BEV-Daten](https://data.bev.gv.at/) werden unter anderem als **50 × 50-km-Kacheln** abgegeben; bitte vor dem Download Dateigröße, Gebietsabdeckung und tatsächliches Flugjahr kontrollieren. Einige [BEV-RGBI-Datensätze](https://data.europa.eu/data/datasets/34490301-7c3e-40b4-8cb8-e82e5c304e8e~~1) enthalten **separate RGB- und NIR-TIFFs**.
 
@@ -462,7 +477,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Modul 4 – BEV-Orthofoto RGBI als Methode D:** Zunächst das tatsächlich für Wien verfügbare Vierkanalbild (oder RGB-/NIR-Dateipaar) anhand seiner BEV-Metadaten samt Flugjahr beschaffen bzw. einen kleinen Ausschnitt sicherstellen; dann die neue D1-Rasterdiagnose ausführen. Die bisherigen Methoden **A (7,82 %), B (7,89 %) und C (9,35 %)** bleiben unverändert. Die vier zusätzlichen OSM-Kronen aus B und die geschätzte Kronengröße werden später in einem eigenen Kontrollschritt überprüft.
+2. **Methode D – BEV-WMS prüfen:** Den bestehenden Orthofoto-WMS aus der Kartensammlung mit `python -m scripts.probe_bev_wms` für den bekannten Testausschnitt lokal abfragen und `bev_wms_diagnose.json` auswerten. Nur bei plausibler Kanalkonsistenz eine vorläufige Vegetationsanalyse beginnen; andernfalls auf die getrennte originale RGBI-/NIR-Quelle zurückgreifen. A/B/C (**7,82 / 7,89 / 9,35 %**) bleiben unverändert.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
