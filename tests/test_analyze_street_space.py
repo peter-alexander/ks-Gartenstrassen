@@ -123,6 +123,12 @@ class StreetSpaceTest(unittest.TestCase):
 			self.assertTrue((folder / "review" / "strassenraum_kandidaten.csv").exists())
 			review = json.loads((folder / "review" / "strassenraum_pruefung.geojson").read_text())
 			ids = {f["properties"]["id"] for f in review["features"]}
+			candidate = next(f["properties"] for f in review["features"] if f["properties"]["id"] == 3)
+			self.assertIn("einbettung", candidate)
+			self.assertIn("kontakt_21_m", candidate)
+			self.assertIn("richtung_ungeklaert_m", candidate)
+			self.assertIn("kandidaten_je_klasse_und_einbettung", report)
+			self.assertGreater(sum(x["objekte"] for x in report["kandidaten_je_klasse_und_einbettung"]), 0)
 			self.assertIn(7, ids)
 			self.assertNotIn(9, ids)
 			core_json = json.loads((folder / "review" / "strassenraum_kern.geojson").read_text())
