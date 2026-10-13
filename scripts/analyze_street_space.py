@@ -27,9 +27,9 @@ DEFAULT_OUTPUT = Path("data/processed/street_space")
 
 # Sicher erkennbarer Kern öffentlicher Verkehrsflächen – bewusst NICHT
 # als vollständige Grenze des öffentlichen Straßenraums ausgeben.
-CORE_CODES = frozenset((21, 23, 24, 33))
+CORE_CODES = frozenset((21, 23, 24, 33, 39))
 GREEN_CODES = frozenset((58, 69))
-AMBIGUOUS_CODES = frozenset((39, 59))
+AMBIGUOUS_CODES = frozenset((59,))
 PRIVATE_CONTEXT_CODES = frozenset((25, 26, 51))
 REVIEW_CODES = CORE_CODES | GREEN_CODES | AMBIGUOUS_CODES | PRIVATE_CONTEXT_CODES
 CANDIDATE_CODES = GREEN_CODES | AMBIGUOUS_CODES
@@ -109,7 +109,7 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
 		raise ValueError("Unzulässige Prüfdistanzen")
 	core_shapes = [geom for _, code, _, geom in features if code in CORE_CODES]
 	if not core_shapes:
-		raise ValueError("Keine Kernflächen (21/23/24/33) im Testausschnitt")
+		raise ValueError("Keine Kernflächen (21/23/24/33/39) im Testausschnitt")
 	core = union_all(core_shapes)
 	if core.is_empty or core.area <= 0:
 		raise ValueError("Vereinigte Kernfläche leer")
@@ -226,7 +226,7 @@ def analyze(source=DEFAULT_SOURCE, output_dir=DEFAULT_OUTPUT, *, tolerance_m=0.2
 	report = write_review(review, output_dir, source, manifest, clip, repairs,
 		tolerance_m=tolerance_m, near_m=near_m, min_contact_m=min_contact_m)
 	print(f"FMZK-Features: {report['features_gesamt']}, Kernfläche: {report['kern_union_m2']:.2f} m²")
-	print(f"Prüfkandidaten: {len(review['candidates'])} (58/69 Grün; 39/59 unklare Nutzungen)")
+	print(f"Prüfkandidaten: {len(review['candidates'])} (58/69 Grün; 59 unklare Nutzung)")
 	for row in review["summary"]:
 		print(f"  Klasse {row['f_klasse']:2d} {row['status']:22s} {row['objekte']:4d} Objekte  {row['flaeche_union_m2']:10.2f} m²")
 	if repairs:
