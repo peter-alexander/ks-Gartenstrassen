@@ -2,6 +2,11 @@
 
 Wir suchen anhand nachvollziehbarer Flächen- und später Kronenkennzahlen bestehende Straßenabschnitte, die dem Charakter von Gartenstraßen nahekommen. Die derzeitige Phase ist **Datenvorbereitung und Validierung** – noch keine fertige Gartenstraßen-Klassifikation.
 
+**Aktueller Arbeitsstand (13.10.2026):** Eine erste Aufteilung **aller FMZK-Flächen des Testgebietes** in `fmzk_strassenraum.geojson` und `fmzk_uebrige_flaechen.geojson` ist implementiert und wurde in der Kartensammlung visuell überprüft. Sie sieht im Übersichts- und Detailmaßstab bereits überzeugend aus, ist aber **noch nicht fehlerfrei und keine abschließend validierte bzw. rechtlich verbindliche Straßenraumgrenze**. Für die nächste Analysephase wird die Methode **vorläufig beibehalten**, nicht als endgültig erklärt.
+
+**Ausführliche Dokumentation:** [Methodik und Arbeitsstand der FMZK-Kataster-Straßenraumabgrenzung](docs/Methodik-Strassenraum-FMZK-Kataster.md) – Datenquellen, Regeln, Prüfergebnisse, visuelle Kontrolle, bekannte Grenzen und weitere Schritte.
+
+
 ## Datenbasis: vollständige FMZK als lokales GeoPackage
 
 **Kanonische Quelle:** `FMZK_WIEN_GP.gpkg`, Layer `FMZK_WIEN_20260112`.
@@ -305,11 +310,13 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 
 `scripts/fetch_fmzk.py` und `scripts/analyze_fmzk.py` bleiben vorläufig als experimenteller Nachvollziehbarkeitsnachweis erhalten. **Sie gehören nicht mehr zur aktuellen Verarbeitung und sollen nicht ausgeführt werden.** Der WFS-Workflow wurde entfernt. Die damals lokal erzeugten beiden GeoJSON-Dateien werden nicht mehr gebraucht.
 
-## Nächste Schritte
+## Nächste Schritte (nach dem dokumentierten Straßenraum-Zwischenstand)
 
-1. Extrahiertes GeoPackage prüfen: Feature-Anzahl, Flächenklassen, Geometrien und Quellenbezug.
-2. Flächenbericht für den neuen Layer `fmzk` anhand der Kartendarstellung kontrollieren (Klassentexte, Geometrien, Überlagerungen und Grünflächen).
-3. Öffentliche Straßenflächen von privaten Höfen und sonstigen Flächen trennen. Erst danach Kennzahlen je Straßensegment bestimmen.
-4. Kandidaten aus `scripts.analyze_street_space` räumlich prüfen, öffentliche Straßenraumgrenzen festlegen und erst dann Bodenbegrünung und Kronenüberschirmung unabhängig voneinander je Abschnitt berechnen.
+1. **Nächste Phase: Bodenbegrünung im vorläufigen Straßenraum des Testausschnitts** auf Basis der FMZK-Klassen flächenmäßig bestimmen. Zunächst eine nachvollziehbare Gesamtkennzahl, mit Trennung von sicher zugeordneten und noch unklaren Flächen.
+2. **Danach Straßenabschnitte als Bezugsräume** definieren und die Straßenraum- und Begrünungsflächen einzelnen Abschnitten zuordnen. Noch keine fertige Gartenstraßen-Bewertung.
+3. **Später unabhängig:** Baumkronenüberschirmung und ggf. weitere Merkmale ergänzen. Bodenbegrünung und Kronen dürfen nicht vermischt oder unbemerkt doppelt gezählt werden.
+4. **Bei Bedarf:** Konkrete Fehlerfälle der bisherigen Abgrenzung mit FMZK-`fid`, KG/Grundstück und Nutzungscode dokumentieren und gezielt nachbessern; dabei den Testlauf als vergleichbare Basis erhalten.
+
+Die vollständige Beschreibung der derzeitigen Zuordnungsregeln und Grenzen steht in [docs/Methodik-Strassenraum-FMZK-Kataster.md](docs/Methodik-Strassenraum-FMZK-Kataster.md).
 
 Datenquelle: **Stadt Wien – data.wien.gv.at**, gemäß [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.de). 
