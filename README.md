@@ -313,6 +313,33 @@ Ausgaben unter `data/processed/bodenbegruenung/`:
 
 Der Anteil ist **noch keine endgültige Qualitäts- oder Gartenstraßenbewertung**: Unklare Straßenraumflächen außerhalb der jetzigen Maske fehlen im Zähler und im Nenner. Kronenüberschirmung wird später in einem eigenen Modul berechnet und **nicht** mit Bodenbegrünung vermischt. Details und feste Modulschnittstelle: [Modulare Architektur](docs/Modulare-Architektur.md).
 
+## Schritt 8: Modul 4 – Baumkronen und Überschirmung vergleichen
+
+**Modul 4 besitzt separate Kronen-Erzeuger und eine davon unabhängige Messfunktion.** Es verwendet dieselbe austauschbare Straßenraum-Maske wie Modul 3. Bäume, deren Stamm außerhalb des Straßenraums steht, können dennoch eine Überschirmungsfläche beitragen.
+
+Erste Methode **A (Wiener Baumkataster/WFS)**, vorerst nur für das vorhandene kleine Testgebiet:
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.fetch_vienna_trees
+.venv/bin/python -m scripts.build_canopy_circles --wien data/processed/baumkronen/baumkataster_wfs.geojson
+.venv/bin/python -m scripts.measure_canopy_cover
+```
+
+Lokale Ergebnisse:
+
+- `data/processed/baumkronen/baumkataster_wfs.geojson`: vom WFS geladene Baum-Punkte, mit Bericht und geprüftem BBOX-Ausschnitt.
+- `data/processed/baumkronen/baumkronen_kreise.geojson`: Kreise aus Stammposition und halbem Kronendurchmesser mit dokumentierten Auslassungen.
+- `data/processed/ueberschirmung/ueberschirmung_bericht.json`: Straßenraum, tatsächlich überschnittene Kronenfläche, Überschirmungsgrad und Eingabeversionen.
+- `data/processed/ueberschirmung/ueberschirmte_flaeche.geojson`: die vereinigten Baumkronen **innerhalb** des Straßenraums, zur Kartenkontrolle.
+
+**Der echte WFS-Download muss beim ersten lokalen Lauf geprüft werden**; der Dienst war aus der Entwicklungsumgebung nicht erreichbar. Falls er eine falsche BBOX, ein falsches Format oder eine am Limit abgeschnittene Ergebnismenge liefert, bricht der Downloader ab statt stillschweigend falsche Kronenzahlen zu erzeugen.
+
+Die nächste Vergleichsvariante **B (Wien + OSM)** kann zusätzlich OSM-GeoJSON-Punkte (`natural=tree`) einlesen. Bäume ohne Kronendurchmesser werden standardmäßig nicht künstlich geschätzt. Weitere Module untersuchen die **Baumschicht des Grünraummonitorings 2023** (50 cm, WMS-Raster) und später optional BEV-Infrarot-Orthofotos. Vor einer Klassifizierung aus WMS-Pixelfarben müssen Klassenwerte und Darstellung überprüft werden. Die jeweiligen Kronen-Geometrien können anschließend mit `scripts.compare_canopy_methods` auf identischem Straßenraum verglichen werden.
+
+**[Ausführliche Anleitung, Datenquellen und Grenzen von Modul 4](docs/Modul-4-Baumkronen-Vergleich.md).** Die bestehende Bodenbegrünung von **1,91 %** ist eine eigenständige Kennzahl und darf **nicht** zum Überschirmungsgrad addiert werden.
+
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
@@ -342,7 +369,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Modul 4 – Kronenüberschirmung planen**: geeignete Quelle und eigenständige Kennzahl definieren, dieselbe austauschbare Straßenmaske nutzen.
+2. **Modul 4 – ersten echten Kronenvergleich durchführen:** Wiener Baumkataster-WFS für den Testausschnitt laden, die Kronenkreise über einem Orthofoto prüfen, anschließend OSM und die 2023er Monitoring-Baumschicht als getrennte Verfahren vergleichen.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
