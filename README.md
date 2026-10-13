@@ -114,6 +114,32 @@ Die Berechnung erfolgt in **EPSG:31256**, nur die GeoJSON-Ausgabe in **EPSG:4326
 
 Die Randtoleranz/Distanz und Mindestkontaktlänge sind Parameter (`--randtoleranz-m`, `--nahe-m`, `--mindest-randkontakt-m`). Der Kennwert `flaeche_im_umfeld_pct` misst den Anteil des jeweiligen Kandidatenpolygons innerhalb des `--nahe-m`-Buffers um den Kern.
 
+### Neu: Mehrseitige Einbettung und Kontakt zu Verkehrsflächenklassen
+
+Für **58/69 (Grün)** und **59 (unklare befestigte Flächen)** wird zusätzlich zur bisherigen Abstandsanalyse gemessen, **an welchen Seiten** sie die Kernklassen 21, 23, 24, 33 und 39 berühren. Die Hauptparameter können angepasst werden:
+
+```bash
+.venv/bin/python -m scripts.analyze_street_space
+# optional, nur zum Test alternativer Schwellen:
+.venv/bin/python -m scripts.analyze_street_space --mindest-sektorkontakt-m 1.0 --normalen-probe-m 0.03
+```
+
+Die Analyse verwendet die **äußeren Normalrichtungen der kontaktierenden Polygonkanten** (8 Himmelsrichtungen). So wird eine lange einzelne Gartengrenze nicht irrtümlich als mehrseitig eingestuft, nur weil ihre Enden weit auseinanderliegen. Zur Richtungsermittlung prüft das Skript auf beiden Seiten jeder Kante einen Punkt in 3 cm Entfernung. Kanten ohne eindeutige Innen-/Außenseite werden nicht als positive Einbettungsindizien gewertet; ihre Länge steht unter `richtung_ungeklaert_m`.
+
+Eine Richtungsgruppe zählt erst ab 0,8 m gemessener Kontaktlänge (einstellbar). Zwei Gruppen mit mindestens 135° Abstand gelten als gegenüberliegend; Kontakte an verschiedenartigen Verkehrsflächen sind ein zusätzliches Indiz. Die Daten bleiben explorativ:
+
+| `einbettung` | Bedeutung |
+| --- | --- |
+| `mehrseitig_verschiedene_klassen` | Gegenüberliegende Kontakte zu **verschiedenen** Kernklassen (z. B. Fahrbahn und Gehsteig) |
+| `mehrseitig` | Gegenüberliegende Kontakte, gegebenenfalls zur **gleichen** Kernklasse (z. B. Baumscheibe im Gehsteig) |
+| `einseitig` | Kontakt an einer Seite bzw. nicht an gegenüberliegenden Seiten |
+| `kein_deutlicher_randkontakt` | Unter den strengen Mindestwerten nicht ausreichend nachweisbar |
+| `ueberlappung_pruefen` | FMZK-Kandidat überlappt die Kernflächen; topologischer Sonderfall |
+
+In `strassenraum_kandidaten.csv` und `strassenraum_pruefung.geojson` stehen `einbettung`, `kontaktklassen`, `kontakt_sektoren`, `kontakt_rand_pct` sowie die **Kontaktlängen zu jeder Kernklasse** (`kontakt_21_m` usw.). Der JSON-Bericht enthält eine Statistik der Einbettungsgruppen.
+
+**Wichtig:** Auch `mehrseitig` bedeutet **nicht** automatisch „öffentlicher Straßenraum“. Eine private Fläche kann von mehreren Verkehrsflächen umgeben sein; schmale öffentliche Grünstreifen können umgekehrt nur einseitig angrenzen. Die Schwellenwerte sind zunächst Testwerte, keine fachlich validierten Klassifikationsgrenzen. Wir überprüfen die Ergebnisse anhand echter Beispiele, bevor wir Flächen in Straßenraum-Prozentanteile übernehmen.
+
 **Wichtig:**
 - Auch `grenzt_an_kern` ist **keine Bestätigung**, dass die ganze Fläche öffentlich ist. Insbesondere große private Grundstücke können an Gehsteige grenzen.
 - Klasse **39** wird nach fachlicher Prüfung als öffentlicher Straßenraum-Kern berücksichtigt. Klasse **59** (befestigte Fläche) ist hingegen nicht automatisch öffentliche Verkehrsfläche. Klasse 51 (Innenhof) und private Verkehrsflächen 25/26 bleiben Kontext, keine Kandidaten.
