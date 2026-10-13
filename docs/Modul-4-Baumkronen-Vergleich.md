@@ -18,7 +18,7 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 | Ansatz | Datengrundlage | Geometriemodell / Aussage | Stand |
 | --- | --- | --- | --- |
 | **A – Wien Baumkataster** | Punkte via WFS `ogdwien:BAUMKATOGD`; metrische **Klasse als Text in `KRONENDURCHMESSER_TXT`**; `KRONENDURCHMESSER` ist **nur der Kategoriencode** | Kreis um Stammpunkt; Radius = halber **Intervallmittelwert** (z. B. `16-18 m` → 17 m Durchmesser → 8,5 m Radius); Näherung | **Erster korrigierter lokaler Lauf: 7,82 %; visuelle Genauigkeitsprüfung ausständig** |
-| **B – Wien + OpenStreetMap** | Gleiche Baumkatasterdaten, dazu OSM `natural=tree` mit `diameter_crown` oder `crown_diameter` | Fehlende Bäume ergänzen, mögliche Dubletten behandeln; fehlende Durchmesser ausdrücklich markieren oder nur mit Opt-in schätzen | **Vorbereitet/implementiert** |
+| **B – Wien + OpenStreetMap** | Wien-WFS plus OSM `natural=tree` und `natural=tree_row` nach der bestehenden Kartensammlungs-Merge-Logik | Originalpriorität, **4-m-Dubletten**, Baumreihensampling (**8 m**); fehlende OSM-Kronen explizit als Solar-Schätzungen markiert | **Eigenständiges Modul und Tests fertig; realer Overpass-Test ausständig** |
 | **C – Grünraummonitoring 2023** | Stadt-Wien-Rasterklassifikation; **50 cm Quellauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023 | Unabhängige Kronengeometrie aus geprüftem WMS-GetMap-Farbraster; im Testbild **#38A800** = Baumschicht, 71.892 Pixel; Rasterzellen als Polygone | **Lokaler Raster-/Polygonlauf geprüft, Straßenraumquote 9,35 %; visuelle Genauigkeitsprüfung ausständig** |
 | **D – BEV Orthofotos mit Infrarot** | BEV RGB/NIR bzw. IR-Darstellungen | Eigene Kronensegmentierung; nur NIR/NDVI allein trennt Bäume nicht sicher von Gras/Sträuchern, Höhe/Objektgrenzen benötigt | **Recherche, keine Implementierung** |
 
@@ -113,32 +113,85 @@ Nach der Korrektur auf `KRONENDURCHMESSER_TXT` und der Verwendung des **Mittelwe
 
 **Unverändert:** Die Kennzahl **Bodenbegrünungsanteil 1,91 %** aus Modul 3 ist davon getrennt. Die beiden Prozentwerte dürfen wegen räumlicher Überlagerung nicht addiert werden.
 
-## Zweite Testreihe: Ansatz B (OSM ergänzen)
+## Variante B: Wiener Baumkataster + OSM – jetzt strikt getrennt
 
-Lokale OSM-Daten benötigen **GeoJSON-Punkte** für `natural=tree`. Sie können unabhängig bereitgestellt werden. Baumreihen `natural=tree_row` werden derzeit **bewusst nicht künstlich in Einzelbäume umgewandelt**; eine solche räumliche Approximation müsste separat geprüft werden.
+### Quellimplementierung der Kartensammlung
 
+Die ursprüngliche Datenzusammenführung befindet sich **nicht im Frontend**, sondern im eigenen Repository:
+
+- [`kartensammlung-overlay-builds/baumkataster/build.mjs`](https://github.com/peter-alexander/kartensammlung-overlay-builds/blob/main/baumkataster/build.mjs) – tatsächliche Merge-, Dubletten- und Samplinglogik;
+- [`baumkataster/README.md`](https://github.com/peter-alexander/kartensammlung-overlay-builds/blob/main/baumkataster/README.md) – Dokumentation der Quellen, der Tags, der Baumreihen und des Vektorkachel-Builds;
+- [`SolarViennaTrees.js` (alte MapLibre-Kartensammlung)](https://github.com/peter-alexander/kartensammlung-maplibre/blob/main/Components/SolarViennaTrees.js) – bisherige transparente Größenschätzung für OSM-Bäume, deren Kronendurchmesser nicht gemappt ist.
+
+Der externe Build bereitet alle Wiener Bäume für ein kombiniertes Vektor-Tileset und die 3D-Schattenberechnung auf. **Das Karten-Frontend selbst enthält keine vollständige OSM-Dublettenlogik**, sondern liest diese bereits vereinigten Kacheln. Die bisherige, nur für die Analyse geschriebene OSM-Option in `build_canopy_circles.py` basierte dagegen auf einem unzureichenden 2-m-Nachbarschaftstest und enthielt keine Baumreihen; sie ist **aus Methode A entfernt**. Diese alte Option soll **nicht mehr** für B verwendet werden.
+
+### Saubere Modultrennung
+
+| Rolle | Methode A | Methode B |
+| --- | --- | --- |
+| Startskript | `scripts/build_canopy_circles.py` | **`scripts/build_canopy_combined.py`** |
+| Quellen | Ausschließlich Wiener WFS `BAUMKATOGD` | Derselbe Wiener WFS + OSM aus Overpass |
+| Download | `scripts/fetch_vienna_trees.py` | zusätzlicher **`scripts/fetch_osm_trees.py`** |
+| Gemeinsame Geometriehelfer | `scripts/canopy_tree_common.py` | derselbe *reine* Hilfsbaustein |
+| Spezifische Zusammenführung | keine | **`scripts/canopy_osm_merge.py`** |
+| Default-Kronenausgabe | `data/processed/baumkronen/baumkronen_kreise.geojson` | `data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson` |
+| Aufruf der Flächenmessung | bestehendes `measure_canopy_cover.py` | **unverändert dasselbe** Skript |
+| Stand | Echter lokaler Referenzlauf: **7,82 %** | Code mit synthetischen Testdaten geprüft; **echter Overpass-/Messlauf ausständig** |
+
+A akzeptiert **keinen OSM-Dateipfad mehr**. Die Wiener Kronenpolygone von A bleiben auch als **Wiener Teilmenge von B** geometrisch identisch, sofern beide dieselben Wiener Quelldaten und FMZK-Testgeometrien erhalten. Dies ist in einem Integrationstest abgesichert. B schreibt **eigene** GeoJSON-Dateien und Berichte; weder A noch C werden verändert.
+
+### Aus der Kartensammlung übernommene Regeln
+
+**Priorität:**
+
+1. Wiener Baumkataster: Primärquelle; auch **Bäume ohne brauchbare Kronenklasse** besetzen einen bekannten Standort im Dublettenindex.
+2. OSM `node[natural=tree]`: nur ergänzen, wenn innerhalb von **4 m** kein Wiener Punkt liegt; weitere OSM-Nodes innerhalb von **0,75 m** werden dedupliziert.
+3. OSM `way[natural=tree_row]`: in mögliche Einzelpositionen auflösen; gegen Wien **4 m**, gegen explizite OSM-Einzelbäume **4 m** und gegen bereits berücksichtigte Baumreihen-Samples **3 m** prüfen.
+4. Baumreihen mit `tree_count` bzw. `trees` in genau diese Anzahl Teilpositionen zerlegen (bis 500); ohne Anzahl die Reihe ungefähr alle **8 m** abtasten (bis 500). Bei einer bekannten Mehrzahl werden die **Endpunkte** eingeschlossen, beim 8-m-Fallback Positionen zwischen den Reihenenden gesetzt.
+
+**Abweichung, bewusst dokumentiert:** Der ursprüngliche JS-Build nutzt für kurze Abstände eine vereinfachte WGS84-Meterskalierung bei Referenzbreite Wien. Die Analyse verwendet stattdessen EPSG:31256, was für die Flächenberechnung präziser und methodisch konsistent ist. Das kann bei Grenzfällen im Zentimeterbereich die Entscheidung ändern.
+
+**Kronendurchmesser:**
+
+- Wien verwendet **unverändert** die aktuelle, bereits geprüfte Methode A (`KRONENDURCHMESSER_TXT` → Intervallmittelwert). Keine neue Abschätzung fehlender Wiener Größen in B, damit die Wiener Teilmenge identisch bleibt.
+- OSM: `diameter_crown`, `crown:diameter` und alternativ `crown_diameter` werden vorrangig als **explizite metrische Maße** gelesen, einschließlich `m`, `cm`, `mm` oder `ft`. Anders als der tolerante Parser des Builds wird bewusst **kein uneindeutiger Freitext stillschweigend interpretiert**.
+- Fehlt ein explizites OSM-Kronenmaß, verwendet B standardmäßig eine **klar gekennzeichnete Schätzung aus dem Solar-3D-Modell**: OSM-Höhe (falls vorhanden), sonst **angenommene 12 m**; Kronendurchmesser zunächst **0,5 × Höhe**, begrenzt auf **2–12 m** und zusätzlich maximal **1,2 × Höhe**. Solche Kreise sind **keine beobachteten Kronen** und werden sowohl im GeoJSON (`diameter_status`, `kronendurchmesser_geschaetzt`) als auch im Bericht gezählt.
+- **Vergleichsoption:** `--strict-osm` schließt OSM-Bäume ohne explizite Kronendurchmesser aus. Sie erzeugt eine **andere Untervariante** von B; für ein späteres Ergebnis muss dieser Parameter mit dokumentiert werden.
+- Besonderheit der 2D-Flächenanalyse: Explizite OSM-Durchmesser werden **nicht auf eine aus angenommener Höhe abgeleitete 3D-Obergrenze reduziert**. Diese fachliche Abweichung gegenüber der dreidimensionalen Schattenmodellierung ist absichtlich, damit reale OSM-Kronenangaben Vorrang behalten.
+
+Diese Regeln sind eine **nachvollziehbare Portierung**, keine Ausführung des ursprünglichen Tippecanoe-/Tile-Builders. Eine neue OSM-Methode wird **nicht** durch die MapLibre-Bildschirmradien bestimmt.
+
+### Lokaler erster Vergleichslauf für Methode B
+
+Voraussetzung: Wiener WFS-Daten aus Methode A (`baumkataster_wfs.geojson`) und vorhandene Straßenraum-Maske. `fetch_osm_trees.py` lädt lokal nur einen gepufferten Ausschnitt der OSM-Objekte, nicht den ganzen Wien-Export:
 
 ```bash
-# Wien-Only-Ausgabe für den Vergleich erhalten
-.venv/bin/python -m scripts.build_canopy_circles \
-	--wien data/processed/baumkronen/baumkataster_wfs.geojson \
-	--out-dir data/processed/baumkronen/variante_wien
+./scripts/update-and-sync.sh
 
-# OSM-Punkte mit realem Kronendurchmesser ergänzen
-.venv/bin/python -m scripts.build_canopy_circles \
-	--wien data/processed/baumkronen/baumkataster_wfs.geojson \
-	--osm data/processed/baumkronen/osm_baeume.geojson \
-	--out-dir data/processed/baumkronen/variante_kombiniert
+# Neu: Overpass lädt Einzelbäume und Baumreihen als rohes JSON
+.venv/bin/python -m scripts.fetch_osm_trees
 
-# Dann beide Varianten gegen dieselbe Straßenraum-Maske vergleichen
+# Methode B: Kreise aus A + ergänzte OSM-Kreise, eigener Bericht
+.venv/bin/python -m scripts.build_canopy_combined
+
+# Gleiche Straßenraum-Schnittmessung wie bei A/C – separater Ausgabeordner
+.venv/bin/python -m scripts.measure_canopy_cover \
+	--crowns-geojson data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson \
+	--out-dir data/processed/ueberschirmung/variante_b
+
+# A/B/C mit identischer Straßenmaske vergleichen
 .venv/bin/python -m scripts.compare_canopy_methods \
-	--candidate wien=data/processed/baumkronen/variante_wien/baumkronen_kreise.geojson \
-	--candidate kombiniert=data/processed/baumkronen/variante_kombiniert/baumkronen_kreise.geojson
+	--candidate baumkataster=data/processed/baumkronen/baumkronen_kreise.geojson \
+	--candidate kombiniert=data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson \
+	--candidate grm2023=data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson
 ```
 
-**Regeln:** Bäume ohne verwertbaren Kronendurchmesser werden normalerweise **ausgelassen und gezählt**. Die bewusst nicht standardmäßig gewählte Option `--osm-default-diameter-m 5` führt dagegen eine eigene **geschätzte** Variante ein; im Bericht sichtbar markieren, nicht mit gemessenen Daten verwechseln. OSM-Punkte binnen **2 m** eines Wien-Punkts werden als **mögliche Dubletten** protokolliert und für die Kombivariante nicht doppelt gezählt. Das ist ein vorläufiger Näherungswert, kein garantierter identischer Baum; Ausschlüsse gezielt prüfen. Baumstämme auf privaten Grundstücken können dennoch Kronen über Straßen beitragen.
+**Lokale Eingaben:** `data/processed/baumkronen/osm/osm_baeume_overpass.json` und `baumkataster_wfs.geojson`. Der Overpass-Adapter `scripts/fetch_osm_trees.py` dokumentiert Anfrage-BBOX samt 35 m Puffer, verwendeten Endpoint, Abfrage, Anzahl der OSM-Objekte und Prüfsummen. Ein Cache wird nur bei übereinstimmenden Metadaten wiederverwendet; unvollständige/fehlerhafte Antworten werden nicht als valide gespeichert. Der Overpass-Live-Abruf **wurde aus der Entwicklungsumgebung nicht ausgeführt** und muss lokal getestet werden.
 
-Die A/B-Gegenüberstellung ist zunächst nur möglich, wenn eine geeignete OSM-GeoJSON-Datei bereitgestellt wird. **Es gibt im Repo noch keinen fertig geprüften OSM-Downloaddienst.** Eine später angebotene kombinierte Tilequelle könnte dafür als eigener weiterer Quelladapter dienen, ohne das Messmodul zu verändern.
+**Neue Ausgaben:** `data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson` und `baumkronen_kombiniert_bericht.json` mit Wien/OSM-/Reihen-/Schätzzahlen; Messbericht unter `data/processed/ueberschirmung/variante_b/`, Methodenvergleich unter `data/processed/ueberschirmung/vergleich/`. **Für B gibt es noch keinen validierten echten Überschirmungswert; keinesfalls die 7,82 % von A als B-Ergebnis ausgeben.**
+
+**Begründung für die eigene Methode B:** Die Wiener Standortüberdeckung ist nicht vollständig (z. B. private Bäume fehlen teils). OSM kann zusätzliche Standorte und Baumreihen liefern. **Vollständigkeit und Genauigkeit der OSM-Kronen sind aber keinesfalls garantiert** – insbesondere in B mit typisierten, geschätzten Durchmessern. Der Vergleich mit C und dem Orthofoto entscheidet erst später über den tatsächlichen Nutzen.
+
 
 ## Variante C: Grünraummonitoring 2023 – WMS-Diagnose und Kronenprovider
 
