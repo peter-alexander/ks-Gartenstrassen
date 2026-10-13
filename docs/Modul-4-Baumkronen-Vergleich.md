@@ -215,14 +215,14 @@ Bei beiden Varianten sind die Werte zunächst **methodenabhängige Schätzungen*
 
 **Noch zu kontrollieren:** Wie gut folgt das gerenderte WMS-Bild den wirklichen Baumkronengrenzen? Die WMS-Farbklassen sind im Testbild eindeutig, aber der Dienst kann das Originalraster intern resamplen. Unterschiede zu Kronenkreisen müssen im Orthofoto und besonders an Straßenrändern überprüft werden. Eine höhere Fläche oder IoU allein beweist keine höhere Genauigkeit.
 
-### Ursprüngliche Prüfschritte / verbleibende Einschränkungen
+### Verbleibende Validierung
 
-1. GetCapabilities/Stile und die tatsächlich gelieferte WMS-Legende auf eine **eindeutige, dokumentierte Farbzordnung zur Baumschicht Klasse 3** prüfen; alternativ nach **klassencodierten Quellrastern** suchen, was methodisch vorzuziehen wäre.
-2. Überprüfen, ob Pixel **exakte Klassenfarben** oder Antialiasing-/Resampling-Mischfarben enthalten, und wie NoData/Transparenz aussieht. Ambige Mischpixel dürfen nicht stillschweigend als „Baum“ zählen.
-3. Ein Rasterexportmodul erst **nach bestätigter Klassenabbildung** implementieren, mit dokumentierter Georeferenzierung und Rundungseffekten, Auswertung am Straßenraum und GeoJSON-Polygonvertrag für Modul 4.
-4. Danach dieselbe Überschirmungsberechnung auf die Baumschicht anwenden und gegen die vorläufige Baumkataster-Kreisnäherung (**7,82 %**) mit IoU/Einzelflächen vergleichen. Das ist ein **Methodenvergleich**, keine automatisch festgestellte Genauigkeit.
+1. **Raster gegen Orthofoto prüfen:** Im Straßenraum und an Kreuzungen kontrollieren, ob die WMS-Baumschicht der real sichtbaren Kronenfläche hinreichend gut folgt und wo zeitliche Unterschiede zwischen 2023 und aktuellem Baumkataster auftreten.
+2. **Methodenwerte vergleichen:** Den lokalen Straßenraum-Schnitt von C berechnen und gegen A (Kronenkreise: vorläufig 7,82 %) vergleichen, inklusive Flächenüberschneidung (IoU) und örtlicher Differenzen.
+3. **Pixelgenauigkeit vorsichtig interpretieren:** Die WMS-Ausgabe ist ein gerendertes Bild. Die fachliche 50-cm-Quellauflösung ist nicht automatisch ein Beleg für unveränderte 50-cm-Rohpixel im GetMap-Ausschnitt. Bei auffälligen Artefakten suchen wir besser die ursprünglichen kategorialen Rasterdaten, statt eine künstliche Exaktheit anzunehmen.
+4. **Datenänderungen absichern:** Ein zukünftiger WMS mit neuer Farbpalette, BBOX, Alpha oder Klassifikation muss neu diagnostiziert und seine Klassenabbildung überprüft werden.
 
-**Status:** C1 implementiert, Live-Test und C2 offen. Ein Verfahren wird erst nach Sichtprüfung und Referenzbeispielen als bevorzugt eingestuft. Variante D (eigene Infrarot-Segmentierung) kommt nur infrage, wenn die untersuchten Quellen dafür nicht ausreichend sind.
+**Status:** C1 (WMS-Diagnose) lokal erfolgreich, C2 (Farb-/Klassenprüfung) für diesen konkreten Ausschnitt durchgeführt, **C3 (Kronenprovider) implementiert**. Der vollständige lokale Auswertungs- und Vergleichslauf sowie die fachliche Validierung stehen noch aus. Eine bevorzugte Standardmethode wird erst danach festgelegt. Variante D (eigene Infrarot-Segmentierung) bleibt eine spätere Option.
 
 ## Langfristige Modularität
 
