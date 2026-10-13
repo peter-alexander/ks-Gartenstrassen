@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Methode D1 – BEV-RGBI-Orthofoto untersuchen, nicht Kronen klassifizieren.
 
-Nimmt lokal vorhandene TIFF/GeoTIFF-Dateien entgegen. Kein Download großer
+Nimmt einzelne RGBI-TIFFs oder getrennte RGB- und NIR-Dateien entgegen.
+Kein Download großer
 BEV-50x50-km-Kacheln durch das Skript. Zuerst GDAL-Metadaten zu Bändern,
 Lagebezug und Pixelauflösung prüfen; optional denselben kleinen FMZK-Ausschnitt
 in metrischem EPSG:31256 extrahieren. Keine automatische Bandzuordnung
@@ -13,7 +14,6 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -50,15 +50,15 @@ def gdal_info(source):
 	return info
 
 
-def inspect_dataset(info, *, source_crs=None):
+def inspect_dataset(info, *, source_crs=None, required_bands=4):
 	"""Strikte Voraussetzungen, keine Annahme über NIR-Bandnummer."""
 	size = info.get("size")
 	if not (isinstance(size, list) and len(size) == 2
 		and all(isinstance(n, int) and n > 0 for n in size)):
 		raise ValueError("Raster hat keine gültige Pixelgröße")
 	bands = info.get("bands")
-	if not isinstance(bands, list) or len(bands) < 4:
-		raise ValueError("Für Methode D benötigen wir ein echtes RGBI-Raster mit mindestens vier Bändern; eine 3-Band-CIR-Anzeige genügt nicht")
+	if not isinstance(bands, list) or len(bands) != required_bands:
+		raise ValueError(f"Erwartet {required_bands} Rasterbänder, gefunden: {len(bands) if isinstance(bands, list) else 'keine'}; RGBI als ein 4-Kanal-Bild oder getrennte RGB(3)/NIR(1)-Dateien erforderlich")
 	transform = info.get("geoTransform")
 	if not (isinstance(transform, list) and len(transform) == 6
 		and all(isinstance(v, (int, float)) and math.isfinite(v) for v in transform)):
@@ -167,7 +167,7 @@ def extract_window(source, *, target, bbox, pixel_size_m, source_crs=None):
 	return cmd
 
 
-def run(*, source, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT, clip=False,
+def run(*, source, nir_source=None, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT, clip=False,
 	source_crs=None, padding_m=15.0, pixel_size_m=0.20,
 	acquisition_year=None):
 	source = Path(source)
@@ -178,7 +178,16 @@ def run(*, source, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT, clip=False,
 	if acquisition_year is not None and not 2010 <= acquisition_year <= 2026:
 		raise ValueError("Unplausibles Erhebungsjahr; Metadaten prüfen")
 	info = gdal_info(source)
-	metadata, footprint = inspect_dataset(info, source_crs=source_crs)
+	metadata, footprint = inspect_dataset(info, source_crs=source_crs,
+		required_bands=3 if nir_source is not None else 4)
+	nir_metadata = None
+	nir_footprint = None
+	if nir_source is not None:
+		nir_source = Path(nir_source)
+		if not nir_source.is_file() or nir_source.suffix.lower() not in (".tif", ".tiff", ".vrt"):
+			raise FileNotFoundError(f"Separate NIR-Quelldatei fehlt bzw. ist kein TIFF/VRT: {nir_source}")
+		nir_metadata, nir_footprint = inspect_dataset(
+			gdal_info(nir_source), source_crs=source_crs, required_bands=1)
 	output = Path(output)
 	output.mkdir(parents=True, exist_ok=True)
 	report_path = output / "bev_rgbir_diagnose.json"
@@ -188,7 +197,11 @@ def run(*, source, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT, clip=False,
 		"phase": "D1 – Quellenprüfung/Diagnose, ausdrücklich keine Kronenklassifikation",
 		"quelle": str(source),
 		"quelle_bytes": source.stat().st_size,
-		"quelle_aufnahmejahr_nach_manuel­ler_pruefung": acquisition_year,
+		"quellenmodus": "getrennte_rgb_nir_tiffs" if nir_source is not None else "einzelnes_rgbir_tiff",
+		"nir_quelle": str(nir_source) if nir_source is not None else None,
+		"nir_quelle_bytes": nir_source.stat().st_size if nir_source is not None else None,
+		"nir_datensatz": nir_metadata,
+		"quelle_aufnahmejahr_nach_manueller_pruefung": acquisition_year,
 		"datensatz": metadata,
 		"grafik_kanaele_bestaetigt": False,
 		"wichtig": [
@@ -204,24 +217,45 @@ def run(*, source, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT, clip=False,
 		bbox, dimensions = clip_geometry(area, padding_m=padding_m,
 			pixel_size_m=pixel_size_m)
 		validate_coverage(footprint, bbox)
-		window = output / "bev_rgbir_testausschnitt.tif"
-		command = extract_window(source, target=window, bbox=bbox,
-			pixel_size_m=pixel_size_m,
-			source_crs=source_crs if metadata["source_crs_explicit"] else None)
-		window_info = gdal_info(window)
-		window_metadata, _ = inspect_dataset(window_info)
+		if nir_footprint is not None:
+			validate_coverage(nir_footprint, bbox)
+		def do_clip(src, name, original_metadata, expected_bands):
+			window = output / name
+			command = extract_window(src, target=window, bbox=bbox,
+				pixel_size_m=pixel_size_m,
+				source_crs=source_crs if original_metadata["source_crs_explicit"] else None)
+			window_metadata, _ = inspect_dataset(gdal_info(window),
+				required_bands=expected_bands)
+			return {
+				"gdal_command": command,
+				"output": str(window),
+				"output_bytes": window.stat().st_size,
+				"output_sha256": hashlib.sha256(window.read_bytes()).hexdigest()
+					if window.stat().st_size <= 150_000_000 else None,
+				"result_raster": window_metadata,
+			}
+		primary = do_clip(source, "bev_rgb_testausschnitt.tif"
+			if nir_source is not None else "bev_rgbir_testausschnitt.tif",
+			metadata, 3 if nir_source is not None else 4)
+		secondary = (do_clip(nir_source, "bev_nir_testausschnitt.tif",
+			nir_metadata, 1) if nir_source is not None else None)
+		if secondary is not None:
+			a = primary["result_raster"]
+			b = secondary["result_raster"]
+			if a["size_px"] != b["size_px"] or any(
+				not math.isclose(x, y, abs_tol=1e-6)
+				for x, y in zip(a["geotransform"], b["geotransform"])
+			):
+				raise ValueError("RGB-/NIR-Testausschnitte sind nach GDAL-Zuschnitt nicht exakt ausgerichtet")
 		report["clip"] = {
 			"fmzk": str(fmzk),
 			"bbox_lon_lat": fmzk_manifest["bbox_lon_lat"],
 			"bbox_epsg31256": bbox,
 			"target_pixels_approx": dimensions,
-			"gdal_command": command,
-			"output": str(window),
-			"output_bytes": window.stat().st_size,
-			"output_sha256": hashlib.sha256(window.read_bytes()).hexdigest()
-				if window.stat().st_size <= 150_000_000 else None,
-			"result_raster": window_metadata,
-			"resampling": "nearest; gerasterte Ausgabegitterzellen dürfen nicht mit unveränderten Originalpixeln gleichgesetzt werden",
+			"rgb_oder_rgbir": primary,
+			"nir": secondary,
+			"kanalraster_aufeinander_ausgerichtet": secondary is not None,
+			"resampling": "nearest; das gemeinsame Anfragegitter darf nicht mit unveränderten Originalpixeln gleichgesetzt werden",
 		}
 	report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
 		encoding="utf-8")
@@ -231,14 +265,17 @@ def run(*, source, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT, clip=False,
 		print(f"  Band {b['index']}: {b['color_interpretation'] or 'unbekannt'}, {b['data_type']}, NoData={b['nodata']}")
 	print(f"Diagnose: {report_path}")
 	if clip:
-		print(f"Testausschnitt: {report['clip']['output']}")
+		print(f"Testausschnitt: {report['clip']['rgb_oder_rgbir']['output']}")
+		if report["clip"]["nir"]:
+			print(f"NIR-Testausschnitt: {report['clip']['nir']['output']}")
 	print("Keine Zuordnung von NIR/Rot, kein NDVI und keine Baumkronenpolygone berechnet.")
 	return report
 
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--input", type=Path, required=True, help="Lokales BEV RGBI-TIFF oder VRT")
+	parser.add_argument("--input", type=Path, required=True, help="BEV RGBI-TIFF (4 Bänder) oder getrenntes RGB-TIFF (3 Bänder)")
+	parser.add_argument("--nir-input", type=Path, help="Separate BEV NIR-TIFF-Datei (1 Band), wenn --input das RGB-TIFF ist")
 	parser.add_argument("--fmzk", type=Path, default=DEFAULT_FMZK)
 	parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUTPUT)
 	parser.add_argument("--clip", action="store_true",
@@ -251,7 +288,7 @@ def main():
 		help="Tatsächliches Bildflugjahr aus BEV-Metadaten, nicht Downloadjahr")
 	args = parser.parse_args()
 	try:
-		run(source=args.input, fmzk=args.fmzk, output=args.out_dir, clip=args.clip,
+		run(source=args.input, nir_source=args.nir_input, fmzk=args.fmzk, output=args.out_dir, clip=args.clip,
 			source_crs=args.source_crs, padding_m=args.padding_m,
 			pixel_size_m=args.pixel_size_m,
 			acquisition_year=args.acquisition_year)
