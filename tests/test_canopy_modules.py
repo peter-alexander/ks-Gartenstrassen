@@ -10,14 +10,72 @@ from shapely.ops import transform
 
 from scripts.build_canopy_circles import (
 	diameter_from_properties, parse_trees, merge_trees,
-	crowns_from_trees, run as run_circle_provider,
+	crowns_from_trees, read_points, run as run_circle_provider,
 )
+from scripts.geojson_crs import require_geojson_lonlat
 from scripts.fetch_vienna_trees import build_wfs_url, validate_result, build_request_bbox
 from scripts.measure_canopy_cover import measure_coverage, read_crown_polygons
 from scripts.compare_canopy_methods import compare_methods, parse_candidate
 
 
 class CrownProviderTests(unittest.TestCase):
+	def test_wfs_geojson_with_declared_epsg4326_crs_is_accepted(self):
+		x, y = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform(16.36, 48.22)
+		bbox = (x - 10, y - 10, x + 10, y + 10)
+		for declared_crs in (
+			"EPSG:4326",
+			"urn:ogc:def:crs:EPSG::4326",
+			"urn:ogc:def:crs:EPSG:6.6:4326",
+			"http://www.opengis.net/def/crs/EPSG/0/4326",
+			"urn:ogc:def:crs:OGC:1.3:CRS84",
+		):
+			with self.subTest(crs=declared_crs), tempfile.TemporaryDirectory() as temp:
+				data = {
+					"type": "FeatureCollection",
+					"crs": {"type": "name", "properties": {"name": declared_crs}},
+					"features": [{
+						"type": "Feature", "properties": {"KRONENDURCHMESSER": 7},
+						"geometry": {"type": "Point", "coordinates": [16.36, 48.22]},
+					}],
+				}
+				source = Path(temp) / "baumkataster_wfs.geojson"
+				source.write_text(json.dumps(data), encoding="utf-8")
+				self.assertEqual(validate_result(data, bbox, max_features=10), 1)
+				features, sha = read_points(source, provider="wien")
+				self.assertEqual(len(features), 1)
+				self.assertEqual(len(sha), 64)
+				trees, excludes = parse_trees(features, "wien")
+				self.assertEqual(len(trees), 1)
+				self.assertEqual(trees[0]["diameter_m"], 7)
+				self.assertEqual(excludes, {})
+
+	def test_foreign_or_malformed_geojson_crs_remains_rejected(self):
+		x, y = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform(16.36, 48.22)
+		bbox = (x - 10, y - 10, x + 10, y + 10)
+		for crs in (
+			{"type": "name", "properties": {"name": "EPSG:3857"}},
+			{"type": "name", "properties": {"name": "EPSG:31256"}},
+			{"type": "link", "properties": {"href": "https://example.com"}},
+			{"type": "name", "properties": {}},
+		):
+			with self.subTest(crs=crs):
+				data = {
+					"type": "FeatureCollection", "crs": crs,
+					"features": [{
+						"type": "Feature", "properties": {"KRONENDURCHMESSER": 7},
+						"geometry": {"type": "Point", "coordinates": [16.36, 48.22]},
+					}],
+				}
+				with self.assertRaisesRegex(ValueError, "CRS|crs"):
+					validate_result(data, bbox, max_features=10)
+				with tempfile.TemporaryDirectory() as temp:
+					source = Path(temp) / "invalid.geojson"
+					source.write_text(json.dumps(data), encoding="utf-8")
+					with self.assertRaisesRegex(ValueError, "CRS|crs"):
+						read_points(source, provider="wien")
+		require_geojson_lonlat({"crs": None}, label="Test")
+		require_geojson_lonlat({}, label="Test")
+
 	def test_diameter_is_strict_and_osm_defaults_explicit(self):
 		self.assertEqual(diameter_from_properties(
 			{"KRONENDURCHMESSER": "8"}, "wien"), (8, "gemessen_oder_erfasst", "KRONENDURCHMESSER"))
