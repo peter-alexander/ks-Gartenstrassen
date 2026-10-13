@@ -142,6 +142,52 @@ class KatasterUsageTests(unittest.TestCase):
 			with self.assertRaises(FileNotFoundError):
 				kat.cached_request("https://x.test", path.parent / "missing", offline=True)
 
+	def test_default_uses_cache_only_without_network_calls(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			cache = Path(tmp)
+			key1 = ("01004", "23")
+			key2 = ("01004", "24")
+			saved = cache / "details" / key1[0] / "23.json"
+			saved.parent.mkdir(parents=True)
+			saved.write_text(json.dumps({"properties": {
+				"nutzungen": [{"nutzung": "Straßenverkehrsanlagen", "fl": 11}]
+			}}), encoding="utf-8")
+			with patch.object(kat, "cached_request", side_effect=AssertionError("Unerlaubter Netzabruf")):
+				details, failures, reason = kat.load_parcel_details([key1, key2], cache)
+			self.assertFalse(failures)
+			self.assertEqual(reason, "")
+			self.assertEqual(kat.classify_usages(*kat.parse_whole_parcel(details[key1])[:2])[0], "A")
+			self.assertEqual(details[key2]["error"], "keine API-Daten im Cache")
+
+	def test_api_failure_trips_circuit_breaker_after_first_request(self):
+		from urllib.error import HTTPError
+		with tempfile.TemporaryDirectory() as tmp:
+			cache = Path(tmp)
+			keys = [("01004", str(number)) for number in range(1, 6)]
+			with patch.object(kat, "cached_request",
+				side_effect=HTTPError("https://kataster.bev.gv.at/api", 503,
+					"Service Unavailable", {}, None)) as request:
+				details, failures, reason = kat.load_parcel_details(keys, cache, online=True,
+					pause=0)
+			self.assertEqual(request.call_count, 1)
+			self.assertEqual(len(failures), 1)
+			self.assertIn("503", reason)
+			self.assertTrue(all("error" in details[key] for key in keys))
+
+	def test_missing_api_does_not_promote_tile_only_95_to_a(self):
+		core = box(0, 0, 10, 10)
+		parcel = {("01004", "7"): core}
+		results, _, _ = kat.build_results(core, parcel, [({"ns": 95}, core)],
+			core, {("01004", "7"): {"error": "keine API-Daten im Cache"}})
+		row = results[0]["table"]
+		self.assertEqual(row["klasse"], "D")
+		self.assertEqual(row["tile_nutzungshinweis"], "nur_95_65_im_ausschnitt")
+		with tempfile.TemporaryDirectory() as tmp:
+			report = kat.write_results(Path(tmp), results, [], [], [],
+				[16, 48, 17, 49], [])
+			self.assertFalse(report["vollstaendige_nutzungsbilanz_aus_api"])
+			self.assertEqual(report["grundstuecke_mit_api_nutzungsbilanz"], 0)
+
 	def test_report_contains_completeness_and_three_classes(self):
 		core = box(0, 0, 10, 10)
 		clip = box(-5, -5, 30, 30)
@@ -166,7 +212,8 @@ class KatasterUsageTests(unittest.TestCase):
 				[(16, 35740, 22722)], [16.36, 48.22, 16.37, 48.23], [])
 			self.assertEqual(report["klassen"], {"A": 1, "B": 1, "C": 1, "D": 1})
 			self.assertTrue(report["nfl_geojson_nur_testausschnitt"])
-			self.assertTrue(report["vollstaendige_nutzungsbilanz_aus_api"])
+			self.assertFalse(report["vollstaendige_nutzungsbilanz_aus_api"])
+			self.assertEqual(report["grundstuecke_mit_api_nutzungsbilanz"], 3)
 			self.assertEqual(len(json.loads((Path(tmp) / "kataster_grundstuecke.geojson").read_text())["features"]), 4)
 
 
