@@ -9,7 +9,7 @@ Die Stadt Wien bietet die FMZK sowohl als gesamtes GeoPackage als auch als einze
 - `ogdwien:FMZKVERKEHR1OGD`
 - `ogdwien:FMZKVERKEHR2OGD`
 
-Das Skript verwendet bewusst **WFS 1.0.0** mit EPSG:4326 (BBOX: Längengrad/Breitengrad), einen kleinen Standard-Ausschnitt im Übergangsbereich Wieden/Margareten sowie `maxFeatures=5000`. Wenn eine Rückgabe an die Grenze stößt, bricht es ab, statt einen unvollständigen Datensatz als vollständig auszugeben.
+Das Skript verwendet bewusst **WFS 1.0.0** mit EPSG:4326 (BBOX: Längengrad/Breitengrad), einen kleinen Standard-Ausschnitt (`16.361012,48.221226,16.366948,48.224902`) sowie `maxFeatures=5000`. Wenn eine Rückgabe an die Grenze stößt, bricht es ab, statt einen unvollständigen Datensatz als vollständig auszugeben.
 
 **Lokaler Aufruf (nur Python-Standardbibliothek erforderlich):**
 
@@ -19,7 +19,7 @@ python scripts/fetch_fmzk.py
 # Alternativ zusätzlich Shapefile-ZIPs:
 python scripts/fetch_fmzk.py --format both
 # Eigene kleine BBOX:
-python scripts/fetch_fmzk.py --bbox 16.355,48.192,16.360,48.196
+python scripts/fetch_fmzk.py --bbox 16.361012,48.221226,16.366948,48.224902
 ```
 
 Ergebnis in `data/raw/` (nicht in Git versioniert): `fmzk_verkehr1.geojson`, `fmzk_verkehr2.geojson` und `manifest.json` mit Quelle, Datum, Anzahl, vorhandenen Feldern und `F_KLASSE`-Verteilung. Bei `--format both` entstehen zusätzlich Shapefile-ZIPs. GeoJSON ist für den späteren Analysecode unkomplizierter und vermeidet Feldnamenverkürzungen im Shapefile.

@@ -17,7 +17,7 @@ LAYERS = {
 	"verkehr1": "ogdwien:FMZKVERKEHR1OGD",
 	"verkehr2": "ogdwien:FMZKVERKEHR2OGD",
 }
-DEFAULT_BBOX = "16.355,48.192,16.360,48.196"
+DEFAULT_BBOX = "16.361012,48.221226,16.366948,48.224902"
 
 
 def parse_bbox(raw):

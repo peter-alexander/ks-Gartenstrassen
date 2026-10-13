@@ -6,16 +6,16 @@ from scripts.fetch_fmzk import get_url, parse_bbox, summarize, validate_geojson,
 
 class FetchFmzkTest(unittest.TestCase):
 	def test_bbox(self):
-		self.assertEqual(parse_bbox("16.355,48.192,16.360,48.196"), (16.355, 48.192, 16.360, 48.196))
+		self.assertEqual(parse_bbox("16.361012,48.221226,16.366948,48.224902"), (16.361012, 48.221226, 16.366948, 48.224902))
 		for wrong in ("16.4,48.2,16.3,48.3", "16.3,48.2,16.8,48.4", "foo"):
 			with self.subTest(wrong=wrong), self.assertRaises(ValueError):
 				parse_bbox(wrong)
 
 	def test_wfs_10_coordinates_and_layer(self):
-		url = get_url("ogdwien:FMZKVERKEHR1OGD", (16.355, 48.192, 16.360, 48.196), "json", 5000)
+		url = get_url("ogdwien:FMZKVERKEHR1OGD", (16.361012, 48.221226, 16.366948, 48.224902), "json", 5000)
 		params = parse_qs(urlparse(url).query)
 		self.assertEqual(params["version"], ["1.0.0"])
-		self.assertEqual(params["bbox"], ["16.355,48.192,16.36,48.196,EPSG:4326"])
+		self.assertEqual(params["bbox"], ["16.361012,48.221226,16.366948,48.224902,EPSG:4326"])
 		self.assertEqual(params["typeName"], ["ogdwien:FMZKVERKEHR1OGD"])
 
 	def test_geojson_validation_and_class_summary(self):
