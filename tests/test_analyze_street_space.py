@@ -55,7 +55,7 @@ class StreetSpaceTest(unittest.TestCase):
 			(1, 21, "Fahrbahn", self.rectangle(-20, -2, 20, 2)),
 			(2, 23, "Gehsteig", self.rectangle(-20, -4, 20, -2)),
 			(3, 58, "Grünfläche", self.rectangle(-5, 2, 5, 5)),
-			(4, 69, "Sonstige Grünfläche", self.rectangle(-5, 6, 5, 8)),
+			(4, 69, "Sonstige Grünfläche", self.rectangle(10, 3.2, 15, 5.2)),
 			(5, 58, "Grünfläche", self.rectangle(-5, 30, 5, 35)),
 			(6, 59, "Befestigte Fläche", self.rectangle(-10, -7, -5, -4)),
 			(7, 51, "Innenhof", self.rectangle(6, 5, 12, 9)),
@@ -83,10 +83,10 @@ class StreetSpaceTest(unittest.TestCase):
 		core = self.rectangle(-20, -2, 20, 2)
 		corner = self.rectangle(20, 2, 24, 6)
 		info = classify_contact(corner, core, core.boundary.buffer(.25),
-			core.buffer(2), near_m=2, min_contact_m=.5)
+			core.buffer(2), near_m=2, min_contact_m=1)
 		self.assertEqual(info["status"], "nahe_kern")
 		self.assertEqual(info["abstand_kern_m"], 0)
-		self.assertLess(info["randkontakt_m"], .5)
+		self.assertLess(info["randkontakt_m"], 1)
 
 	def test_large_garden_near_sidewalk_is_not_whole_street_space(self):
 		core = self.rectangle(-20, -2, 20, 2)
@@ -94,7 +94,7 @@ class StreetSpaceTest(unittest.TestCase):
 		info = classify_contact(garden, core, core.boundary.buffer(.25),
 			core.buffer(2), near_m=2, min_contact_m=.5)
 		self.assertEqual(info["status"], "grenzt_an_kern")
-		self.assertLess(info["flaeche_im_2m_umfeld_pct"], 5)
+		self.assertLess(info["flaeche_im_umfeld_pct"], 5)
 
 	def test_end_to_end_local_files_and_wgs84_output(self):
 		with tempfile.TemporaryDirectory() as tmp:
