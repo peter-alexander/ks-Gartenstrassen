@@ -58,12 +58,24 @@ class AnalyzeFmzkTest(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError, "nichtganzzahlig"):
 			parse_class(21.5, "verkehr1", "id1")
 
-	def test_invalid_geometry_is_rejected(self):
+	def test_invalid_geometry_is_repaired_and_reported(self):
 		with tempfile.TemporaryDirectory() as temporary:
 			root = Path(temporary)
 			bad = {"type": "Polygon", "coordinates": [[[16.35, 48.19], [16.36, 48.20], [16.35, 48.20], [16.36, 48.19], [16.35, 48.19]]]}
 			raw = self.make_input(root, [{"type": "Feature", "id": "bad", "geometry": bad, "properties": {"F_KLASSE": 21}}], [])
-			with self.assertRaisesRegex(ValueError, "ungültige Geometrie"):
+			report = analyze(raw, root / "processed")
+			self.assertEqual(len(report["geometry_repairs"]), 1)
+			self.assertEqual(report["geometry_repairs"][0]["feature_id"], "bad")
+			self.assertGreater(report["categories"][0]["fläche_m2"], 0)
+			data = json.loads((root / "processed" / "fmzk_ausschnitt.geojson").read_text())
+			self.assertTrue(data["features"][0]["properties"]["GEOM_FIX"])
+
+	def test_invalid_line_like_geometry_cannot_be_counted_as_area(self):
+		with tempfile.TemporaryDirectory() as temporary:
+			root = Path(temporary)
+			bad = {"type": "Polygon", "coordinates": [[[16.35, 48.19], [16.355, 48.195], [16.36, 48.20], [16.35, 48.19]]]}
+			raw = self.make_input(root, [{"type": "Feature", "id": "noarea", "geometry": bad, "properties": {"F_KLASSE": 21}}], [])
+			with self.assertRaisesRegex(ValueError, "nicht in gültige Polygonfläche repariert"):
 				analyze(raw, root / "processed")
 
 
