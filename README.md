@@ -69,6 +69,25 @@ Die Originaldatei wird **nie verändert**. Zwischen-Dateien werden nur temporär
 
 Falls bei der Umwandlung oder dem Zuschnitt tatsächlich ein ungültiges Originalpolygon einen Fehler verursacht, prüfen wir **erst die konkrete Fehlermeldung und das betroffene Feature**. Nur dann steht die explizite Option `--make-valid` zur Verfügung. Sie fordert eine Reparatur in der ersten Stufe an; mögliche geometrische Veränderungen müssen fachlich kontrolliert werden.
 
+## Schritt 2: Flächenstatistik aller FMZK-Klassen
+
+Nach erfolgreicher Extraktion (2.401 Features im gewählten Testausschnitt) wird **direkt aus dem lokalen GeoPackage** analysiert:
+
+```bash
+.venv/bin/python -m scripts.analyze_gpkg
+```
+
+Der Befehl erzeugt ausschließlich lokale Dateien unter `data/processed/analysis/`:
+
+- `fmzk_klassen.csv`: Objektanzahlen sowie **Flächen in m²** je `F_KLASSE` inklusive der originalen `F_KLASSE_TEXT`-Bezeichnungen.
+- `fmzk_report.json`: Geometrietypen, dokumentierte Reparaturen, Klassentext-Konflikte, geometrische Überlagerungen und Kontrolle des Zuschnitts.
+
+Die Auswertung liest GeoPackage-Geometrien direkt aus SQLite: der GeoPackageBinary-Header wird entfernt und der WKB-Teil mit Shapely ausgewertet. **Es wird weder ein WFS noch ein GeoJSON-Zwischenschritt benötigt.** Die Flächen werden im unveränderten metrischen EPSG:31256 ermittelt. Überschneidende Polygone werden innerhalb jeder Klasse geometrisch vereinigt; etwaige Überlagerungen zwischen Klassen werden separat ausgewiesen.
+
+Die BBOX-Grenze wird mit den Metadaten der Extraktion überprüft. Fehlende Klassen, unerwartete Geometrietypen oder nicht reparierbare Polygonfehler werden nicht stillschweigend verworfen. Falls ungültige Quellgeometrien repariert werden, werden Feature-ID und Grund im Bericht festgehalten.
+
+**Wichtig:** Die Prozentspalte ist der Flächenanteil an der **gesamten Test-BBOX**. Sie ist **noch kein Grünanteil im öffentlichen Straßenraum**: Dieser braucht erst eine fachlich geprüfte Straßenflächenabgrenzung.
+
 ## Tests
 
 ```bash
@@ -84,7 +103,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte
 
 1. Extrahiertes GeoPackage prüfen: Feature-Anzahl, Flächenklassen, Geometrien und Quellenbezug.
-2. Die Flächenstatistik auf den neuen Layer `fmzk` umstellen (Flächen bereits in EPSG:31256); keine Berechnung mit WFS-Teil-Layern.
+2. Flächenbericht für den neuen Layer `fmzk` anhand der Kartendarstellung kontrollieren (Klassentexte, Geometrien, Überlagerungen und Grünflächen).
 3. Öffentliche Straßenflächen von privaten Höfen und sonstigen Flächen trennen. Erst danach Kennzahlen je Straßensegment bestimmen.
 4. Bodenbegrünung und Kronenüberschirmung unabhängig voneinander berechnen, mit bekannten positiven und negativen Beispielen validieren.
 
