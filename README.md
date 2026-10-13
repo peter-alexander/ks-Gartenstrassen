@@ -153,6 +153,49 @@ Baublöcke können die Zugehörigkeit einer Fläche zum Straßenraum **nur als r
 
 Für den späteren Zuordnungsschritt werden Nachbarschaften zu Fahrbahn/Gehsteig, Lage zwischen verschiedenen Verkehrsflächen und ggf. ein unsicherer Grenzbereich untersucht. Auch eine zwischen Kernflächen liegende Grünfläche wird nicht ohne Plausibilitätsprüfung als öffentlich klassifiziert. Die exakte Breite eines Toleranzbereichs wird erst anhand von überprüften Beispielen gewählt; Baublöcke werden in der jetzigen Pipeline noch **nicht** geladen.
 
+## Schritt 4: 25 FMZK-Polygone zur manuellen Prüfung auswählen
+
+Aus der bestehenden Analyse werden **genau 25** ausgewählte Prüffälle erzeugt. Die Datenquelle bleibt dein lokales GeoPackage; **keine erneuten WFS-Abfragen**:
+
+
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.sample_street_space
+```
+
+Verteilung der Stichprobe:
+
+| Gruppe | Anzahl |
+| --- | ---: |
+| Klasse 69 – gegenüberliegende Kontakte zu verschiedenen Verkehrsflächenklassen | 5 |
+| Klasse 69 – mehrseitig, ohne nachgewiesene gegenüberliegende verschiedene Klassen | 5 |
+| Klasse 69 – einseitig | 3 |
+| Klasse 69 – kein deutlicher Randkontakt | 3 |
+| Klasse 58 – grenzt an den Straßenraum-Kern | 5 |
+| Klasse 59 – mehrseitig, beide Einbettungsarten gemischt | 4 |
+
+**Die Auswahl ist bewusst stratifiziert, nicht zufällig und nicht statistisch repräsentativ.** Innerhalb der Gruppen berücksichtigen wir kleine, große und (wo möglich) mittlere Polygone sowie unterschiedliche Lagen im Testausschnitt. Die Auswahl hängt nicht von der Reihenfolge im GeoJSON ab.
+
+Die erzeugten Dateien stehen ausschließlich unter `data/processed/street_space/pruefstichprobe/`:
+
+- `pruefbeispiele.geojson`: 25 Polygongeometrien in WGS84, alle vorhandenen Analyseattribute einschließlich `einbettung`, ergänzt um `pruef_nr` (1–25), `pruefgruppe`, die originale `FMZK_ID` als `fmzk_id` und weitere Quellattribute.
+- `pruefbeispiele_punkte.geojson`: 25 Punkte **innerhalb** der Polygone zur leichteren Orientierung bei sehr kleinen Baumscheiben; die Nummer ist `pruef_nr`. Bei Bedarf separat laden.
+- `pruefbeispiele.csv`: Tabelle mit IDs, Flächengrößen, Kontaktmerkmalen sowie **leeren Beurteilungsfeldern**.
+- `pruefbeispiele_bericht.json`: Auswahlmethode und nachprüfbare Objektliste pro Gruppe.
+
+### Sichtung in Kartensammlung oder QGIS
+
+1. `pruefbeispiele.geojson` zusammen mit `strassenraum_kern.geojson` importieren, ein aktuelles Orthofoto als Hintergrund verwenden.
+2. Wenn die kleinen Flächen schwer zu treffen sind, zusätzlich `pruefbeispiele_punkte.geojson` laden. `pruef_nr` dient zur Zuordnung zwischen Polygon und Tabellenzeile.
+3. In **`pruefbeispiele.csv`** pro Zeile `pruefstatus` mit `strassenraum`, `kein_strassenraum` oder `unklar` ausfüllen; Beobachtungen unter `pruefnotiz` ergänzen. `offen` ist der Ausgangszustand.
+4. Änderungen in der CSV erhalten und später gemeinsam auswerten. Für die ersten 25 Fälle reicht diese Tabelle; es ist noch keine automatische Klassifikation implementiert.
+
+**Schutz gegen Datenverlust:** Das Skript überschreibt bestehende Dateien standardmäßig nicht. Die Option `--overwrite` darf nur eine **noch unbewertete** Stichprobe ersetzen und verweigert die Überschreibung, wenn Bewertungen/Notizen in CSV oder Polygon-GeoJSON vorhanden sind. Alternativ `--out-dir` mit einem neuen Ausgabeverzeichnis wählen.
+
+**Nicht behaupten:** Die Beurteilung einer bewusst ausgewählten Stichprobe liefert weder eine Fehlerrate für ganz Wien noch eine allgemeine Genauigkeit der Heuristik. Dafür wären später zusätzliche zufällig gezogene Kontrollfälle nötig.
+
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
