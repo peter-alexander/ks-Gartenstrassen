@@ -36,9 +36,9 @@ Nicht versionierte Dateien:
 - `data/raw/manifest.json`: Quelle, BBOX, Abrufzeitpunkt, Feature-Anzahl und Klassenverteilung;
 - `data/processed/fmzk_klassen.csv`: pro Layer und `F_KLASSE` Anzahl und Fläche in m²;
 - `data/processed/fmzk_report.json`: Metadaten, Gesamtfläche der BBOX, gesamte Polygonabdeckung und mögliche Überlagerungen;
-- `data/processed/fmzk_ausschnitt.geojson`: **auf die BBOX zugeschnittene** Features mit `QUELLE`, `FMZK_TEXT` und `AREA_M2`, direkt in QGIS zu öffnen.
+- `data/processed/fmzk_ausschnitt.geojson`: **auf die BBOX zugeschnittene** Features mit `QUELLE`, `FMZK_TEXT`, `AREA_M2` und `GEOM_FIX`, direkt in QGIS zu öffnen.
 
-Die Flächenberechnung erfolgt durch Transformation nach **EPSG:31256 (MGI / Austria GK East)**. Dabei werden die Polygone zuerst auf die Bounding Box zugeschnitten. Der Flächenwert je Klasse basiert auf der geometrischen Vereinigung ihrer Features, um Überlagerungen **innerhalb** derselben Klasse nicht mehrfach zu zählen. Überlappungen **zwischen** Klassen beziehungsweise Layern werden separat ausgewiesen. Ungültige Polygone und unbekannte `F_KLASSE`-Codes werden nicht stillschweigend repariert oder geraten, sondern als Fehler gemeldet.
+Die Flächenberechnung erfolgt durch Transformation nach **EPSG:31256 (MGI / Austria GK East)**. Dabei werden die Polygone zuerst auf die Bounding Box zugeschnitten. Der Flächenwert je Klasse basiert auf der geometrischen Vereinigung ihrer Features, um Überlagerungen **innerhalb** derselben Klasse nicht mehrfach zu zählen. Überlappungen **zwischen** Klassen beziehungsweise Layern werden separat ausgewiesen. Ungültige WFS-Polygone werden mit `shapely.make_valid` in gültige Polygonflächen überführt. Alle Reparaturen werden unter `geometry_repairs` in `fmzk_report.json` mit Feature-ID und Fehlerursache protokolliert; die Originaldateien bleiben unverändert. Falls keine gültige Polygonfläche rekonstruiert werden kann, bricht die Analyse ab. Unbekannte `F_KLASSE`-Codes sind ebenfalls Fehler. Die reparierten Geometrien müssen fachlich anhand der Karte kontrolliert werden.
 
 **Achtung:** Der Prozentanteil in `fmzk_klassen.csv` bezieht sich auf die **gesamte Bounding Box**, keinesfalls auf die noch nicht ermittelte öffentliche Straßenfläche. Er ist **kein Grünanteil und kein Gartenstraßen-Ranking**.
 
