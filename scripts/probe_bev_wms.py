@@ -45,6 +45,18 @@ CHANNELS = {
 	"nahinfrarot": [("irgb", 0), ("rgir", 2), ("rirb", 1), ("ir", 0)],
 	"ir_graustufen": [("ir", 0), ("ir", 1), ("ir", 2)],
 }
+
+# Für einen experimentellen Vierkanal-Datensatz reichen die unabhängigen
+# Replikate von RGB und IR/RGIR/RIRB. Die zusätzlichen IRGB-R/G-Kanäle
+# werden vollständig gemessen, aber getrennt als Darstellungsabweichung
+# ausgewiesen. WMS-Anzeigewerte sind keine radiometrischen Rohwerte.
+CORE_CHANNELS = {
+	"rot": [("rgb", 0), ("rgir", 0), ("rirb", 0)],
+	"gruen": [("rgb", 1), ("rgir", 1)],
+	"blau": [("rgb", 2), ("rirb", 2)],
+	"nahinfrarot": [("ir", 0), ("rgir", 2), ("rirb", 1)],
+	"ir_graustufen": [("ir", 0), ("ir", 1), ("ir", 2)],
+}
 DEFAULT_FMZK = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_OUTPUT = Path("data/processed/baumkronen/bev_wms")
 MAX_IMAGE_SIDE = 2048
@@ -232,17 +244,12 @@ def full_opaque_mask(images):
 	return mask
 
 
-def compare_channels(images):
-	"""Kanalreplikate auf gemeinsamen voll deckenden Pixeln vergleichen."""
-	mask = full_opaque_mask(images)
-	valid_count = mask.histogram()[255]
-	size = next(iter(images.values())).size
-	total_count = size[0] * size[1]
-	if valid_count < MIN_VALID_PIXELS:
-		raise ValueError(f"Zu wenige gemeinsam opake Pixel: {valid_count}")
+
+def measure_channel_replicates(images, spec, mask, valid_count):
+	"""Statistik für eine fest deklarierte Sammlung von Kanalreplikaten."""
 	channels = {}
 	comparisons = []
-	for name, refs in CHANNELS.items():
+	for name, refs in spec.items():
 		first_layer, first_index = refs[0]
 		first = images[first_layer].getchannel("RGBA"[first_index])
 		group = []
@@ -272,7 +279,24 @@ def compare_channels(images):
 			group.append(item)
 			comparisons.append(item)
 		channels[name] = group
+	return channels, comparisons
+
+
+def compare_channels(images):
+	"""Kanalreplikate auf gemeinsamen voll deckenden Pixeln vergleichen."""
+	mask = full_opaque_mask(images)
+	valid_count = mask.histogram()[255]
+	size = next(iter(images.values())).size
+	total_count = size[0] * size[1]
+	if valid_count < MIN_VALID_PIXELS:
+		raise ValueError(f"Zu wenige gemeinsam opake Pixel: {valid_count}")
+	channels, comparisons = measure_channel_replicates(
+		images, CHANNELS, mask, valid_count)
+	core_channels, core_comparisons = measure_channel_replicates(
+		images, CORE_CHANNELS, mask, valid_count)
 	intern_konsistent = all(item["intern_konsistent"] for item in comparisons)
+	core_konsistent = all(item["intern_konsistent"] for item in core_comparisons)
+	abweichungen = [item for item in comparisons if not item["intern_konsistent"]]
 	caution = (
 		"Vergleich ausschließlich zwischen identisch angefragten GERENDERTEN WMS-PNG-Kanälen. "
 		"Selbst perfekte Übereinstimmung belegt KEINE unveränderten Rohdatenwerte "
@@ -293,6 +317,20 @@ def compare_channels(images):
 		"bilder_alpha": visibility,
 		"kanalgruppen": channels,
 		"alle_kanalreplikate_intern_konsistent": intern_konsistent,
+		"kernkanalgruppen": core_channels,
+		"kernkanaele_intern_konsistent": core_konsistent,
+		"abweichungen_alle_darstellungen": abweichungen,
+		"verwendbare_anzeigekanaele": {
+			"rot": "bev:RGB / PNG-Kanal R",
+			"gruen": "bev:RGB / PNG-Kanal G",
+			"blau": "bev:RGB / PNG-Kanal B",
+			"nahinfrarot": "bev:IR / PNG-Kanal R (Graustufen)",
+		},
+		"interpretation_kernkanaele": (
+			"Nur die interne Übereinstimmung von RGB+IR mit RGIR/RIRB "
+			"ist bestätigt; IRGB-R/G-Unterschiede werden nicht übergangen. "
+			"KEIN Nachweis radiometrischer Rohdaten oder kalibrierten NDVI."
+		),
 		"pruefschwellen": {
 			"min_anteil_abweichung_bis_1_dn": MIN_WITHIN_ONE,
 			"max_mittlere_abs_abweichung_dn": MAX_MEAN_DIFFERENCE,
@@ -407,8 +445,18 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 		print(f"  {name}: " + ", ".join(
 			f"{item['vergleich']} {100 * item['anteil_max_1_dn_unterschied']:.2f}% <=1DN"
 			for item in group))
-	print("Kanalkonsistenz im WMS: "
-		+ ("bestanden" if assessment["alle_kanalreplikate_intern_konsistent"] else "NICHT bestanden"))
+	print("Kernkanäle RGB + IR mit unabhängigen WMS-Replikaten: "
+		+ ("intern konsistent" if assessment["kernkanaele_intern_konsistent"]
+			else "NICHT konsistent"))
+	print("Alle fünf Darstellungen einschließlich IRGB-R/G: "
+		+ ("intern konsistent" if assessment["alle_kanalreplikate_intern_konsistent"]
+			else "Abweichungen vorhanden"))
+	if assessment["abweichungen_alle_darstellungen"]:
+		for item in assessment["abweichungen_alle_darstellungen"]:
+			print("  Hinweis auf Darstellungsabweichung: "
+				+ item["kanal"] + " " + item["referenz"] + " vs. "
+				+ item["vergleich"] + " (ØΔ="
+				+ str(item["mittelwert_absoluter_unterschied_dn"]) + " DN)")
 	print(f"Bericht: {output / 'bev_wms_diagnose.json'}")
 	print("Keine Kronenflächen, kein NDVI und keine Überschirmungswerte erstellt.")
 	return report
