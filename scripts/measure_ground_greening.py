@@ -34,14 +34,16 @@ def polygonal_geometry(geometry, *, label):
 	"""Nur Polygon/MultiPolygon akzeptieren; nichtpolygonale Reparaturreste abweisen."""
 	if not isinstance(geometry, (Polygon, MultiPolygon)):
 		raise ValueError(f"{label}: Polygon/MultiPolygon erwartet, erhalten {geometry.geom_type}")
-	if geometry.is_empty or geometry.area <= 0:
-		raise ValueError(f"{label}: leere oder flächenlose Geometrie")
+	if geometry.is_empty:
+		raise ValueError(f"{label}: leere Geometrie")
 	repaired = False
 	if not geometry.is_valid:
+		# Selbstschneidende Polygone können vor der Reparatur sogar
+		# eine rechnerische Fläche von 0 haben. Erst danach prüfen.
 		geometry = polygonal_part(make_valid(geometry))
 		repaired = True
 	if geometry is None or geometry.is_empty or not geometry.is_valid or geometry.area <= 0:
-		raise ValueError(f"{label}: Polygon kann nicht repariert werden")
+		raise ValueError(f"{label}: Polygon ist flächenlos oder nicht reparierbar")
 	return geometry, repaired
 
 
@@ -160,7 +162,9 @@ def measure_ground_greening(mask, fmzk_features, *, green_codes=GREEN_CODES):
 		"fmzk_features": source_count,
 		"fmzk_gruen_features": green_count,
 		"gruen_features_mit_strassenueberschneidung": len(review_parts),
-		"gruen_quellpolygon_ueberschneidung_m2": sum(part.area for *_, part in review_parts) - numerator,
+		"gruen_quellpolygon_ueberschneidung_m2": max(
+			0.0, sum(part.area for *_, part in review_parts) - numerator
+		),
 	}
 	return report, review_parts
 
