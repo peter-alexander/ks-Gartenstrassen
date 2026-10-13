@@ -455,7 +455,50 @@ Der erste lokale BEV-GetMap-Test war **erfolgreich**. Alle fünf PNGs wurden fü
 
 Der Prüfcode berechnet jetzt separat (a) `alle_kanalreplikate_intern_konsistent` – dieser Wert bleibt für den echten Lauf **false**, weil `IRGB` abweicht – und (b) **`kernkanaele_intern_konsistent`**, ausschließlich gestützt auf RGB / RGIR / RIRB / IR, **für den ersten Lauf true**. `abweichungen_alle_darstellungen` dokumentiert die beiden Abweichungen unverändert. Die neue Berechnung ist durch zwei zusätzliche Unit-Tests geprüft: ein IRGB-exklusiver Fehler beeinträchtigt die Kernkanalprüfung nicht; ein echter Fehler in einem Kernkanal wird weiterhin erkannt. **Das alte JSON enthält diese neuen Felder naturgemäß noch nicht**; die Bewertung ist hier aus den dokumentierten Einzelvergleichen abgeleitet.
 
-**Fachliche Grenze:** Alle verglichenen Werte sind 8-bit-PNG-Darstellungswerte. Ihre exakte Reproduzierbarkeit macht aus ihnen noch keine **radiometrisch kalibrierten Reflexionsgrade**. Daher heißt der nächste mögliche Versuch **experimenteller WMS-Vegetationsindex**, nicht wissenschaftlich belastbarer NDVI und schon gar nicht bestätigte Baumüberschirmung. Vor einer Kronenmaske brauchen wir eine visuelle Rasterprüfung und die Trennung von Baumkronen und bodennaher Vegetation; Aufnahmejahr und etwaige Tonwertkurven bleiben offen.
+**Fachliche Grenze:** Alle verglichenen Werte sind 8-bit-PNG-Darstellungswerte. Ihre exakte Reproduzierbarkeit macht aus ihnen noch keine **radiometrisch kalibrierten Reflexionsgrade**. Darum trägt die nun implementierte Vorstufe D2 ausdrücklich die Bezeichnung **experimenteller WMS-Vegetationsindex**, nicht wissenschaftlich belastbarer NDVI oder bestätigte Baumüberschirmung. Die visuelle Rasterprüfung und Unterscheidung von Baumkronen und bodennaher Vegetation stehen noch aus; Aufnahmejahr und etwaige Tonwertkurven bleiben offen.
+
+### D2 – Experimentelle Vegetationserkennung ohne DSM/DTM (14.10.2026, implementiert)
+
+**Bewusste Reihenfolge:** Wir erproben zuerst, wie gut sich Vegetation allein aus den bereits lokal gespeicherten BEV-WMS-Kanälen erkennen lässt. Höhenmodelle werden in D2 **nicht benötigt**. Da Grünflächen und Baumkronen spektral ähnlich aussehen können, wird **keine** Baumklassifikation und **keine** Überschirmungsquote behauptet.
+
+**Neues eigenständiges Modul:** `scripts/analyze_bev_vegetation.py`. Es liest nur die vorhandenen `bev_rgb_test.png`, `bev_ir_test.png` und den alten oder neuen `bev_wms_diagnose.json`-Bericht, **ohne GetMap zu wiederholen**. Die Quell-PNGs werden anhand des Berichts per **SHA-256**, Pixelgröße, `.pgw`-Worldfile und `.prj`-Projektionsdatei geprüft. Für ältere Diagnosen ohne `kernkanaele_intern_konsistent` wird die Bestätigung anhand der tatsächlich im Bericht vorhandenen, einzeln dokumentierten R-/G-/B-/NIR-Vergleiche abgeleitet. Bei fehlender Kernkonsistenz wird abgebrochen; die bekannte Abweichung der zusätzlichen `IRGB`-Rot-/Grünkanäle bleibt dagegen unberührt.
+
+Aus den gerenderten 8-bit-WMS-Werten werden pro Pixel Rot aus `bev:RGB.R` und NIR aus der `bev:IR.R`-Graustufendarstellung gelesen:
+
+```text
+I_WMS = (NIR_Anzeige - R_Anzeige) / (NIR_Anzeige + R_Anzeige)
+```
+
+Das ist **kein kalibrierter NDVI**; es werden weder radiometrische Rohdaten angenommen noch Werte aus `IRGB.G` oder `IRGB.B` eingesetzt. Pixel mit unvollständiger Deckung oder mit sehr schwachem `NIR+Rot` (Standard unter **20** 8-bit-Intensitätswerten) werden als *ungültig* behandelt, um vollständig dunkle/schattige Bereiche nicht durch eine Division durch nahezu null unbemerkt positiv einzustufen. Dies kann echte schattige Vegetation auslassen; der Ausschluss wird im Bericht gezählt.
+
+**Standardvarianten:** Rein explorative Schwellwerte `0,10`, `0,20`, `0,30`, `0,40`. Sie sind **weder anhand von Referenzflächen optimiert noch vorgeschriebene NDVI-Grenzwerte**. Die Klassifikation bedeutet nur `I_WMS >= Schwelle`, unabhängig davon, ob die Vegetation aus einer Baumkrone, Wiese, Hecke oder Dachbegrünung stammt.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.analyze_bev_vegetation
+```
+
+**Ausgabeordner:** `data/processed/baumkronen/bev_vegetation/` – getrennt vom bisherigen `bev_wms/`-Quellverzeichnis, damit keine BEV-Bilder überschrieben werden.
+
+- **`bev_vegetation_vergleich.png`**: das wichtigste Ergebnis für die erste visuelle Prüfung; Kontaktblatt mit RGB, IR, Index und vier grünen Kandidatenüberlagerungen. **Nicht georeferenziert**, weil mehrere Panels nebeneinander angeordnet sind.
+- **`bev_vegetation_index.png/.pgw/.prj`**: georeferenzierter kontinuierlicher Index auf demselben EPSG:3857-WMS-Raster; Grauwert 0 = Index −1, 128 = 0, 255 = +1, ungültige Pixel transparent.
+- **`bev_veg_maske_010/020/030/040.png/.pgw/.prj`**: georeferenzierte Binärmasken (Weiß = Indikator über Schwelle; Schwarz = unter Schwelle oder ungültig), keine Kronenpolygone.
+- **`bev_veg_overlay_010/020/030/040.png/.pgw/.prj`**: georeferenzierte grüne Visualisierungen über dem Original-RGB-Bild, damit z. B. die Kartensammlung sie direkt anzeigen und transparent über andere Layer legen kann.
+- **`bev_vegetation_bericht.json`**: Quelle mit SHA-256, Georeferenzierung, Kernkanal-Beleg, Anzahl gültiger/ungültiger Pixel, Treffer je Schwelle und deren Anteil am **gesamten Bildausschnitt** sowie den gültigen Pixeln.
+
+**Wichtig zu den Prozenten:** Die Trefferanteile der vier Rastermasken beziehen sich auf die **gesamten 943 × 878 WMS-Bildpixel** bzw. gültigen Pixel – *nicht* auf den Straßenraum aus Modul 2 und schon gar nicht auf den offiziellen Begrünungs- oder Überschirmungsgrad. Es erfolgt **keine automatische Flächenmessung**, keine Interpolation, keine Polygonisierung und kein Vergleich der Prozente mit den bisherigen A/B/C-Werten.
+
+**Optionale andere Schwellen**, falls die erste Vorschau zu wenig oder zu viel zeigt, ohne WMS-Neuabruf:
+
+```bash
+.venv/bin/python -m scripts.analyze_bev_vegetation \
+	--thresholds 0.05,0.15,0.25,0.35 \
+	--out-dir data/processed/baumkronen/bev_vegetation_versuch2
+```
+
+Für die erste Qualitätsbeurteilung schauen wir nach **Treffern und Fehlklassifikationen an Baumkronen, Rasen/Beeten, Gebäuden, Schatten und Straßenoberflächen**. Es genügt, anschließend das **Vergleichsbild** und die **Berichts-JSON** zu teilen. Die Quelle `bev_wms_diagnose.json` liegt bereits vor. Die echte Vegetationserkennung muss lokal noch ausgeführt und visuell geprüft werden; automatisierte Tests mit synthetischen Pixelwerten ersetzen dies nicht.
+
+---
 
 **Wenn die WMS-Qualität unzureichend ist**, bleibt der eigenständige Roh-RGBI-Adapter `scripts/probe_bev_rgbir.py` als zweite Quelle erhalten. Ein großer TIFF-Download ist erst gerechtfertigt, wenn die WMS-Ergebnisse keine ausreichend verlässliche Spektraldiagnose zulassen.
 
