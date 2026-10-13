@@ -1,21 +1,24 @@
-"""Topologische Indikatoren für FMZK-Prüfflächen, KEINE automatische Widmung.
+"""Richtungsbasierte Randkontakte für FMZK-Prüfpolygone.
 
-Messung in EPSG:31256. Mehrseitiger Randkontakt kann Grüninseln/Baumscheiben
-hervorheben, beweist aber weder Eigentum noch Zugänglichkeit.
+Die Richtungen beziehen sich auf die *äußere Normale der Polygonkante*,
+nicht auf ihre Lage zum Schwerpunkt. Dadurch erzeugt eine lange einzelne
+Gartengrenze keine scheinbar gegenüberliegenden Kontakte.
+
+Das ist ein topologisches Suchsignal, kein Beleg für öffentlichen Straßenraum.
 """
 
 from collections import defaultdict
 import math
 
 from shapely import union_all
-from shapely.geometry import GeometryCollection, LineString, MultiLineString
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, Point
+from shapely.prepared import prep
 
 CORE_CLASSES = (21, 23, 24, 33, 39)
 DIRECTIONS = ("O", "NO", "N", "NW", "W", "SW", "S", "SO")
 
 
 def make_contact_surfaces(features):
-	"""Einmal pro Kernklasse vereinigen; darauf beruhen alle Kandidatenmetriken."""
 	by_class = defaultdict(list)
 	for _, code, _, geometry in features:
 		if code in CORE_CLASSES:
@@ -37,28 +40,42 @@ def line_parts(geometry):
 			yield from line_parts(part)
 
 
-def sector_lengths(lines, center, *, sample_step_m=0.5):
-	"""Kontaktlängen winkelweise auf 8 Richtungssektoren verteilen.
+def normal_sector_lengths(contact_lines, polygon, *, probe_m=0.03):
+	"""Verteile echte Randkontaktlängen auf 8 Außen-Normalrichtungen.
 
-	Längere Linien werden abschnittweise abgetastet, damit nicht ihr einziger
-	Mittelpunkt entscheidet. Der Schwerpunkt ist nur eine heuristische Referenz.
+	Die Orientierung jeder Linie kann durch GEOS beliebig umgedreht werden.
+	Daher wird durch kleine Testpunkte beiderseits der Kante ermittelt, wo
+	die Fläche liegt. Nicht eindeutig orientierbare Teilstücke bleiben
+	unbewertet und werden ausdrücklich separat protokolliert.
 	"""
-	result = [0.0] * 8
-	for line in line_parts(lines):
-		count = max(1, math.ceil(line.length / sample_step_m))
-		length_piece = line.length / count
-		for index in range(count):
-			point = line.interpolate((index + 0.5) * length_piece)
-			angle = math.atan2(point.y - center.y, point.x - center.x)
-			sector = int((angle + math.pi / 8) % (2 * math.pi) / (math.pi / 4))
-			result[sector] += length_piece
-	return result
+	inside = prep(polygon)
+	sectors = [0.0] * 8
+	unresolved_m = 0.0
+	for line in line_parts(contact_lines):
+		coordinates = list(line.coords)
+		for (ax, ay), (bx, by) in zip(coordinates[:-1], coordinates[1:]):
+			dx, dy = bx - ax, by - ay
+			length = math.hypot(dx, dy)
+			if length <= 1e-9:
+				continue
+			mx, my = (ax + bx) / 2, (ay + by) / 2
+			nx, ny = -dy / length, dx / length
+			left = inside.covers(Point(mx + nx * probe_m, my + ny * probe_m))
+			right = inside.covers(Point(mx - nx * probe_m, my - ny * probe_m))
+			if left == right:
+				unresolved_m += length
+				continue
+			out_x, out_y = (-nx, -ny) if left else (nx, ny)
+			theta = math.atan2(out_y, out_x)
+			sector = int(((theta + math.pi / 8) % (2 * math.pi)) / (math.pi / 4))
+			sectors[sector] += length
+	return sectors, unresolved_m
 
 
 def opposing_pairs(lengths_a, lengths_b, minimum):
 	return [
-		(i, j) for i, amount_a in enumerate(lengths_a) if amount_a >= minimum
-		for j, amount_b in enumerate(lengths_b) if amount_b >= minimum
+		(i, j) for i, a in enumerate(lengths_a) if a >= minimum
+		for j, b in enumerate(lengths_b) if b >= minimum
 		if min((j - i) % 8, (i - j) % 8) >= 3
 	]
 
@@ -66,47 +83,39 @@ def opposing_pairs(lengths_a, lengths_b, minimum):
 def measure_embedding(
 	geometry, class_surfaces, *,
 	tolerance_m=0.25, minimum_sector_m=0.8,
-	sample_step_m=0.5, has_core_overlap=False,
+	probe_m=0.03, has_core_overlap=False,
 	prepared_class_buffers=None, prepared_core_buffer=None,
 ):
-	"""Merkmale für räumliche Einbettung von Grün-/unklaren Polygonen.
-
-	Die Randkontaktlinien entstehen aus Schnitt der Polygonbegrenzung mit
-	gepufferten Kernflächen. Ecken und sehr kurze Kontakte werden über die
-	Mindestlänge je Richtungssektor abgeschwächt.
-	"""
-	if tolerance_m <= 0 or minimum_sector_m <= 0 or sample_step_m <= 0:
-		raise ValueError("Kontakttoleranz, Mindestkontakt und Stichprobenabstand müssen positiv sein")
-	center = geometry.centroid
+	"""Mehrseitige Kontaktlage; keine automatische Zurechnung zum Straßenraum."""
+	if tolerance_m <= 0 or minimum_sector_m <= 0 or probe_m <= 0:
+		raise ValueError("Kontakttoleranz, Mindestkontakt und Prüfpunktabstand müssen positiv sein")
+	if geometry.is_empty or geometry.area <= 0:
+		raise ValueError("Zu prüfende Geometrie muss eine Fläche enthalten")
 	boundary = geometry.boundary
 	by_class = {}
 	for code in CORE_CLASSES:
 		surface = class_surfaces.get(code)
-		if surface is None or surface.is_empty:
-			continue
-		if geometry.distance(surface) > tolerance_m:
+		if surface is None or surface.is_empty or geometry.distance(surface) > tolerance_m:
 			continue
 		buffered = (prepared_class_buffers or {}).get(code)
 		if buffered is None:
 			buffered = surface.buffer(tolerance_m)
 		lines = boundary.intersection(buffered)
-		by_class[code] = sector_lengths(lines, center, sample_step_m=sample_step_m)
+		by_class[code], _ = normal_sector_lengths(lines, geometry, probe_m=probe_m)
 
 	if prepared_core_buffer is None:
-		core = union_all(list(class_surfaces.values()))
-		prepared_core_buffer = core.buffer(tolerance_m)
+		prepared_core_buffer = union_all(list(class_surfaces.values())).buffer(tolerance_m)
 	contact = boundary.intersection(prepared_core_buffer)
-	sectors = sector_lengths(contact, center, sample_step_m=sample_step_m)
+	sectors, unresolved_m = normal_sector_lengths(contact, geometry, probe_m=probe_m)
 	opposing = bool(opposing_pairs(sectors, sectors, minimum_sector_m))
 	different_classes_opposing = any(
 		opposing_pairs(by_class[left], by_class[right], minimum_sector_m)
-		for left in by_class
-		for right in by_class
-		if left != right
+		for left in by_class for right in by_class if left < right
 	)
-	contact_by_class = {code: round(sum(by_class.get(code, [])), 2) for code in CORE_CLASSES}
+	# Gleiche Klasse auf beiden Seiten wird ebenfalls erfasst, z.B. Baumscheibe
+	# vollständig innerhalb eines Gehsteigs.
+	contact_by_class = {code: round(sum(by_class.get(code, ())), 2) for code in CORE_CLASSES}
 	active_codes = [code for code in CORE_CLASSES if contact_by_class[code] >= minimum_sector_m]
-
 	if has_core_overlap:
 		kind = "ueberlappung_pruefen"
 	elif different_classes_opposing:
@@ -125,5 +134,6 @@ def measure_embedding(
 		"kontaktklassen": ",".join(map(str, active_codes)),
 		"kontakt_sektoren": ",".join(DIRECTIONS[i] for i, value in enumerate(sectors) if value >= minimum_sector_m),
 		"kontakt_rand_pct": round(100 * sum(sectors) / boundary.length, 2) if boundary.length else 0,
+		"richtung_ungeklaert_m": round(unresolved_m, 2),
 		**{f"kontakt_{code}_m": contact_by_class[code] for code in CORE_CLASSES},
 	}
