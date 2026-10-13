@@ -82,6 +82,24 @@ class GroundGreeningModuleTests(unittest.TestCase):
 			self.assertEqual(len(metadata["masken_sha256"]), 64)
 			self.assertEqual(metadata["reparierte_geometrien"], 0)
 
+	def test_self_intersecting_zero_area_mask_is_repaired(self):
+		from shapely.geometry import Polygon
+		to_lonlat = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
+		x, y = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform(16.36, 48.22)
+		# Ursprüngliche Shapely-Fläche des Bowtie-Polygons ist 0.
+		bowtie = Polygon([(x, y), (x + 10, y + 10), (x + 10, y), (x, y + 10), (x, y)])
+		self.assertFalse(bowtie.is_valid)
+		self.assertEqual(bowtie.area, 0)
+		with tempfile.TemporaryDirectory() as tmp:
+			path = Path(tmp) / "mask.geojson"
+			path.write_text(json.dumps({"type": "FeatureCollection", "features": [
+				{"type": "Feature", "properties": {}, "geometry": mapping(transform(to_lonlat, bowtie))}
+			]}))
+			mask, metadata = load_street_mask(path, box(x - 10, y - 10, x + 20, y + 20))
+			self.assertGreater(mask.area, 0)
+			self.assertTrue(mask.is_valid)
+			self.assertGreaterEqual(metadata["reparierte_geometrien"], 1)
+
 	def test_unrelated_mask_rejected_not_silently_clipped(self):
 		to_lonlat = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
 		center = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform(16.36, 48.22)
