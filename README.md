@@ -352,7 +352,7 @@ Die amtliche **Baumschicht (Klasse 3)** des Grünraummonitorings 2023 mit **50 c
 Das neue Skript `scripts/probe_grm2023_wms.py` erzeugt unter `data/processed/baumkronen/grm2023/`:
 
 - `getcapabilities.xml` – die tatsächlich vom Wiener Dienst gemeldeten Layer-/CRS-Angaben.
-- `grm2023_testausschnitt.png` – WMS-Raster für denselben kleinen FMZK-Ausschnitt (mit 10 m Puffer).
+- `grm2023_testausschnitt.png` mit `.pgw` und `.prj` – WMS-Raster für denselben kleinen FMZK-Ausschnitt (mit 10 m Puffer), metrisch georeferenziert für QGIS.
 - `grm2023_legende.png` – wenn GetLegendGraphic unterstützt wird.
 - `grm2023_wms_diagnose.json` – exakte Raster-BBOX/Größe, PNG-Farbverteilung und Transparenz, Stile und SHA-256 der Rohdaten.
 
