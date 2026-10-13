@@ -393,6 +393,70 @@ Die beiden Methoden stimmen in vielen Bereichen überein, weichen aber **deutlic
 
 **Wichtig für die nächste Iteration:** Unsere nächste Aufgabe ist **nicht**, ohne Sichtprüfung eine Methode zum Sieger zu erklären, sondern die drei Differenzflächen `A ∩ C`, `A \ C` und `C \ A` **auf dem Straßenraum** als separate GeoJSON-Layer zu exportieren und über ein Orthofoto zu legen. Gerade an Straßenbäumen, privaten Kronenüberhängen und Kreuzungen lässt sich dann unterscheiden, ob es sich um Modellvereinfachung, fehlende Baumdaten oder GRM-Pixelklassifikation handelt. Erst danach über die bevorzugte Methode oder eine Hybridvariante entscheiden.
 
+## Variante D: BEV Orthofoto RGBI – Quellenprüfung D1 (14.10.2026)
+
+**Ziel:** Ein eigenständiges drittes Prinzip zur Kronengeometrie neben Stamm-Kreisnäherung (A/B) und GRM-Klassifikation (C). Die tatsächlichen BEV-Orthofotos sollen **nicht** anhand einer 3-Kanal-Falschfarbdarstellung, sondern nach Möglichkeit als echtes RGBI-Multispektralraster ausgewertet werden.
+
+### Amtlich bestätigte Daten und Bezugswege
+
+- [BEV – Orthophoto Farbe](https://www.bev.gv.at/Services/Produkte/Luftbildprodukte/Orthophoto-Farbe.html): Seit 2010 digitale Orthophotos mit rund **20 cm** Pixelgröße; Produkte in RGB, CIR (Falschfarbeninfrarot) und RGBI. **RGBI umfasst Rot, Grün, Blau und einen separaten Nahinfrarotkanal**; erhältlich als TIFF/GeoTIFF. Das BEV nennt ein kostenloses Angebot `Digitales Orthophoto Farbe und Infrarot (DOP RGBI) Operat` unter [data.bev.gv.at](https://data.bev.gv.at/), jedoch standardmäßig als **50 × 50-km-Kacheln**. Das kann bei 20 cm Auflösung sehr große Dateien bedeuten; **vor dem Herunterladen Größe und Wien-Abdeckung prüfen**.
+- [BEV – Aktualitätsübersichten RGBI, Stand 15.04.2026](https://www.bev.gv.at/Services/Downloads/Produktbezogene-Downloads/Uebersichten.html): Zu jedem Aufnahmegebiet muss das **tatsächliche Bildflugjahr** geprüft werden. `aktuell` bezeichnet nicht zwingend 2025 oder 2026.
+- Nach den [offiziellen, in der EU-Datensammlung indexierten Operat-Metadaten](https://data.europa.eu/data/datasets/34490301-7c3e-40b4-8cb8-e82e5c304e8e~~1) liefert das BEV manche Operate als **getrennte TIFF-Datensätze für RGB und NIR**, nicht immer als ein einziges vierbandiges TIFF. Der Probe-Adapter berücksichtigt deshalb beide Fälle.
+- [BEV – Darstellungsdienst](https://www.bev.gv.at/Services/Geoinformationsdienste/BEV-Geodatendienste/BEV-Darstellungsdienst.html): WMS-Darstellungsdienst für digitale Orthofotos ist **nicht anonym zugänglich**, sondern benötigt Registrierung und Token. Zudem sind dargestellte Bilder **keine Garantie für unveränderte Rot-/NIR-Messkanäle**.
+- [Wiener Orthofoto 2025](https://www.wien.gv.at/stadtplanung/orthofoto-daten-beziehen) und [basemap.at Orthofoto (Datenstand Flug 2025)](https://basemap.at/release-infos/) dienen uns ggf. als **aktuellere optische Referenz**, dürfen aber **nicht** ohne Nachweis eines echten NIR-Kanals als BEV-RGBI-Ersatz in ein NDVI-Verfahren eingehen.
+
+### Phase D1 – Rohdatei technisch diagnostizieren (implementiert)
+
+Eigenständiger Prüfbaustein `scripts/probe_bev_rgbir.py`. Er liest einen **lokal bereitgestellten** BEV-Rasterdatensatz per `gdalinfo -json` und protokolliert:
+
+- Georeferenzierung (CRS/EPSG, Pixelgröße, Geotransformation und tatsächlich abgedecktes Gebiet);
+- Anzahl, Typ, Interpretation und NoData-Kennung der Rasterbänder; **keine automatische Annahme, Band 4 sei NIR**;
+- optional tatsächliches Aufnahmejahr, nur aus **zugehörigen BEV-Metadaten**;
+- optional `--clip`: nur denselben gepufferten FMZK-Testausschnitt auslesen, EPSG:31256, 20-cm-Anfragegitter, ohne Änderungen an A/B/C. Der GDAL-Zuschnitt mit `-r near` ist ein Prüfraster und kann neu ausgerichtete Rasterzellen enthalten.
+
+**Variante 1: TIFF mit vier Bändern:**
+
+```bash
+./scripts/update-and-sync.sh
+
+# Zuerst nur Metadaten ansehen, ohne das große Raster zu schneiden
+.venv/bin/python -m scripts.probe_bev_rgbir \
+	--input /pfad/zur/BEV_RGBI_Quelle.tif
+
+# Danach erst, wenn die Quelle den Testausschnitt vollständig enthält
+.venv/bin/python -m scripts.probe_bev_rgbir \
+	--input /pfad/zur/BEV_RGBI_Quelle.tif \
+	--clip
+```
+
+**Variante 2: RGB und NIR als separate TIFF-Dateien:**
+
+```bash
+.venv/bin/python -m scripts.probe_bev_rgbir \
+	--input /pfad/zur/BEV_RGB.tif \
+	--nir-input /pfad/zur/BEV_NIR.tif \
+	--clip
+```
+
+Das Skript verlangt mindestens `gdalinfo` und für `--clip` auch `gdalwarp` (`sudo apt install gdal-bin`). Fehlt bei TIFF + Worldfile der eingebettete Projektionseintrag, nur nach manueller Prüfung `--source-crs EPSG:31256` ergänzen. `--acquisition-year 2025` darf **ausschließlich** verwendet werden, wenn die BEV-Quelldokumentation für die konkrete Rasterdatei tatsächlich 2025 bestätigt.
+
+Ausgaben unter `data/processed/baumkronen/bev_rgbir/`:
+
+- `bev_rgbir_diagnose.json` – Quelldatei, Pixelgrößen/CRS/Bandbeschreibung, Metadaten, vollständige BBOX-Prüfung, ausgewiesene Unsicherheiten;
+- beim vierbandigen `--clip` **`bev_rgbir_testausschnitt.tif`**; bei getrennten Quellen **`bev_rgb_testausschnitt.tif`** und **`bev_nir_testausschnitt.tif`** mit gemeinsamer exakt kontrollierter Rastergeometrie.
+
+**Keine Kronenpolygone und kein Überschirmungsgrad werden in D1 erzeugt.** Die Rohdaten bleiben lokal unter `data/` bzw. außerhalb des Git-Repositories. Das Skript lädt keine 50-km-Kacheln automatisch herunter, manipuliert keine BEV-Originaldatei und verweigert eine nicht vollständig abgedeckte Testregion.
+
+### Geplanter fachlicher Ablauf D2–D4 (noch nicht implementiert)
+
+**D2 – Spektrale Prüfung:** Datenherkunft, Bandreihenfolge, Lagebezug und gültige Pixel eindeutig bestätigen; NDVI als Vegetationsindikator aus realen **NIR-/Rot-Kanälen** prüfen, ohne bereits „NDVI = Baum“ zu setzen. Sonderfälle: Schatten, Fassaden-/Dachvegetation, Wasser, nicht belaubte Bäume.
+
+**D3 – Baumkronen von anderer Vegetation trennen:** z. B. mit `nDSM = DOM - DGM` (Höhe über Boden), Textur/Objektform, gegebenenfalls Wiener Baumstandorte als Validierung. Untersuchen, welches Oberflächen-/Geländemodell **zeitlich** zum BEV-Bildflug passt. Alle Schwellwerte und Erkennungsfehler offen dokumentieren.
+
+**D4 – Eigener Polygonprovider:** Erst nach geprüfter D2/D3-Klassifizierung wird ein Kronen-GeoJSON (EPSG:4326, Polygon/MultiPolygon) erzeugt und **unverändert** mit `measure_canopy_cover.py` und `compare_canopy_methods.py` gemessen. A/B/C bleiben getrennte Referenzen.
+
+**Offener Punkt vor dem ersten lokalen D1-Lauf:** Ein tatsächlich für den Wiener FMZK-Testausschnitt geeignetes RGBI-BEV-Raster (entweder 4 Bänder oder RGB-/NIR-Dateipaar) muss erst lokal beschafft oder als kleiner, unverändert mehrkanaliger Ausschnitt bereitgestellt werden. Ein vollständiger 50×50-km-Download ist nicht zwingend der wirtschaftlichste Weg; wir müssen die Lieferoptionen für kleine Ausschnitte abwägen.
+
 ## Langfristige Modularität
 
 Alle Kronenprovider sollen dieselbe **Kronen-Geometrieschnittstelle v1** bedienen: GeoJSON FeatureCollection, Polygon/MultiPolygon, EPSG:4326; Attribute optional. Modul 4 (Messung) importiert keinen der Provider. Die Straßenraum-Eingabe bleibt die bereits in [Modulare Architektur](Modulare-Architektur.md) vereinbarte Schnittstelle von Modul 2.
