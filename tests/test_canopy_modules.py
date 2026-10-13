@@ -9,7 +9,7 @@ from shapely.geometry import box, Point, mapping
 from shapely.ops import transform
 
 from scripts.build_canopy_circles import (
-	diameter_from_properties, parse_trees, merge_trees,
+	diameter_from_properties, parse_wien_crown_range, parse_trees, merge_trees,
 	crowns_from_trees, read_points, run as run_circle_provider,
 )
 from scripts.geojson_crs import require_geojson_lonlat
@@ -34,7 +34,9 @@ class CrownProviderTests(unittest.TestCase):
 					"type": "FeatureCollection",
 					"crs": {"type": "name", "properties": {"name": declared_crs}},
 					"features": [{
-						"type": "Feature", "properties": {"KRONENDURCHMESSER": 7},
+						"type": "Feature", "properties": {
+						"KRONENDURCHMESSER": 7, "KRONENDURCHMESSER_TXT": "16-18 m",
+					},
 						"geometry": {"type": "Point", "coordinates": [16.36, 48.22]},
 					}],
 				}
@@ -46,7 +48,9 @@ class CrownProviderTests(unittest.TestCase):
 				self.assertEqual(len(sha), 64)
 				trees, excludes = parse_trees(features, "wien")
 				self.assertEqual(len(trees), 1)
-				self.assertEqual(trees[0]["diameter_m"], 7)
+				self.assertEqual(trees[0]["diameter_m"], 17)
+				self.assertEqual(trees[0]["diameter_class_raw"], "16-18 m")
+				self.assertEqual(trees[0]["diameter_category_code"], 7)
 				self.assertEqual(excludes, {})
 
 	def test_foreign_or_malformed_geojson_crs_remains_rejected(self):
@@ -62,7 +66,9 @@ class CrownProviderTests(unittest.TestCase):
 				data = {
 					"type": "FeatureCollection", "crs": crs,
 					"features": [{
-						"type": "Feature", "properties": {"KRONENDURCHMESSER": 7},
+						"type": "Feature", "properties": {
+						"KRONENDURCHMESSER": 7, "KRONENDURCHMESSER_TXT": "16-18 m",
+					},
 						"geometry": {"type": "Point", "coordinates": [16.36, 48.22]},
 					}],
 				}
@@ -76,16 +82,77 @@ class CrownProviderTests(unittest.TestCase):
 		require_geojson_lonlat({"crs": None}, label="Test")
 		require_geojson_lonlat({}, label="Test")
 
-	def test_diameter_is_strict_and_osm_defaults_explicit(self):
+	def test_wien_crown_class_intervals_become_explicit_midpoints(self):
+		for label, expected in (
+			("16-18 m", 17),
+			("16 – 18 m", 17),
+			("4-6 m", 5),
+			("0-3 m", 1.5),
+			("1,5 - 3,5 m", 2.5),
+			("16 — 18 m", 17),
+			("16-18" + chr(160) + "m", 17),
+		):
+			with self.subTest(label=label):
+				interval, status = parse_wien_crown_range(label)
+				self.assertEqual(interval[2], expected)
+				self.assertEqual(status, "klassenmittelwert")
+				self.assertEqual(diameter_from_properties({
+					"KRONENDURCHMESSER": 6, "KRONENDURCHMESSER_TXT": label
+				}, "wien"), (expected, "klassenmittelwert", "KRONENDURCHMESSER_TXT"))
+
+	def test_numeric_category_code_is_never_mistaken_for_metres(self):
 		self.assertEqual(diameter_from_properties(
-			{"KRONENDURCHMESSER": "8"}, "wien"), (8, "gemessen_oder_erfasst", "KRONENDURCHMESSER"))
+			{"KRONENDURCHMESSER": 8}, "wien"),
+			(None, "durchmesser_fehlt", "KRONENDURCHMESSER_TXT"))
+		self.assertEqual(diameter_from_properties(
+			{"KRONENDURCHMESSER": 8, "KRONENDURCHMESSER_TXT": "über 21 m"},
+			"wien")[1], "unlesbare_oder_offene_kronenklasse")
+		self.assertEqual(diameter_from_properties(
+			{"KRONENDURCHMESSER_TXT": "21-- m"}, "wien")[1],
+			"unlesbare_oder_offene_kronenklasse")
+		self.assertEqual(diameter_from_properties(
+			{"KRONENDURCHMESSER_TXT": "0-90 m"}, "wien")[1],
+			"unplausible_kronenklasse")
+		self.assertEqual(diameter_from_properties(
+			{"KRONENDURCHMESSER_TXT": "18-16 m"}, "wien")[1],
+			"unplausible_kronenklasse")
+		self.assertEqual(diameter_from_properties(
+			{"KRONENDURCHMESSER_TXT": "10 m"}, "wien")[1],
+			"unlesbare_oder_offene_kronenklasse")
+
+	def test_osm_diameter_and_optional_fallback_unchanged(self):
 		self.assertEqual(diameter_from_properties({}, "osm")[1], "durchmesser_fehlt")
 		self.assertEqual(diameter_from_properties({}, "osm", default_osm_diameter=6),
 			(6, "explizit_geschaetzt", "osm_default"))
 		self.assertEqual(diameter_from_properties(
-			{"KRONENDURCHMESSER": "ca. 10 m"}, "wien")[1], "unlesbarer_durchmesser")
-		self.assertEqual(diameter_from_properties(
-			{"KRONENDURCHMESSER": "101"}, "wien")[1], "unplausibler_durchmesser")
+			{"diameter_crown": "12"}, "osm"),
+			(12, "gemessen_oder_erfasst", "diameter_crown"))
+
+	def test_wien_category_code_does_not_create_false_trees(self):
+		samples = [
+			{"type": "Feature", "id": "1", "properties": {
+				"KRONENDURCHMESSER": 8, "KRONENDURCHMESSER_TXT": "16-18 m"
+			}, "geometry": {"type": "Point", "coordinates": [16.36, 48.22]}},
+			{"type": "Feature", "id": "2", "properties": {
+				"KRONENDURCHMESSER": 4
+			}, "geometry": {"type": "Point", "coordinates": [16.361, 48.221]}},
+			{"type": "Feature", "id": "3", "properties": {
+				"KRONENDURCHMESSER": 9, "KRONENDURCHMESSER_TXT": "über 21 m"
+			}, "geometry": {"type": "Point", "coordinates": [16.362, 48.222]}},
+		]
+		trees, excluded = parse_trees(samples, "wien")
+		self.assertEqual(len(trees), 1)
+		self.assertEqual(trees[0]["diameter_m"], 17)
+		self.assertEqual(excluded, {
+			"durchmesser_fehlt": 1,
+			"unlesbare_oder_offene_kronenklasse": 1,
+		})
+		polys, _ = crowns_from_trees(trees,
+			area_of_interest=trees[0]["point"].buffer(30))
+		self.assertEqual(len(polys), 1)
+		self.assertEqual(polys[0]["properties"]["crown_diameter_m"], 17)
+		self.assertEqual(polys[0]["properties"]["diameter_klasse_text"], "16-18 m")
+		self.assertEqual(polys[0]["properties"]["diameter_status"], "klassenmittelwert")
 
 	def test_osm_rows_and_missing_diameter_excluded(self):
 		features = [
