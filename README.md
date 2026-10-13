@@ -422,6 +422,21 @@ In [`Kartensammlung/src/app/basemaps/providers/imagery.js`](https://github.com/p
 
 Er fordert **einen** gepufferten Testausschnitt im selben WMS-Pixelgitter (EPSG:3857) in allen fünf Darstellungen an, speichert die fünf `PNG/PGW/PRJ`-Tripel lokal unter `data/processed/baumkronen/bev_wms/` und erstellt **`bev_wms_diagnose.json`** mit den Bildgrößen, Anfrage-/Dateiprüfsummen und dem pixelweisen Vergleich der Rot-, Grün-, Blau- und NIR-Kanäle. **Kein NDVI, keine Kronenmaske, keine Überschirmungsmessung**: Die WMS-Werte sind Darstellungswerte, keine kalibrierten Reflexionsdaten. **Der erste echte Abruf ist erfolgt:** 943×878 Rasterpixel, alle fünf PNGs gültig, 827.954 gemeinsame Pixel. **Neun von elf Kanalvergleichen sind pixelgenau zu 100 % identisch.** Lediglich die Rot-/Grün-Darstellungen in `bev:IRGB` weichen stark ab (20,58 % bzw. 14,86 % innerhalb ±1 DN). RGB aus `bev:RGB` und NIR aus `bev:IR` sind über die anderen Ebenen intern bestätigt. Der Bericht hat nun getrennte Flags für den **Kernkanalvergleich** und für **alle Darstellungen**; `IRGB`-Abweichungen werden weiterhin ausgewiesen. Der nächste mögliche Schritt ist **ein experimenteller, nicht kalibrierter WMS-Vegetationsindikator** aus lokal gespeicherten RGB-/IR-Bildern, vor einer Baumkronenklassifikation.
 
+### D2: Vegetationserkennung ohne Höhenmodell – lokaler Versuch
+
+**Implementiert:** `scripts/analyze_bev_vegetation.py` arbeitet ohne erneute BEV-WMS-Abfrage mit den bereits gespeicherten Bildern `bev_rgb_test.png` und `bev_ir_test.png`. Rot (`bev:RGB.R`) und NIR (`bev:IR.R`) wurden bereits über unabhängige WMS-Darstellungen als intern konsistent geprüft. Das Skript akzeptiert auch den **vorliegenden älteren Diagnosebericht** ohne das später ergänzte Kernkanal-Statusfeld, sofern sämtliche relevanten Einzelvergleiche erfolgreich waren. Es prüft Bilddateien, SHA-256 und Georeferenzierung und ändert die Originalbilder nicht.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.analyze_bev_vegetation
+```
+
+**Ergebnisse:** `data/processed/baumkronen/bev_vegetation/bev_vegetation_vergleich.png` zeigt RGB, IR, kontinuierlichen Index und vier explorative Vegetationsüberlagerungen (`0,10`, `0,20`, `0,30`, `0,40`). Dazu kommen `bev_vegetation_bericht.json` mit den gültigen/ungültigen Pixeln und Trefferanteilen sowie **einzeln georeferenzierte PNG/PGW/PRJ** für Index, Masken und Überlagerungen. **Das Vergleichsblatt selbst ist kein georeferenziertes Einzelraster.** Für weitere Varianten können `--thresholds 0.05,0.15,0.25,0.35 --out-dir data/processed/baumkronen/bev_vegetation_versuch2` verwendet werden.
+
+**Wichtige Grenze:** `(NIR - R) / (NIR + R)` arbeitet hier mit *gerenderten 8-bit-WMS-Anzeigewerten*. Es ist ein **unkalibrierter WMS-Vegetationsindex**, kein geprüfter NDVI. Erkannte Kandidaten können Bäume, Wiesen, Beete oder Sträucher sein. Die dargestellten Prozentanteile beziehen sich nur auf die Pixel des **gesamten WMS-Bildausschnitts**, nicht auf den Straßenraum. Es werden **keine Baumkronenpolygone** und **keine Überschirmungsgrade** erzeugt. Erst anhand des Vergleichsbilds entscheiden wir, ob und wie sich die Vegetation zuverlässig trennen lässt. **Die eigentlichen BEV-Raster wurden hier noch nicht ausgewertet; der lokale Testlauf steht aus.**
+
+[Ausführliche Methodik D2, Dateiformate und Validierung](docs/Modul-4-Baumkronen-Vergleich.md#d2--experimentelle-vegetationserkennung-ohne-dsmdtm-14102026-implementiert).
+
 **Die TIFF-/RGBI-Diagnose bleibt als Fallback**, falls die Kanäle des gerenderten BEV-WMS nicht geeignet sind. Sie ist im folgenden Abschnitt beschrieben.
 
 ### Optionale Originaldaten: BEV Orthofoto RGBI – Rasterdiagnose
@@ -477,7 +492,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Methode D – erste Vegetationsanalyse vorbereiten:** Der BEV-WMS-Kanalvergleich liegt real vor; RGB und IR sind über andere Darstellungen pixelgenau bestätigt, IRGB-R/G dagegen abweichend. Nun die lokal gespeicherten BEV-PNGs als mögliche **experimentelle Vegetationsindikatoren** visuell und statistisch untersuchen, ohne radiometrischen NDVI oder Baumkronen zu behaupten. A/B/C (**7,82 / 7,89 / 9,35 %**) bleiben unverändert.
+2. **Methode D – Vegetationsmasken visuell beurteilen:** D2 ist als Offline-Rasterexperiment implementiert. Den lokalen Aufruf `python -m scripts.analyze_bev_vegetation` starten und `bev_vegetation_vergleich.png` sowie `bev_vegetation_bericht.json` prüfen. Erst an echten Baum-/Wiesen-/Strauch-/Schatten-Beispielen die Trennschärfe und weitere Schritte festlegen. A/B/C (**7,82 / 7,89 / 9,35 %**) bleiben unverändert.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
