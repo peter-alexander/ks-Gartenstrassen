@@ -19,7 +19,7 @@ from scripts.probe_grm2023_wms import (
 	run,
 )
 
-CAPABILITIES_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+CAPABILITIES_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <WMT_MS_Capabilities version="1.1.1">
 	<Service><Name>OGC:WMS</Name></Service>
 	<Capability>
@@ -38,7 +38,7 @@ CAPABILITIES_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 			</Layer>
 		</Layer>
 	</Capability>
-</WMT_MS_Capabilities>"""
+</WMT_MS_Capabilities>""".encode("utf-8")
 
 
 def png_data(size=(8, 8), *, rgba=(0, 145, 30, 255)):
