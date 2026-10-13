@@ -144,6 +144,20 @@ class StreetSpaceTest(unittest.TestCase):
 			self.assertTrue(any(48 < v < 49 for v in numbers))
 			self.assertTrue(path.exists())
 
+	def test_small_positive_polygon_area_is_not_rounded_to_zero(self):
+		# FMZK-Auszüge können winzige, aber gültige Flächen enthalten.
+		features = [
+			(1, 21, "Fahrbahn", self.rectangle(-5, -5, 5, 5)),
+			(2, 69, "Sonstige Grünfläche", self.rectangle(5, 0, 5.001, 0.001)),
+		]
+		review = build_review(features)
+		area = next(f["flaeche_m2"] for f in review["candidates"] if f["id"] == 2)
+		self.assertGreater(area, 0)
+		self.assertLess(area, .005)
+		self.assertAlmostEqual(area, 0.000001, delta=1e-9)
+		prop = next(props for props, _ in review["features"] if props["id"] == 2)
+		self.assertEqual(prop["flaeche_m2"], area)
+
 	def test_validation_missing_core_and_manifest_counts(self):
 		with self.assertRaisesRegex(ValueError, "Keine Kernflächen"):
 			build_review([(1, 58, "Grünfläche", self.rectangle(0, 0, 10, 10))])
