@@ -85,7 +85,7 @@ def parse_capabilities(content):
 	if request is None:
 		raise ValueError("WMS-Request-Deklaration fehlt")
 	getmap = next((child for child in request if local_tag(child.tag) == "GetMap"), None)
-	formats = [child.text.strip().lower() for child in getmap or []
+	formats = [child.text.strip().lower() for child in (getmap if getmap is not None else [])
 		if local_tag(child.tag) == "Format" and child.text]
 	if "image/png" not in formats:
 		raise ValueError("WMS bietet kein image/png für GetMap")
