@@ -302,6 +302,8 @@ Ausgaben unter `data/processed/bodenbegruenung/`:
 - `bodenbegruenung_bericht.json`: Straßenraumfläche, tatsächlich zugeordnete Boden-Grünfläche, **Begrünungsanteil in %**, getrennte Werte für FMZK 58/69, methodische Hinweise, Eingabe-Pfade und SHA-256 der Straßenmaske.
 - `bodenbegruenung_flaechen.geojson`: an der Maske geschnittene FMZK-Grünteilflächen zum Kontrollieren in der Kartensammlung.
 
+**Erster lokaler Referenzlauf (13.10.2026):** Bei **46.630,56 m²** vorläufigem Straßenraum wurden **889,18 m²** Bodenbegrünung ermittelt, entsprechend **1,91 %**. Grundlage: **487** Straßenraum-Features und **2.401** FMZK-Features; von den **276** FMZK-Grünobjekten überschneiden **107** die Straßenmaske. Die gemessene Begrünung stammt praktisch vollständig aus FMZK-Klasse **69** (889,1828 m²); Klasse **58** trägt nur 0,00165 m² bei. Dies ist ein **vorläufiges Ergebnis für den Testausschnitt**, keine gesicherte Aussage über ganz Wien. Ausführliche Messergebnisse, Masken-SHA-256 und Qualitätsprüfung: [Modulare Architektur – erster Referenzlauf](docs/Modulare-Architektur.md#erster-lokaler-referenzlauf--bodenbegrünung-13102026).
+
 **Austauschbar:** Ein späteres Straßenraumverfahren muss nur eine geometrisch gültige Polygon-`FeatureCollection` in EPSG:4326 für denselben Testbereich erzeugen. Attribute aus FMZK oder Kataster sind für das Begrünungsmodul nicht erforderlich.
 
 ```bash
@@ -339,7 +341,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 
 ## Nächste Schritte (modular)
 
-1. **Bodenbegrünungsmodul im Testausschnitt ausführen und prüfen**: Bericht und überlagerte Grünpolygone kontrollieren; insbesondere 58/69 und unklare Randflächen.
+1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
 2. **Modul 4 – Kronenüberschirmung planen**: geeignete Quelle und eigenständige Kennzahl definieren, dieselbe austauschbare Straßenmaske nutzen.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
