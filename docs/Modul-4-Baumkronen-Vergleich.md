@@ -160,7 +160,7 @@ Voraussetzung: das lokale `data/processed/fmzk_test.gpkg` mit zugehörigem `fmzk
 Unter `data/processed/baumkronen/grm2023/` entstehen:
 
 - **`getcapabilities.xml`** – unveränderte WMS-Metadaten einschließlich der angebotenen Projektionen und Stile.
-- **`grm2023_testausschnitt.png`** – originale PNG-GetMap-Antwort für das Testgebiet plus 10 m Puffer; Größenverhältnis und BBOX werden dokumentiert.
+- **`grm2023_testausschnitt.png`**, **`.pgw`** und **`.prj`** – originale PNG-GetMap-Antwort für das Testgebiet plus 10 m Puffer, mit Pixel-/Weltkoordinaten- und CRS-Angabe für die genaue Kontrolle in QGIS.
 - **`grm2023_legende.png`** – falls der WMS sie tatsächlich als PNG liefert; Fehlen ist als Diagnose-Status dokumentiert und verhindert nicht den Raster-Abruf.
 - **`grm2023_wms_diagnose.json`** – WMS-Layer/SRS, Abfrageparameter, SHA-256, BBOX/Pixelabmessungen, Bildmodus, Anzahl und Häufigkeiten der RGBA-Farben, Transparenz-/Legendenstatus.
 
