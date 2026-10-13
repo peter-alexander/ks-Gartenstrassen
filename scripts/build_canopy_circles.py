@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 from pyproj import Transformer
@@ -22,8 +23,17 @@ from scripts.geojson_crs import require_geojson_lonlat
 
 DEFAULT_FMZK = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_OUTPUT = Path("data/processed/baumkronen")
-CITY_DIAMETER_FIELDS = ("KRONENDURCHMESSER",)
+# KRONENDURCHMESSER ist im Wiener WFS nur der Kategoriencode.
+# Der metrische Bereich steht in KRONENDURCHMESSER_TXT (z. B. "16-18 m").
+CITY_DIAMETER_FIELD = "KRONENDURCHMESSER_TXT"
+CITY_CATEGORY_FIELD = "KRONENDURCHMESSER"
 OSM_DIAMETER_FIELDS = ("diameter_crown", "crown_diameter")
+# Nur geschlossene, eindeutig metrische Bereiche. Offene Klassen werden
+# nicht automatisch nach oben oder unten extrapoliert.
+CROWN_RANGE = re.compile(
+	r"^\\s*(\\d+(?:[.,]\\d+)?)\\s*[-–—]\\s*(\\d+(?:[.,]\\d+)?)\\s*m\\s*$",
+	re.IGNORECASE,
+)
 MAX_DIAMETER_M = 50
 DUPLICATE_DISTANCE_M = 2.0
 
@@ -41,14 +51,41 @@ def read_points(source, *, provider):
 	return data["features"], hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def parse_wien_crown_range(value):
+	"""Liest nur explizite geschlossene Meterintervalle, z. B. '16-18 m'.
+
+	Die Daten sind kategorisiert, nicht metergenau. Der Intervallmittelpunkt
+	ist daher eine methodisch deklarierte Näherung, kein Messwert.
+	"""
+	if value is None or not str(value).strip():
+		return None, "durchmesser_fehlt"
+	text = str(value).replace("\\u00a0", " ").strip()
+	match = CROWN_RANGE.fullmatch(text)
+	if match is None:
+		return None, "unlesbare_oder_offene_kronenklasse"
+	lower, upper = (float(group.replace(",", ".")) for group in match.groups())
+	if not (0 <= lower < upper <= MAX_DIAMETER_M):
+		return None, "unplausible_kronenklasse"
+	midpoint = (lower + upper) / 2
+	if midpoint <= 0:
+		return None, "unplausible_kronenklasse"
+	return (lower, upper, midpoint), "klassenmittelwert"
+
+
 def diameter_from_properties(properties, provider, *, default_osm_diameter=None):
-	fields = CITY_DIAMETER_FIELDS if provider == "wien" else OSM_DIAMETER_FIELDS
+	if provider == "wien":
+		# Niemals auf das numerische KRONENDURCHMESSER-Feld zurückfallen:
+		# Das ist nur ein Kategoriecode, keine Längenangabe.
+		interval, status = parse_wien_crown_range(properties.get(CITY_DIAMETER_FIELD))
+		if interval is None:
+			return None, status, CITY_DIAMETER_FIELD
+		return interval[2], status, CITY_DIAMETER_FIELD
+	fields = OSM_DIAMETER_FIELDS
 	for field in fields:
 		if field not in properties or properties[field] is None or str(properties[field]).strip() == "":
 			continue
 		value = properties[field]
 		try:
-			# Keine Texte wie "10-15m" oder "ca. 7m" stillschweigend parsen.
 			diameter = float(value)
 		except (TypeError, ValueError):
 			return None, "unlesbarer_durchmesser", field
@@ -114,6 +151,13 @@ def parse_trees(features, provider, *, default_osm_diameter=None):
 			"provider": provider, "id": identifier, "point": Point(x, y),
 			"diameter_m": diameter, "diameter_quality": quality,
 			"diameter_field": field,
+			"diameter_class_raw": (
+				str(properties.get(CITY_DIAMETER_FIELD))
+				if provider == "wien" else None
+			),
+			"diameter_category_code": (
+				properties.get(CITY_CATEGORY_FIELD) if provider == "wien" else None
+			),
 		})
 	return trees, dict(sorted(reasons.items()))
 
@@ -173,6 +217,8 @@ def crowns_from_trees(trees, *, area_of_interest, max_radius_m=25):
 			"crown_diameter_m": tree["diameter_m"],
 			"diameter_status": tree["diameter_quality"],
 			"diameter_feld": tree["diameter_field"],
+			"diameter_klasse_text": tree.get("diameter_class_raw"),
+			"diameter_kategorie": tree.get("diameter_category_code"),
 			"center_lon": center[0], "center_lat": center[1],
 			"geometry_method": "point_buffer_circle_32",
 		}, "geometry": geometry})
@@ -198,6 +244,14 @@ def run(*, wien, osm=None, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 		sources[provider] = {"path": str(path), "sha256": digest,
 			"eingabe_features": len(points), "verwertbare_baeume": len(parsed)}
 		exclusions[provider] = excluded
+		if provider == "wien":
+			# Rohwerte der Klasseneinteilung im Bericht, besonders für
+			# nicht parsebare / offene Intervalle, sichtbar halten.
+			sources[provider]["kronenklassen_txt_haeufigkeiten"] = dict(sorted(
+				Counter(str((item.get("properties") or {}).get(CITY_DIAMETER_FIELD))
+					for item in points if isinstance(item, dict)
+					and isinstance(item.get("properties"), dict)).items()
+			))
 	merged, matches = merge_trees(trees["wien"], trees["osm"],
 		duplicate_distance=duplicate_distance)
 	features, spatial_exclusions = crowns_from_trees(merged, area_of_interest=area)
@@ -211,7 +265,7 @@ def run(*, wien, osm=None, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	}, ensure_ascii=False) + "\n", encoding="utf-8")
 	report = {
 		"schema_version": 1,
-		"methode": "Kreis um Baumstandort, Radius halber Kronendurchmesser",
+		"methode": "Wien: Mittelpunkt des Kronendurchmesser-Klassenintervalls; OSM: expliziter metrischer Wert; Kronenkreis um Stammpunkt",
 		"status": "Vergleichsvariante, keine vermessenen Kronenpolygone",
 		"datum_utc": datetime.now(timezone.utc).isoformat(),
 		"fmzk_bbox_lon_lat": manifest["bbox_lon_lat"],
@@ -222,7 +276,7 @@ def run(*, wien, osm=None, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 		"osm_default_diameter_m": osm_default_diameter,
 		"osm_wien_dublettenabstand_m": duplicate_distance,
 		"moegliche_dubletten": matches,
-		"bemerkung": "Stammpunkt plus Kreis ist eine Näherung. OSM ohne Kronenmaß ausgeschlossen, sofern Schätzung nicht ausdrücklich aktiviert. Baumreihen separat prüfen.",
+		"bemerkung": "KRONENDURCHMESSER ist nur eine Kategorie. Wien wird ausschließlich aus KRONENDURCHMESSER_TXT als Mittelwert geschlossener Meterbereiche gelesen (z.B. 16-18 m -> 17 m). Offene/unklare Klassen werden mit Grund ausgeschlossen, niemals durch den Kategoriecode ersetzt. Stammpunkt plus Kreis ist eine Näherung; OSM ohne Kronenmaß bleibt ohne ausdrückliche Schätzung ausgeschlossen.",
 		"ausgabe": str(geojson_path),
 	}
 	(output / "baumkronen_kreise_bericht.json").write_text(
