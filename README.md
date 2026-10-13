@@ -98,8 +98,8 @@ Die Straßenraum-Analyse ist absichtlich **eine Sichtung**, keine automatische Z
 
 **Ergebnisse nur lokal** in `data/processed/street_space/`:
 
-- `strassenraum_kern.geojson`: geometrische Vereinigung der sicher erkennbaren öffentlichen Verkehrsflächen (Klassen **21 Fahrbahn, 23 Gehsteig, 24 Fußgängerzone, 33 ruhender Verkehr**), WGS84.
-- `strassenraum_pruefung.geojson`: einzelne Kernflächen, sämtliche Grün-Kandidaten **58/69**, unklare Flächen **39/59** und **private Kontextflächen 25/26/51**. Jede Geometrie hat `rolle`, `status` und relevante Kenngrößen. Andere FMZK-Klassen werden nicht exportiert.
+- `strassenraum_kern.geojson`: geometrische Vereinigung der sicher erkennbaren öffentlichen Verkehrsflächen (Klassen **21 Fahrbahn, 23 Gehsteig, 24 Fußgängerzone, 33 ruhender Verkehr, 39 sonstige Verkehrsfläche**), WGS84.
+- `strassenraum_pruefung.geojson`: einzelne Kernflächen, sämtliche Grün-Kandidaten **58/69**, unklare Flächen der **Klasse 59** und **private Kontextflächen 25/26/51**. Jede Geometrie hat `rolle`, `status` und relevante Kenngrößen. Andere FMZK-Klassen werden nicht exportiert.
 - `strassenraum_kandidaten.csv`: pro Grün- bzw. unklarer Fläche Kennzahlen zu Abstand, Grenzkontakt und Umfeldnähe.
 - `strassenraum_bericht.json`: Flächensummen pro Klasse und Lage-Status (jeweils als geometrische Vereinigung), verwendete Schwellen und eventuelle Geometriereparaturen.
 
@@ -116,10 +116,16 @@ Die Randtoleranz/Distanz und Mindestkontaktlänge sind Parameter (`--randtoleran
 
 **Wichtig:**
 - Auch `grenzt_an_kern` ist **keine Bestätigung**, dass die ganze Fläche öffentlich ist. Insbesondere große private Grundstücke können an Gehsteige grenzen.
-- Klasse **59** (befestigte Fläche) ist nicht automatisch öffentliche Verkehrsfläche, ebenso wenig Klasse 39. Klasse 51 (Innenhof) und private Verkehrsflächen 25/26 bleiben Kontext, keine Kandidaten.
+- Klasse **39** wird nach fachlicher Prüfung als öffentlicher Straßenraum-Kern berücksichtigt. Klasse **59** (befestigte Fläche) ist hingegen nicht automatisch öffentliche Verkehrsfläche. Klasse 51 (Innenhof) und private Verkehrsflächen 25/26 bleiben Kontext, keine Kandidaten.
 - Der Kern ist eine **Teilmenge** des Straßenraums; Verkehrsinseln, sonstige öffentliche Flächen und Grünstreifen sind damit noch nicht vollständig erfasst.
 - Deshalb gibt es bewusst **noch keinen Grünanteil pro Straße** und keine Grünfläche / Kernfläche als vermeintlich gültigen Anteil.
 - Die Ergebnislayer in QGIS öffnen oder in die Kartensammlung importieren. Verdächtige Flächen (z. B. Klasse 59 und große angrenzende Klasse-58-Polygone) anhand des Orthofotos/der FMZK überprüfen. Danach den exakten Straßenraum festlegen.
+
+### Rolle der Baublöcke in späteren Analyseschritten
+
+Baublöcke können die Zugehörigkeit einer Fläche zum Straßenraum **nur als räumlicher Hinweis** unterstützen. Ihre generalisierten Geometrien können gegenüber der FMZK um mehrere Meter abweichen. Deshalb werden sie **nicht als harte Schnitt- oder Ausschlussmasken** eingesetzt. Insbesondere schmale Grünstreifen, Baumscheiben und Parkspurbegrünungen dürfen nicht durch einen schematischen Baublock-Zuschnitt verloren gehen.
+
+Für den späteren Zuordnungsschritt werden Nachbarschaften zu Fahrbahn/Gehsteig, Lage zwischen verschiedenen Verkehrsflächen und ggf. ein unsicherer Grenzbereich untersucht. Auch eine zwischen Kernflächen liegende Grünfläche wird nicht ohne Plausibilitätsprüfung als öffentlich klassifiziert. Die exakte Breite eines Toleranzbereichs wird erst anhand von überprüften Beispielen gewählt; Baublöcke werden in der jetzigen Pipeline noch **nicht** geladen.
 
 ## Synchronisierung des Quellcodes
 
