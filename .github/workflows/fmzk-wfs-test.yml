@@ -32,7 +32,7 @@ jobs:
       - name: Flächenstatistik aus lokalem GeoJSON
         run: python -m scripts.analyze_fmzk
       - name: Testdaten und Berichte als Artifact bereitstellen
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fmzk-wfs-test
