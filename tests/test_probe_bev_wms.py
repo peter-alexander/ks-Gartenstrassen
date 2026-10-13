@@ -75,9 +75,23 @@ class BEVWMSProbeTests(unittest.TestCase):
 		self.assertTrue(all(WMS_CRS in record["crs"]
 			for record in info["layer"].values()))
 
-	def test_capabilities_refuses_missing_layer_or_wrong_mime(self):
-		with self.assertRaisesRegex(ValueError, "WMS-Layer nicht"):
-			parse_capabilities(CAP_XML.replace(b"bev:IR</Name>", b"other</Name>"))
+	def test_capabilities_does_not_reject_unlisted_but_queryable_layers(self):
+		# Realer BEV-Sonderfall: nur RGB ist gelistet, die anderen
+		# vier Kartensammlungs-Layer funktionieren dennoch per GetMap.
+		xml = CAP_XML
+		for name in ("IRGB", "RGIR", "RIRB", "IR"):
+			xml = xml.replace(
+				f"<Layer><Name>bev:{name}</Name><Title>{name}</Title></Layer>".encode(),
+				b""
+			)
+		metadata = parse_capabilities(xml)
+		self.assertEqual(set(metadata["layer"]), {"bev:RGB"})
+		self.assertEqual(metadata["nicht_in_capabilities"],
+			["bev:IR", "bev:IRGB", "bev:RGIR", "bev:RIRB"])
+		self.assertEqual(metadata["epsg3857_nicht_deklariert"], [])
+		self.assertIn("GetMap", metadata["hinweis"])
+
+	def test_capabilities_still_validates_xml_and_service(self):
 		with self.assertRaisesRegex(ValueError, "kein image/png"):
 			parse_capabilities(CAP_XML.replace(b"image/png", b"image/tiff"))
 		with self.assertRaisesRegex(ValueError, "kein WMS"):
@@ -149,6 +163,26 @@ class BEVWMSProbeTests(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError, "erwartetes Pixelgitter"):
 			decode_png(to_png(sample_images((18, 12))["rgb"]), (1, 1))
 
+	def test_getmap_png_failure_identifies_the_requested_layer(self):
+		to_m = Transformer.from_crs("EPSG:4326", "EPSG:31256",
+			always_xy=True)
+		x, y = to_m.transform(16.363, 48.223)
+		clip = box(x-14, y-10, x+14, y+10)
+		with tempfile.TemporaryDirectory() as tmp:
+			def fake_request(url):
+				q = parse_qs(urlparse(url).query)
+				if q["REQUEST"] == ["GetCapabilities"]:
+					return CAP_XML
+				if q.get("LAYERS") == ["bev:IRGB"]:
+					return b"<ServiceException>Invalid layer</ServiceException>"
+				return to_png(sample_images((int(q["WIDTH"][0]),
+					int(q["HEIGHT"][0])))["rgb"])
+			with patch("scripts.probe_bev_wms.load_polygons",
+				return_value=([], {"bbox_lon_lat": [16.36, 48.22, 16.37, 48.23]}, clip, [])), patch(
+				"scripts.probe_bev_wms.request_bytes", side_effect=fake_request):
+				with self.assertRaisesRegex(ValueError, "GetMap-Abruf für bev:IRGB"):
+					run(output=Path(tmp)/"wms", pixel_size_m=1, padding_m=0)
+
 	def test_full_diagnostic_writes_five_georeferenced_images_no_crowns(self):
 		to_m = Transformer.from_crs("EPSG:4326", "EPSG:31256",
 			always_xy=True)
@@ -170,6 +204,11 @@ class BEVWMSProbeTests(unittest.TestCase):
 				"scripts.probe_bev_wms.request_bytes", side_effect=fake_request):
 				report = run(output=target, pixel_size_m=1, padding_m=0)
 			self.assertTrue(report["vergleich"]["alle_kanalreplikate_intern_konsistent"])
+			self.assertEqual(report["wms"]["metadaten"]["nicht_in_capabilities"], [])
+			self.assertTrue(all(
+				report["wms"]["bilder"][k]["status"] == "getmap_png_valide"
+				for k in LAYERS
+			))
 			for name in LAYERS:
 				self.assertTrue((target / f"bev_{name}_test.png").exists())
 				self.assertTrue((target / f"bev_{name}_test.pgw").exists())
@@ -181,6 +220,40 @@ class BEVWMSProbeTests(unittest.TestCase):
 				with self.assertRaises(FileExistsError):
 					run(output=target)
 				mocked_load.assert_not_called()
+
+
+	def test_full_diagnostic_with_partial_capabilities_still_downloads_all_five(self):
+		to_m = Transformer.from_crs("EPSG:4326", "EPSG:31256",
+			always_xy=True)
+		x, y = to_m.transform(16.363, 48.223)
+		clip = box(x-14, y-10, x+14, y+10)
+		xml = CAP_XML
+		for name in ("IRGB", "RGIR", "RIRB", "IR"):
+			xml = xml.replace(
+				f"<Layer><Name>bev:{name}</Name><Title>{name}</Title></Layer>".encode(),
+				b""
+			)
+		with tempfile.TemporaryDirectory() as tmp:
+			calls = []
+			def fake_request(url):
+				q = parse_qs(urlparse(url).query)
+				if q["REQUEST"] == ["GetCapabilities"]:
+					return xml
+				alias = {layer: name for name, layer in LAYERS.items()}[q["LAYERS"][0]]
+				calls.append(q["LAYERS"][0])
+				return to_png(sample_images(
+					(int(q["WIDTH"][0]), int(q["HEIGHT"][0])))[alias])
+			with patch("scripts.probe_bev_wms.load_polygons",
+				return_value=([], {"bbox_lon_lat": [16.36, 48.22, 16.37, 48.23]}, clip, [])), patch(
+				"scripts.probe_bev_wms.request_bytes", side_effect=fake_request):
+				report = run(output=Path(tmp)/"wms", pixel_size_m=1, padding_m=0)
+			self.assertEqual(calls, list(LAYERS.values()))
+			self.assertTrue(report["vergleich"]["alle_kanalreplikate_intern_konsistent"])
+			self.assertEqual(report["wms"]["metadaten"]["nicht_in_capabilities"],
+				["bev:IR", "bev:IRGB", "bev:RGIR", "bev:RIRB"])
+			self.assertFalse(report["wms"]["bilder"]["ir"]["in_capabilities"])
+			self.assertEqual(report["wms"]["bilder"]["ir"]["status"], "getmap_png_valide")
+			self.assertTrue((Path(tmp)/"wms"/"bev_ir_test.png").is_file())
 
 
 if __name__ == "__main__":
