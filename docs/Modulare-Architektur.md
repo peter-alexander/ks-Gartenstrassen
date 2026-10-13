@@ -139,11 +139,20 @@ Der Bericht meldet praktisch vollständige FMZK-Flächendeckung (nur **0,038 m²
 
 **Festlegung:** Modul 3 bleibt in dieser Fassung als eigenständig arbeitendes, getestetes Modul bestehen. Erst konkrete Gegenbeispiele oder eine neue fachliche Anforderung sind Anlass, die Flächenklassen bzw. Straßenraum-Maske anzupassen. Nächster eigenständiger Schritt ist die **Datenquelle und Methodik für Modul 4 – Kronenüberschirmung** festzulegen; Bodenbegrünung wird dadurch nicht rückwirkend ersetzt oder mit der Kronenfläche addiert.
 
-## 4. Kronenüberschirmung – geplant, noch nicht implementiert
+## 4. Kronenüberschirmung – erste Vergleichsmodule implementiert
 
-Eine spätere, unabhängige Datenquelle wird die projizierte Baumkronenfläche liefern; diese wird mit derselben Straßenraum-Maske geschnitten. Die Kennzahl **Kronenüberschirmungsgrad** ist unabhängig von der Bodenbegrünung und muss nicht mit ihr zu einer einzigen Flächenzahl addiert werden: Begrünter Boden und Baumkronen können übereinander liegen.
+Für Modul 4 ist eine **zweite austauschbare Schnittstelle** definiert: **Baumkronen-GeoJSON-FeatureCollection mit Polygon/MultiPolygon in EPSG:4326**, unabhängig davon, ob die Kronen als Kreise aus Baumstandorten oder aus Raster-/Bilddaten entstanden sind. Modul 4 enthält:
 
-Wir legen heute **noch keine ungeprüfte Kronendatenquelle oder Klassenlogik** fest.
+- **Datenadapter:** `scripts/fetch_vienna_trees.py` für kleinen WFS-Ausschnitt des Wiener Baumkatasters (`ogdwien:BAUMKATOGD`).
+- **Kronen-Provider:** `scripts/build_canopy_circles.py` für Kreisapproximationen auf Basis städtischer bzw. optionaler OSM-Punktdaten, mit Dubletten-/Fehlmaß-Bericht.
+- **Berechnung:** `scripts/measure_canopy_cover.py` (Kronen-Union ∩ Straßenraum-Union, geteilt durch Straßenraum-Union), völlig unabhängig vom konkreten Kronen-Provider.
+- **Methodenvergleich:** `scripts/compare_canopy_methods.py` zum Vergleich mehrerer Kronenmasken einschließlich Überlagerung und nur einseitig ausgewiesener Flächen.
+
+Als unabhängiger Vergleichskandidat steht das **Grünraummonitoring 2023 Wien** bereit (Rasterauflösung 50 cm; `Baumschicht` Klasse 3); dessen WMS-Pixel-/Klassenübergabe muss vor dem Raster-Import verifiziert werden. Eine eigene BEV-Infrarot-Bildklassifikation ist eine spätere Option. **Es liegen noch keine lokalen, validierten Kronen-Messergebnisse vor.**
+
+Der Überschirmungsgrad bleibt **unabhängig von der Bodenbegrünung** und darf nicht zur Begrünungsquote addiert werden. Eine Kronenquelle von außerhalb des Straßenraums ist relevant, sobald deren Kronenpolygon über den Straßenraum reicht. Die erste WFS-Abfrage muss lokal getestet werden.
+
+**[Modul-4-Methodik, Vergleichsvarianten und Prüfschritte](Modul-4-Baumkronen-Vergleich.md).**
 
 ## 5. Weitere Kriterien – offen
 
