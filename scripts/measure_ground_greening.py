@@ -20,7 +20,9 @@ from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 from shapely.ops import transform
 
 from scripts.analyze_gpkg import polygonal_part
-from scripts.analyze_street_space import GREEN_CODES, load_polygons
+from scripts.fmzk_source import FMZK_GROUND_GREEN_CODES, load_polygons
+
+GREEN_CODES = FMZK_GROUND_GREEN_CODES
 
 DEFAULT_STREET = Path("data/processed/street_space/fmzk_strassenraum.geojson")
 DEFAULT_FMZK = Path("data/processed/fmzk_test.gpkg")
