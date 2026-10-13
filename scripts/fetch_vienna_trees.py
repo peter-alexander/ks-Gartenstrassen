@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from pyproj import Transformer
 
 from scripts.fmzk_source import load_polygons
+from scripts.geojson_crs import require_geojson_lonlat
 
 SERVICE = "https://data.wien.gv.at/daten/geo"
 TYPE_NAME = "ogdwien:BAUMKATOGD"
@@ -52,6 +53,7 @@ def build_wfs_url(bbox, *, max_features=2000):
 def validate_result(data, bbox, *, max_features):
 	if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
 		raise ValueError("WFS lieferte keine GeoJSON-FeatureCollection")
+	require_geojson_lonlat(data, label="Baumkataster-WFS")
 	features = data.get("features")
 	if not isinstance(features, list):
 		raise ValueError("WFS hat keine Featureliste geliefert")
