@@ -48,6 +48,14 @@ Erfolgreich abgerufen (gleiche Standard-BBOX): **264 Features Verkehr 1, 685 Fea
 
 Die FMZK-Klassennamen sind durch das amtliche [Attribut- und Werteverzeichnis (PDF)](https://www.wien.gv.at/pdf/ma41/fmzk-attribute-wertebereiche.pdf) dokumentiert.
 
+## Lokalen Git-Stand synchronisieren
+
+`scripts/update-and-sync.sh` gleicht den lokalen `main`-Branch bidirektional mit `origin/main` ab. Nicht ignorierte lokale Änderungen werden dabei zuerst committet, anschließend werden Remote-Änderungen per Rebase eingespielt und der resultierende Stand gepusht. Bei Konflikten oder einer offenen Git-Operation bricht das Skript ab, ohne Historie zu überschreiben.
+
+```bash
+./scripts/update-and-sync.sh --message "Beschreibe meine Änderung"
+```
+
 ## Datenqualität und fachliche Einschränkungen
 
 1. WFS und Gesamt-GeoPackage stammen aus derselben FMZK-Produktfamilie, aber **Datenstand und identische Geometrien sind noch nicht verifiziert**.
