@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
 from PIL import Image
-from pyproj import Transformer
+from pyproj import CRS, Transformer
 from shapely.ops import transform
 
 from scripts.fmzk_source import load_polygons
@@ -235,6 +235,16 @@ def raster_inventory(content, *, maximum_colors=30):
 		}
 
 
+def worldfile_parameters(geometry):
+	"""WMS-PNG zentergenau im angegebenen Projektions-CRS verorten."""
+	minx, miny, maxx, maxy = geometry["bbox"]
+	width, height = geometry["width"], geometry["height"]
+	pixel_x = (maxx - minx) / width
+	pixel_y = -(maxy - miny) / height
+	return (pixel_x, 0.0, 0.0, pixel_y,
+		minx + pixel_x / 2, maxy + pixel_y / 2)
+
+
 def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	padding_m=10, pixel_size_m=0.5):
 	_, manifest, clip, _ = load_polygons(fmzk)
@@ -262,6 +272,11 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	output.mkdir(parents=True, exist_ok=True)
 	(output / "getcapabilities.xml").write_bytes(cap_bytes)
 	(output / "grm2023_testausschnitt.png").write_bytes(raster_bytes)
+	(output / "grm2023_testausschnitt.pgw").write_text(
+		"\n".join(format(v, ".12f") for v in worldfile_parameters(geometry)) + "\n",
+		encoding="ascii")
+	(output / "grm2023_testausschnitt.prj").write_text(
+		CRS.from_user_input(crs).to_wkt() + "\n", encoding="utf-8")
 	if legend_bytes is not None:
 		(output / "grm2023_legende.png").write_bytes(legend_bytes)
 	report = {
@@ -286,6 +301,8 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 		"ausgabe": {
 			"capabilities": str(output / "getcapabilities.xml"),
 			"wms_png": str(output / "grm2023_testausschnitt.png"),
+			"worldfile_pgw": str(output / "grm2023_testausschnitt.pgw"),
+			"projektion_prj": str(output / "grm2023_testausschnitt.prj"),
 			"legende_png": (str(output / "grm2023_legende.png")
 				if legend_bytes else None),
 		},
