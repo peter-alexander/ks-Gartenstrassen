@@ -46,7 +46,7 @@ class BEVRGBIRDiagnosticsTests(unittest.TestCase):
 		self.assertTrue(rgb_footprint.equals(nir_footprint))
 
 	def test_rgbi_requires_four_bands_and_georeferencing(self):
-		with self.assertRaisesRegex(ValueError, "vier Bändern"):
+		with self.assertRaisesRegex(ValueError, "Erwartet 4 Rasterbänder"):
 			inspect_dataset(fake_gdal_info(3))
 		data = fake_gdal_info(4)
 		del data["geoTransform"]
