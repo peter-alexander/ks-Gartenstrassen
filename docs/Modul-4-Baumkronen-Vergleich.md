@@ -144,6 +144,18 @@ Die A/B-Gegenüberstellung ist zunächst nur möglich, wenn eine geeignete OSM-G
 
 **Datengrundlage:** Grünraummonitoring 2023 der Stadt Wien, Rasterbasis 50 cm, **Baumschicht als thematische Klasse 3**. Der WMS-Ebenenname ist **`GRM2023OGD`**, Dienst **`https://data.wien.gv.at/daten/wms`**. Die amtliche Methodik verwendet 2023er Sommer-Infrarotbilder und Höhendaten; diese Quelle unterscheidet sich grundlegend von der Kreisapproximation des Baumkatasters.
 
+**Wichtig – Erhebungsjahr ≠ Layername ≠ Veröffentlichungsdatum (geprüft am 14.10.2026):**
+
+| Datensatz / WMS-Layer | Amtlich dokumentierte Datenbasis | Luftbild-/Datengrundlage |
+| --- | --- | --- |
+| [Grünraummonitoring 2022 Wien](https://www.data.gv.at/datasets/684d2bbd-9bb7-319c-acb6-c1120e74e123?locale=de), `GRM2022OGD` | **2022** | Infrarot-Bildflüge am **15./18. Mai, 11. Juni und 13. Juli 2022**; FMZK Juli 2022; Höhenbasis aus Orthofoto 2019 |
+| [Grünraummonitoring 2023 Wien](https://www.data.gv.at/datasets/ec7be5af-5b15-302a-9757-fb2a45181c8a?locale=de), **`GRM2023OGD` (unsere Quelle)** | **2023** | Infrarot-True-Orthofotos vom **14./18. Juli und 21./22. August 2023**; FMZK Juli 2023; ALS 2023 |
+
+Die Stadt Wien nennt im [OGD-Changelog](https://digitales.wien.gv.at/changelog/) für beide Datensätze als Veröffentlichungsdatum im aktuellen Katalog den **22. Jänner 2026**. Es gibt also **nicht** einfach einen einzigen „2023 veröffentlichten Datenstand 2022“: Die Layer `GRM2022OGD` und `GRM2023OGD` sind unterschiedliche Datenprodukte. Für **die hier untersuchte braune Baumschicht** ist eindeutig `GRM2023OGD` im lokalen GetMap-Bericht verzeichnet; wir verwenden daher die **2023er** Befliegungen als Referenzzeitraum.
+
+**Folge für die Bildinterpretation:** Ein Baum, der im aktuellen Baumkataster erscheint, aber in der GRM2023-Baumschicht fehlt, **könnte nach Sommer 2023** gepflanzt oder relevant gewachsen sein. Ebenso möglich sind Modellvereinfachung, versetzte Punkte, saisonale/zeitliche Unterschiede und Klassifikationsfehler. **Aus dem bloßen Layerunterschied lässt sich kein Pflanzdatum ableiten.** 
+
+
 **Wichtige Unterscheidung:** „Baumschicht = Klasse 3“ bezeichnet die **fachliche Klasse des Quellrasters**, nicht unmittelbar den PNG-Pixelwert. Für **das tatsächlich diagnostizierte WMS-Bild** ist jetzt durch neun exakt vorkommende Rasterfarben und die mitgelieferte Legende belegt, dass **#38A800** die Baumschicht darstellt. Eine andere oder geänderte WMS-Ausgabe darf dennoch nicht ungeprüft dieselbe Farbzuordnung übernehmen.
 
 ### Schritt C1 – Metadaten, Legende und Test-Raster sichern
@@ -297,4 +309,4 @@ Alle Kronenprovider sollen dieselbe **Kronen-Geometrieschnittstelle v1** bediene
 
 Das Vergleichsmodul berichtet bewusst **Unterschiede**, nicht „der beste Ansatz“. Ohne unabhängige Referenzflächen (z. B. manuell geprüfte Kronenumrisse über Sommerorthofotos) kann kein Verfahren allein auf Basis einer größeren Überschirmungsquote als genauer bezeichnet werden. Beim Wechsel des Standardproviders und bei Änderungen an der Straßenraum-Maske Vergleichsversion und SHA-256 erhalten.
 
-Quellinformationen: [Stadt Wien – Baumkataster](https://www.wien.gv.at/umwelt/stadtbaeume); [data.gv.at – Grünraummonitoring 2022](https://www.data.gv.at/datasets/684d2bbd-9bb7-319c-acb6-c1120e74e123?locale=de); [data.gv.at – OGD Update 09/2026](https://www.data.gv.at/ogd-update-wien-092026/); [BEV – Orthophoto Farbe](https://www.bev.gv.at/Services/Produkte/Luftbildprodukte/Orthophoto-Farbe.html).
+Quellinformationen: [Stadt Wien – Baumkataster](https://www.wien.gv.at/umwelt/stadtbaeume); [Grünraummonitoring 2023 – amtliche Metadaten](https://www.data.gv.at/datasets/ec7be5af-5b15-302a-9757-fb2a45181c8a?locale=de); [Grünraummonitoring 2022 – amtliche Metadaten](https://www.data.gv.at/datasets/684d2bbd-9bb7-319c-acb6-c1120e74e123?locale=de); [Stadt Wien – OGD-Changelog](https://digitales.wien.gv.at/changelog/); [BEV – Orthophoto Farbe](https://www.bev.gv.at/Services/Produkte/Luftbildprodukte/Orthophoto-Farbe.html).
