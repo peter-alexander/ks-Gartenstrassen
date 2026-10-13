@@ -170,7 +170,52 @@ Das Modul **berechnet noch keine Baumkronenfläche und erzeugt absichtlich kein 
 
 **Bitte nach dem ersten Lauf die `grm2023_wms_diagnose.json` und die beiden PNGs (Legende, Kartenausschnitt) gemeinsam ansehen bzw. bereitstellen.** Erst dadurch können wir klären, ob WMS-Pixel wirklich eindeutige Klassen ermöglichen.
 
-### Schritt C2 – Baumschicht fachlich verifizieren (noch offen)
+### Schritt C2 – Baumschichtfarben anhand der echten WMS-Ausgabe bestätigt
+
+**Diagnose der vom Nutzer lokal abgerufenen Dateien (13./14.10.2026):**
+
+- WMS-GetMap: `GRM2023OGD`, `EPSG:31256`, **923 × 858 Pixel = 791.934 Pixel**.
+- **Genau neun RGBA-Farben**, alle Pixel vollständig deckend. Keine Mischfarben oder Transparenzen in diesem Testbild.
+- Die WMS-Legende unterscheidet **Grasschicht**, **Strauchschicht** und **Baumschicht**. Die Baumschicht ist das **dunkelgrüne Raster-RGB `#38A800` (56,168,0)**. Die Legenden-Symbole weichen teilweise um 1–2 RGB-Stufen ab, die neun Klassen sind jedoch eindeutig zuzuordnen; das Programm verwendet **ausschließlich die tatsächlich vorliegenden GetMap-Farben** und keine Näherung.
+- Pixel der **Baumschicht: 71.892**; alle zusammen belegen im **gesamten WMS-Anfragebild** rund **17.958,20 m²**. Dieser Wert ist **nicht** die Kronenüberschirmung des Straßenraums.
+- Die tatsächliche WMS-Pixelbreite beträgt rund **0,49969 m** und die Pixelhöhe **0,49990 m**. Diese Rasterzellen des WMS-**Anfragegitters** werden geometrisch verarbeitet; eine 1:1-Übereinstimmung mit originalen 50-cm-Rohdaten oder eine vermessene Kronengrenze wird nicht behauptet.
+- Die exakten Bild- und Legenden-SHA-256 werden gegen `grm2023_wms_diagnose.json` geprüft. Bei anderen Farben, transparenten Pixeln, fremder Projektion oder abweichendem Worldfile wird die Polygonerzeugung **abgebrochen**.
+
+### Schritt C3 – Eigenständiger Kronenprovider für das WMS-Raster
+
+**Implementiert:** `scripts/build_canopy_grm2023.py`. Der Provider liest den gesicherten Diagnoseordner und verwandelt zusammenhängende Baum-Pixelzellen in echte, metrisch korrekt verortete Polygone. Dafür werden horizontal aufeinanderfolgende Baum-Pixel erst als gemeinsame Rechtecke („Runs“) und dann geometrisch vereinigt – kein willkürliches Glätten, Buffering oder Schätzen aus anderen Grünklassen. Nur **Baumschicht** zählt; Gras und Sträucher werden ausgeschlossen.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.build_canopy_grm2023
+```
+
+Outputs unter `data/processed/baumkronen/grm2023/processed/`:
+
+- `baumkronen_grm2023.geojson` – **eine** `FeatureCollection` mit einem `Polygon`/`MultiPolygon`-Feature, EPSG:4326, als **austauschbare Kronen-GeoJSON-Maske** für das vorhandene Modul `measure_canopy_cover.py`.
+- `baumkronen_grm2023_bericht.json` – Flächen, Pixelzahlen, geometrische Teilstücke, Rastermaß, alle WMS-Klassen sowie Hashes der Datenquellen.
+
+**Überschirmungsgrad berechnen**, ohne Modul 2/3/4-Messlogik zu ändern:
+
+```bash
+.venv/bin/python -m scripts.measure_canopy_cover \
+	--crowns-geojson data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson \
+	--out-dir data/processed/ueberschirmung/grm2023
+```
+
+**Beide Methoden A und C direkt vergleichen** (identische Straßenraum-Maske):
+
+```bash
+.venv/bin/python -m scripts.compare_canopy_methods \
+	--candidate baumkataster=data/processed/baumkronen/baumkronen_kreise.geojson \
+	--candidate grm2023=data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson
+```
+
+Bei beiden Varianten sind die Werte zunächst **methodenabhängige Schätzungen**. Unser bisheriger Vergleichswert aus dem Baumkataster beträgt **7,82 %**. Für Variante C liegt **noch kein lokaler Straßenraum-Schnitt** vor; die 17.958 m² beziehen sich auf die volle WMS-Testbildfläche und sind nicht als Überschirmungsquote verwendbar.
+
+**Noch zu kontrollieren:** Wie gut folgt das gerenderte WMS-Bild den wirklichen Baumkronengrenzen? Die WMS-Farbklassen sind im Testbild eindeutig, aber der Dienst kann das Originalraster intern resamplen. Unterschiede zu Kronenkreisen müssen im Orthofoto und besonders an Straßenrändern überprüft werden. Eine höhere Fläche oder IoU allein beweist keine höhere Genauigkeit.
+
+### Ursprüngliche Prüfschritte / verbleibende Einschränkungen
 
 1. GetCapabilities/Stile und die tatsächlich gelieferte WMS-Legende auf eine **eindeutige, dokumentierte Farbzordnung zur Baumschicht Klasse 3** prüfen; alternativ nach **klassencodierten Quellrastern** suchen, was methodisch vorzuziehen wäre.
 2. Überprüfen, ob Pixel **exakte Klassenfarben** oder Antialiasing-/Resampling-Mischfarben enthalten, und wie NoData/Transparenz aussieht. Ambige Mischpixel dürfen nicht stillschweigend als „Baum“ zählen.
