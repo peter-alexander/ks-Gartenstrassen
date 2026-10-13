@@ -88,6 +88,20 @@ Die BBOX-Grenze wird mit den Metadaten der Extraktion überprüft. Fehlende Klas
 
 **Wichtig:** Die Prozentspalte ist der Flächenanteil an der **gesamten Test-BBOX**. Sie ist **noch kein Grünanteil im öffentlichen Straßenraum**: Dieser braucht erst eine fachlich geprüfte Straßenflächenabgrenzung.
 
+## Synchronisierung des Quellcodes
+
+Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
+
+```bash
+./scripts/update-and-sync.sh
+# optional mit eigener Commit-Nachricht:
+./scripts/update-and-sync.sh --message "Beschreibung der Änderungen"
+```
+
+**Vor der ersten Verwendung nach dieser Umstellung** einmal `git pull --ff-only` ausführen, damit die aktuellen Ignore-Regeln bereits lokal wirken, **bevor** das Skript `git add -A` aufruft. Es ignoriert `/data/` sowie `*.gpkg` und GeoPackage-Journaldateien auch außerhalb von `data/`. Der vollständige FMZK-Datensatz und alle Auswertungen bleiben lokal.
+
+Zur Kontrolle: `git status --short` und `git ls-files '*.gpkg' 'data/**'`. Der zweite Befehl sollte keine Dateien zeigen. Einträge, die bereits von Git verfolgt werden, werden durch `.gitignore` nicht nachträglich entfernt.
+
 ## Tests
 
 ```bash
