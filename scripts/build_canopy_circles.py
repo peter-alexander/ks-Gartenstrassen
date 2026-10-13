@@ -1,306 +1,92 @@
 #!/usr/bin/env python3
-"""Austauschbare Baumkronen-Kreise aus Wiener Baumkataster/OSM-GeoJSON.
+"""Methode A – ausschließlich Wiener Baumkataster: Kronenkreise aus Klassenmittelwerten.
 
-Die Ausgabe ist ein reines Polygon-GeoJSON in EPSG:4326 für Modul 4.
-OSM ohne Kronendurchmesser bleibt ausgeschlossen, außer eine explizite
-Schätzung wurde über --osm-default-diameter-m angefordert.
+Diese Ein-Quellen-Variante bleibt unverändert mit dem dokumentierten
+Referenzwert 7,82 % vergleichbar. OSM und Baumreihen gehören zu Methode B.
 """
 
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
-import hashlib
 import json
-import math
-import re
 from pathlib import Path
 
-from pyproj import Transformer
-from shapely.geometry import Point, mapping
-
 from scripts.fmzk_source import load_polygons
-from scripts.geojson_crs import require_geojson_lonlat
+from scripts.canopy_tree_common import (
+	CITY_DIAMETER_FIELD,
+	DUPLICATE_DISTANCE_M,
+	read_points,
+	parse_wien_crown_range,
+	diameter_from_properties,
+	parse_trees,
+	merge_trees,  # alter Export für rückwärtskompatible Tests, nicht im A-Lauf
+	crowns_from_trees,
+)
 
 DEFAULT_FMZK = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_OUTPUT = Path("data/processed/baumkronen")
-# KRONENDURCHMESSER ist im Wiener WFS nur der Kategoriencode.
-# Der metrische Bereich steht in KRONENDURCHMESSER_TXT (z. B. "16-18 m").
-CITY_DIAMETER_FIELD = "KRONENDURCHMESSER_TXT"
-CITY_CATEGORY_FIELD = "KRONENDURCHMESSER"
-OSM_DIAMETER_FIELDS = ("diameter_crown", "crown_diameter")
-# Nur geschlossene, eindeutig metrische Bereiche. Offene Klassen werden
-# nicht automatisch nach oben oder unten extrapoliert.
-CROWN_RANGE = re.compile(
-	r"^\s*(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)\s*m\s*$",
-	re.IGNORECASE,
-)
-MAX_DIAMETER_M = 50
-DUPLICATE_DISTANCE_M = 2.0
-
-
-def read_points(source, *, provider):
-	path = Path(source)
-	if not path.is_file():
-		raise FileNotFoundError(f"Baumquell-Datei fehlt: {path}")
-	data = json.loads(path.read_text(encoding="utf-8"))
-	if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
-		raise ValueError(f"{provider}: GeoJSON-FeatureCollection erwartet")
-	require_geojson_lonlat(data, label=provider)
-	if not isinstance(data.get("features"), list):
-		raise ValueError(f"{provider}: features fehlen")
-	return data["features"], hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def parse_wien_crown_range(value):
-	"""Liest nur explizite geschlossene Meterintervalle, z. B. '16-18 m'.
-
-	Die Daten sind kategorisiert, nicht metergenau. Der Intervallmittelpunkt
-	ist daher eine methodisch deklarierte Näherung, kein Messwert.
-	"""
-	if value is None or not str(value).strip():
-		return None, "durchmesser_fehlt"
-	text = str(value).replace(chr(160), " ").strip()
-	match = CROWN_RANGE.fullmatch(text)
-	if match is None:
-		return None, "unlesbare_oder_offene_kronenklasse"
-	lower, upper = (float(group.replace(",", ".")) for group in match.groups())
-	if not (0 <= lower < upper <= MAX_DIAMETER_M):
-		return None, "unplausible_kronenklasse"
-	midpoint = (lower + upper) / 2
-	if midpoint <= 0:
-		return None, "unplausible_kronenklasse"
-	return (lower, upper, midpoint), "klassenmittelwert"
-
-
-def diameter_from_properties(properties, provider, *, default_osm_diameter=None):
-	if provider == "wien":
-		# Niemals auf das numerische KRONENDURCHMESSER-Feld zurückfallen:
-		# Das ist nur ein Kategoriecode, keine Längenangabe.
-		interval, status = parse_wien_crown_range(properties.get(CITY_DIAMETER_FIELD))
-		if interval is None:
-			return None, status, CITY_DIAMETER_FIELD
-		return interval[2], status, CITY_DIAMETER_FIELD
-	fields = OSM_DIAMETER_FIELDS
-	for field in fields:
-		if field not in properties or properties[field] is None or str(properties[field]).strip() == "":
-			continue
-		value = properties[field]
-		try:
-			diameter = float(value)
-		except (TypeError, ValueError):
-			return None, "unlesbarer_durchmesser", field
-		if not math.isfinite(diameter) or not (0 < diameter <= MAX_DIAMETER_M):
-			return None, "unplausibler_durchmesser", field
-		return diameter, "gemessen_oder_erfasst", field
-	if provider == "osm" and default_osm_diameter is not None:
-		if not math.isfinite(default_osm_diameter) or not (0 < default_osm_diameter <= MAX_DIAMETER_M):
-			raise ValueError("OSM-Standarddurchmesser muss größer 0 und höchstens 50 m sein")
-		return default_osm_diameter, "explizit_geschaetzt", "osm_default"
-	return None, "durchmesser_fehlt", None
-
-
-def parse_trees(features, provider, *, default_osm_diameter=None):
-	to_m = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform
-	trees = []
-	reasons = Counter()
-	seen = set()
-	for index, feature in enumerate(features):
-		if not isinstance(feature, dict) or feature.get("type") != "Feature":
-			reasons["ungueltiges_feature"] += 1
-			continue
-		geometry = feature.get("geometry") or {}
-		properties = feature.get("properties") or {}
-		if not isinstance(properties, dict):
-			reasons["ungueltige_attribute"] += 1
-			continue
-		if provider == "osm" and properties.get("natural") == "tree_row":
-			reasons["baumreihe_ohne_einzelbaumgeometrie"] += 1
-			continue
-		if provider == "osm" and properties.get("natural") != "tree":
-			# Aus OSM-Exports ausschließlich bestätigte Baum-Punkte
-			# akzeptieren, nicht beliebige Punkte ohne natural-Tag.
-			reasons["kein_osm_baum"] += 1
-			continue
-		if geometry.get("type") != "Point":
-			reasons["keine_punktgeometrie"] += 1
-			continue
-		coords = geometry.get("coordinates") or []
-		if len(coords) < 2:
-			reasons["ungueltige_koordinate"] += 1
-			continue
-		lon, lat = coords[:2]
-		if not (isinstance(lon, (int, float)) and isinstance(lat, (int, float))
-			and math.isfinite(lon) and math.isfinite(lat)
-			and -180 <= lon <= 180 and -90 <= lat <= 90):
-			reasons["ungueltige_koordinate"] += 1
-			continue
-		diameter, quality, field = diameter_from_properties(properties, provider,
-			default_osm_diameter=default_osm_diameter)
-		if diameter is None:
-			reasons[quality] += 1
-			continue
-		identifier = str(feature.get("id") or properties.get("OBJECTID")
-			or properties.get("objectid") or properties.get("id") or f"index:{index}")
-		key = (provider, identifier)
-		if key in seen:
-			reasons["doppelte_quell_id"] += 1
-			continue
-		seen.add(key)
-		x, y = to_m(lon, lat)
-		trees.append({
-			"provider": provider, "id": identifier, "point": Point(x, y),
-			"diameter_m": diameter, "diameter_quality": quality,
-			"diameter_field": field,
-			"diameter_class_raw": (
-				str(properties.get(CITY_DIAMETER_FIELD))
-				if provider == "wien" else None
-			),
-			"diameter_category_code": (
-				properties.get(CITY_CATEGORY_FIELD) if provider == "wien" else None
-			),
-		})
-	return trees, dict(sorted(reasons.items()))
-
-
-def merge_trees(city, osm, *, duplicate_distance=DUPLICATE_DISTANCE_M):
-	"""Städtische Punkte behalten; nahe OSM-Punkte vorsichtig als mögliche Dublette.
-
-	Kein globales Vereinigen benachbarter Bäume untereinander. Prüfbare Liste
-	mit möglicher Fehlzuordnung im Bericht; OSM-Punkt zählt nicht doppelt.
-	"""
-	if not (0 <= duplicate_distance <= 5):
-		raise ValueError("Dublettenabstand muss zwischen 0 und 5 Metern liegen")
-	combined = list(city)
-	matches = []
-	for tree in osm:
-		nearest = min(city, key=lambda other: tree["point"].distance(other["point"]), default=None)
-		distance = tree["point"].distance(nearest["point"]) if nearest is not None else math.inf
-		if nearest is not None and distance <= duplicate_distance:
-			matches.append({
-				"osm_id": tree["id"], "wien_id": nearest["id"],
-				"abstand_m": round(distance, 3),
-				"status": "potenzielle_dublette_ausgeschlossen_pruefen",
-			})
-		else:
-			combined.append(tree)
-	return combined, matches
-
-
-def crowns_from_trees(trees, *, area_of_interest, max_radius_m=25):
-	"""Erzeuge Kronenkreise vollflächig, auch bei Baumstandorten außerhalb der Straße."""
-	if not trees:
-		raise ValueError("Keine verwendbaren Baumstandorte")
-	crowns = []
-	skipped = Counter()
-	features = []
-	to_lonlat = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
-	# clippen erst im Messmodul; Bäume außerhalb können in die Straße ragen.
-	for tree in trees:
-		if tree["point"].distance(area_of_interest) > max_radius_m:
-			skipped["ausserhalb_untersuchungsbereich"] += 1
-			continue
-		radius = tree["diameter_m"] / 2
-		if radius > max_radius_m:
-			raise ValueError("Kronenradius über max_radius_m")
-		circle = tree["point"].buffer(radius, quad_segs=32)
-		if not circle.intersects(area_of_interest):
-			skipped["krone_ohne_kontakt_zum_gebiet"] += 1
-			continue
-		crowns.append(circle)
-		center = to_lonlat(tree["point"].x, tree["point"].y)
-		geometry = {
-			"type": "Polygon",
-			"coordinates": [[list(to_lonlat(x, y)) for x, y in circle.exterior.coords]],
-		}
-		features.append({"type": "Feature", "properties": {
-			"source": tree["provider"], "source_id": tree["id"],
-			"crown_diameter_m": tree["diameter_m"],
-			"diameter_status": tree["diameter_quality"],
-			"diameter_feld": tree["diameter_field"],
-			"diameter_klasse_text": tree.get("diameter_class_raw"),
-			"diameter_kategorie": tree.get("diameter_category_code"),
-			"center_lon": center[0], "center_lat": center[1],
-			"geometry_method": "point_buffer_circle_32",
-		}, "geometry": geometry})
-	return features, dict(sorted(skipped.items()))
 
 
 def run(*, wien, osm=None, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	osm_default_diameter=None, duplicate_distance=DUPLICATE_DISTANCE_M):
+	if osm is not None or osm_default_diameter is not None or duplicate_distance != DUPLICATE_DISTANCE_M:
+		raise ValueError("Methode A verarbeitet nur Wiener Baumkataster. Für OSM bitte build_canopy_combined (Methode B) verwenden.")
+	if wien is None:
+		raise ValueError("Methode A benötigt --wien mit der WFS-GeoJSON-Datei")
 	_, manifest, area, _ = load_polygons(fmzk)
-	if not wien and not osm:
-		raise ValueError("Mindestens eine Quelldatei --wien oder --osm angeben")
-	trees = {}
-	sources = {}
-	exclusions = {}
-	for provider, path in (("wien", wien), ("osm", osm)):
-		if path is None:
-			trees[provider] = []
-			continue
-		points, digest = read_points(path, provider=provider)
-		parsed, excluded = parse_trees(points, provider,
-			default_osm_diameter=osm_default_diameter)
-		trees[provider] = parsed
-		sources[provider] = {"path": str(path), "sha256": digest,
-			"eingabe_features": len(points), "verwertbare_baeume": len(parsed)}
-		exclusions[provider] = excluded
-		if provider == "wien":
-			# Rohwerte der Klasseneinteilung im Bericht, besonders für
-			# nicht parsebare / offene Intervalle, sichtbar halten.
-			sources[provider]["kronenklassen_txt_haeufigkeiten"] = dict(sorted(
-				Counter(str((item.get("properties") or {}).get(CITY_DIAMETER_FIELD))
-					for item in points if isinstance(item, dict)
-					and isinstance(item.get("properties"), dict)).items()
-			))
-	merged, matches = merge_trees(trees["wien"], trees["osm"],
-		duplicate_distance=duplicate_distance)
-	features, spatial_exclusions = crowns_from_trees(merged, area_of_interest=area)
+	points, digest = read_points(wien, provider="wien")
+	parsed, excluded = parse_trees(points, "wien")
+	features, spatial_exclusions = crowns_from_trees(parsed, area_of_interest=area)
 	if not features:
-		raise ValueError("Keine Baumkronen überschneiden das Testgebiet; Quellen/BBOX prüfen")
+		raise ValueError("Keine Baumkronen überschneiden das Testgebiet; Quelle/BBOX prüfen")
 	output = Path(output)
 	output.mkdir(parents=True, exist_ok=True)
 	geojson_path = output / "baumkronen_kreise.geojson"
 	geojson_path.write_text(json.dumps({
 		"type": "FeatureCollection", "features": features,
 	}, ensure_ascii=False) + "\n", encoding="utf-8")
+	sources = {"wien": {
+		"path": str(wien), "sha256": digest,
+		"eingabe_features": len(points), "verwertbare_baeume": len(parsed),
+		"kronenklassen_txt_haeufigkeiten": dict(sorted(
+			Counter(str((item.get("properties") or {}).get(CITY_DIAMETER_FIELD))
+				for item in points if isinstance(item, dict)
+				and isinstance(item.get("properties"), dict)).items()
+		)),
+	}}
 	report = {
 		"schema_version": 1,
-		"methode": "Wien: Mittelpunkt des Kronendurchmesser-Klassenintervalls; OSM: expliziter metrischer Wert; Kronenkreis um Stammpunkt",
-		"status": "Vergleichsvariante, keine vermessenen Kronenpolygone",
+		"methode": "A – nur Wien: Mittelpunkt des Kronendurchmesser-Klassenintervalls; Kronenkreis um Stammpunkt",
+		"status": "Vergleichsvariante A, keine vermessenen Kronenpolygone",
 		"datum_utc": datetime.now(timezone.utc).isoformat(),
 		"fmzk_bbox_lon_lat": manifest["bbox_lon_lat"],
-		"quellen": sources, "ausgeschlossene_eingabefeatures": exclusions,
+		"quellen": sources,
+		"ausgeschlossene_eingabefeatures": {"wien": excluded},
 		"baumkronen": len(features),
-		"quellen_im_ergebnis": dict(Counter(f["properties"]["source"] for f in features)),
+		"quellen_im_ergebnis": {"wien": len(features)},
 		"ausgeschlossen_raeumlich": spatial_exclusions,
-		"osm_default_diameter_m": osm_default_diameter,
-		"osm_wien_dublettenabstand_m": duplicate_distance,
-		"moegliche_dubletten": matches,
-		"bemerkung": "KRONENDURCHMESSER ist nur eine Kategorie. Wien wird ausschließlich aus KRONENDURCHMESSER_TXT als Mittelwert geschlossener Meterbereiche gelesen (z.B. 16-18 m -> 17 m). Offene/unklare Klassen werden mit Grund ausgeschlossen, niemals durch den Kategoriecode ersetzt. Stammpunkt plus Kreis ist eine Näherung; OSM ohne Kronenmaß bleibt ohne ausdrückliche Schätzung ausgeschlossen.",
+		"osm_default_diameter_m": None,
+		"osm_wien_dublettenabstand_m": DUPLICATE_DISTANCE_M,
+		"moegliche_dubletten": [],
+		"bemerkung": "Methode A enthält keine OSM-Daten. Kronendurchmesser nach KRONENDURCHMESSER_TXT als Mittelpunkt geschlossener Meterklassen, offene/unklare Klassen ausgeschlossen.",
 		"ausgabe": str(geojson_path),
 	}
 	(output / "baumkronen_kreise_bericht.json").write_text(
 		json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-	print(f"Erzeugte Baumkronen-Kreise: {len(features)}")
-	print(f"Mögliche OSM/Wien-Dubletten: {len(matches)}")
+	print(f"Erzeugte Baumkronen-Kreise: {len(features)} (Methode A: ausschließlich Wien)")
 	print(f"GeoJSON: {geojson_path}")
 	return report
 
 
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--wien", type=Path, help="Wiener Baumkataster WFS-GeoJSON")
-	parser.add_argument("--osm", type=Path, help="OSM-Baumstandorte als GeoJSON")
+	parser.add_argument("--wien", type=Path, required=True,
+		help="Wiener Baumkataster WFS-GeoJSON")
 	parser.add_argument("--fmzk", type=Path, default=DEFAULT_FMZK)
 	parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUTPUT)
-	parser.add_argument("--osm-default-diameter-m", type=float,
-		help="Nur für ausdrücklich gewünschte OSM-Schätzvariante, sonst fehlende Durchmesser ausschließen")
-	parser.add_argument("--duplicate-distance-m", type=float, default=DUPLICATE_DISTANCE_M)
 	args = parser.parse_args()
 	try:
-		run(wien=args.wien, osm=args.osm, fmzk=args.fmzk, output=args.out_dir,
-			osm_default_diameter=args.osm_default_diameter_m,
-			duplicate_distance=args.duplicate_distance_m)
+		run(wien=args.wien, fmzk=args.fmzk, output=args.out_dir)
 	except (OSError, ValueError, KeyError, TypeError) as exc:
 		parser.exit(1, f"Fehler: {exc}\n")
 
