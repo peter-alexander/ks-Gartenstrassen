@@ -335,7 +335,7 @@ Lokale Ergebnisse:
 
 **Erster lokaler WFS-Abruf erfolgreich (13.10.2026): 252 Baumstandorte.** Nach dem behobenen WFS-`crs`-Problem wurde ein erster Messlauf durchgeführt (117 Kreise, 536,88 m², **1,15 %**). **Dieser Wert ist ungültig und verworfen**, weil `KRONENDURCHMESSER` als Meter statt als **Kategoriencode** behandelt wurde. Korrekt steht die metrische Klasse in `KRONENDURCHMESSER_TXT` (z. B. `16-18 m`). Der überarbeitete Kronenprovider verwendet nun für **geschlossene Klassenintervalle** den **Mittelwert** (17 m im Beispiel); unbekannte/offene Bereiche werden mit Ausschlussgrund dokumentiert und nicht frei geschätzt. **Nur Kronenkreise und Überschirmungsmessung erneut berechnen**, kein neuer WFS-Download notwendig. **Der neue lokale Lauf ergab vorläufig 117 Kronenkreise, 3.647,05 m² Kronenüberschirmung und 7,82 % auf 46.630,56 m² Straßenraum.** Der nachgereichte Bericht erklärt die Auswahl nun vollständig: **252 WFS-Punkte − 20 unbekannte Kronenklassen − 1 offene Klasse (`>21 m`) = 231 verwertbare Bäume; davon 57 außerhalb des Untersuchungsbereichs und 57 Kreise ohne Kontakt zum Testausschnitt → 117 erzeugte Kreise.** Die Zahlen sind damit konsistent. Noch offen bleibt, ob die 21 unbestimmten Kronenklassen die Straßenraumüberschirmung beeinflussen würden und wie gut die Kreisnäherung mit Orthofotos übereinstimmt. **7,82 % bleibt daher ein vorläufiger Messwert**, keine validierte Genauigkeitsangabe.
 
-Die nächste Vergleichsvariante **B (Wien + OSM)** kann zusätzlich OSM-GeoJSON-Punkte (`natural=tree`) einlesen. Bäume ohne Kronendurchmesser werden standardmäßig nicht künstlich geschätzt. Weitere Module untersuchen die **Baumschicht des Grünraummonitorings 2023** (50 cm, WMS-Raster) und später optional BEV-Infrarot-Orthofotos. Vor einer Klassifizierung aus WMS-Pixelfarben müssen Klassenwerte und Darstellung überprüft werden. Die jeweiligen Kronen-Geometrien können anschließend mit `scripts.compare_canopy_methods` auf identischem Straßenraum verglichen werden.
+Die eigenständige Vergleichsvariante **B (Wien + OSM)** kann zusätzlich OSM-GeoJSON-Punkte (`natural=tree`) einlesen. Bäume ohne Kronendurchmesser werden standardmäßig nicht künstlich geschätzt. **Variante C (GRM2023)** ist inzwischen ebenfalls lokal gelaufen und liefert **9,35 %**; der räumliche A/C-Vergleich ergab **58,02 % IoU**. Alle Messungen basieren auf derselben Straßenraum-Maske. Eine eigene BEV-Infrarot-Auswertung bleibt eine spätere Option. Der vollständige Vergleich steht in der [Modul-4-Dokumentation](docs/Modul-4-Baumkronen-Vergleich.md#erster-vollständiger-lokaler-referenzvergleich-ac-1314102026).
 
 **[Ausführliche Anleitung, Datenquellen und Grenzen von Modul 4](docs/Modul-4-Baumkronen-Vergleich.md).** Die bestehende Bodenbegrünung von **1,91 %** ist eine eigenständige Kennzahl und darf **nicht** zum Überschirmungsgrad addiert werden.
 
@@ -365,7 +365,17 @@ Die WMS-Diagnose ist bereits lokal erfolgt; sie muss für denselben Bildstand **
 	--candidate grm2023=data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson
 ```
 
-Ergebnisse: `data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson` und `baumkronen_grm2023_bericht.json`, anschließend `data/processed/ueberschirmung/grm2023/ueberschirmung_bericht.json` und der Methodenvergleich unter `data/processed/ueberschirmung/vergleich/`.
+**Diese drei lokalen Schritte wurden erfolgreich ausgeführt.** Ergebnisse: `data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson` und `baumkronen_grm2023_bericht.json`, `data/processed/ueberschirmung/grm2023/ueberschirmung_bericht.json` und der Methodenvergleich unter `data/processed/ueberschirmung/vergleich/`. Die Berichte wurden geprüft und die Kennzahlen in der [Modul-4-Dokumentation](docs/Modul-4-Baumkronen-Vergleich.md) gesichert.
+
+**Gemessener Referenzvergleich, Testausschnitt 13.–14.10.2026:**
+
+| Überschirmung | A: Baumkataster-Kreise | C: GRM2023-Baumschicht |
+| --- | ---: | ---: |
+| Straßenraumfläche | 46.630,56 m² | 46.630,56 m² |
+| Kronenfläche über Straße | 3.647,05 m² | 4.358,69 m² |
+| **Überschirmungsgrad** | **7,82 %** | **9,35 %** |
+
+**Räumliche IoU: 58,02 %**; gemeinsame Kronenfläche **2.939,61 m²**, nur A **707,44 m²**, nur C **1.419,08 m²**. Der Rasterprovider hat **71.892 Baum-Pixel** in **1.298 Polygon-Teilstücke** übertragen; berechnete Pixel- und Polygonfläche entsprechen sich praktisch exakt (**17.958,20 m² im gesamten WMS-Ausschnitt**, nicht nur über Straßenraum). **Das belegt die technische Übertragung, nicht die externe Genauigkeit der Kronenklassifikation.** Jetzt gilt es, die Unterschiede geographisch sichtbar zu machen und anhand Orthofoto/Referenzflächen zu prüfen. Keine der Methoden wird allein wegen der größeren Fläche als besser bewertet.
 
 **Modul 4 bleibt unverändert austauschbar:** WMS-Klassifizierung und Kronenkreise liefern beide `Polygon`/`MultiPolygon`-GeoJSON in EPSG:4326; der Prozentwert entsteht erst beim Schnitt mit der identischen Straßenraum-Maske. Ein WMS-GetMap-Raster ist ein Renderergebnis, kein Beleg dafür, dass alle Zellgrenzen exakt dem 50-cm-Originalraster entsprechen.
 
@@ -400,7 +410,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Modul 4 – zwei Kronenmethoden vergleichen:** Den vorbereiteten Provider C (verifizierte WMS-Baumschicht 2023) lokal in GeoJSON konvertieren, die Überschirmungsquote berechnen und räumlich mit der bisherigen Baumkataster-Kreisnäherung **7,82 %** vergleichen. OSM bleibt eigenständige Variante B.
+2. **Modul 4 – räumliche Abweichungen prüfen:** Die beiden fertig berechneten Kronenmethoden **A (7,82 %) und C (9,35 %, IoU 58,02 %)** in drei Prüflayer zerlegen: gemeinsame, nur-A- und nur-C-Fläche innerhalb des Straßenraums. Diese über Orthofoto prüfen; erst danach eine mögliche bevorzugte oder kombinierte Methode festlegen. OSM bleibt eigenständige Variante B.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
