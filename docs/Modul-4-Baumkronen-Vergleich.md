@@ -1,6 +1,6 @@
 # Modul 4: Baumkronen und Überschirmungsgrad – modulare Vergleichsstrecke
 
-**Stand:** 13. Oktober 2026. **Status:** Vektor- und Vergleichsmodule implementiert; Variante A lieferte lokal vorläufig **7,82 %**, Variante C wurde anhand des realen WMS samt Legende technisch vorbereitet. Der Straßenraum-Schnitt von C und die fachliche Vergleichsvalidierung stehen noch aus. **Noch keine Aussage, welcher Ansatz genauer ist.** Die Straßenraum-Abgrenzung aus Modul 2 und die Bodenbegrünung aus Modul 3 bleiben unverändert.
+**Stand:** 14. Oktober 2026. **Status:** Die unabhängigen Kronenprovider **A (Wiener Baumkataster) und C (Grünraummonitoring 2023)** wurden im selben Straßenraum lokal ausgeführt und die Flächenwerte dokumentiert: **7,82 % bzw. 9,35 %**, räumliche IoU **58,02 %**. Der WMS-Kronenexport stimmt flächenmäßig mit den 71.892 klassifizierten Pixeln überein. **Die fachliche Genauigkeit der beiden Verfahren ist noch nicht anhand unabhängiger Referenzflächen validiert.** Die Straßenraum-Abgrenzung aus Modul 2 und die Bodenbegrünung aus Modul 3 bleiben unverändert.
 
 ## Feste Schnittstellen
 
@@ -17,9 +17,9 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 
 | Ansatz | Datengrundlage | Geometriemodell / Aussage | Stand |
 | --- | --- | --- | --- |
-| **A – Wien Baumkataster** | Punkte via WFS `ogdwien:BAUMKATOGD`; metrische **Klasse als Text in `KRONENDURCHMESSER_TXT`**; `KRONENDURCHMESSER` ist **nur der Kategoriencode** | Kreis um Stammpunkt; Radius = halber **Intervallmittelwert** (z. B. `16-18 m` → 17 m Durchmesser → 8,5 m Radius); Näherung | **Vorbereitet/implementiert; erster Messlauf muss nach Korrektur wiederholt werden** |
+| **A – Wien Baumkataster** | Punkte via WFS `ogdwien:BAUMKATOGD`; metrische **Klasse als Text in `KRONENDURCHMESSER_TXT`**; `KRONENDURCHMESSER` ist **nur der Kategoriencode** | Kreis um Stammpunkt; Radius = halber **Intervallmittelwert** (z. B. `16-18 m` → 17 m Durchmesser → 8,5 m Radius); Näherung | **Erster korrigierter lokaler Lauf: 7,82 %; visuelle Genauigkeitsprüfung ausständig** |
 | **B – Wien + OpenStreetMap** | Gleiche Baumkatasterdaten, dazu OSM `natural=tree` mit `diameter_crown` oder `crown_diameter` | Fehlende Bäume ergänzen, mögliche Dubletten behandeln; fehlende Durchmesser ausdrücklich markieren oder nur mit Opt-in schätzen | **Vorbereitet/implementiert** |
-| **C – Grünraummonitoring 2023** | Stadt-Wien-Rasterklassifikation; **50 cm Quellauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023 | Unabhängige Kronengeometrie aus geprüftem WMS-GetMap-Farbraster; im Testbild **#38A800** = Baumschicht, 71.892 Pixel; Rasterzellen als Polygone | **WMS-Klassen geprüft; Polygonprovider implementiert, lokaler Straßenraum-Schnitt ausständig** |
+| **C – Grünraummonitoring 2023** | Stadt-Wien-Rasterklassifikation; **50 cm Quellauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023 | Unabhängige Kronengeometrie aus geprüftem WMS-GetMap-Farbraster; im Testbild **#38A800** = Baumschicht, 71.892 Pixel; Rasterzellen als Polygone | **Lokaler Raster-/Polygonlauf geprüft, Straßenraumquote 9,35 %; visuelle Genauigkeitsprüfung ausständig** |
 | **D – BEV Orthofotos mit Infrarot** | BEV RGB/NIR bzw. IR-Darstellungen | Eigene Kronensegmentierung; nur NIR/NDVI allein trennt Bäume nicht sicher von Gras/Sträuchern, Höhe/Objektgrenzen benötigt | **Recherche, keine Implementierung** |
 
 **Hinweis zu C:** Die Wiener OGD-Metadaten führen sowohl **Grünraummonitoring 2022** als auch **2023**; die 2023er Daten sind tatsächlich veröffentlicht. Die abgerufene WMS-Darstellung ist **kein garantierter kategorischer GeoTIFF-Rohdatenexport**. Vor der Automatisierung müssen wir die konkrete GetCapabilities-Ebene, den tatsächlich vorliegenden WMS-Rastertyp, NoData/Transparenz sowie die eindeutige Zuordnung zur **Baumschicht (3)** prüfen. Aus einer hübschen WMS-Kartenfarbe allein darf noch kein Kronenflächenwert abgeleitet werden.
@@ -211,18 +211,85 @@ Outputs unter `data/processed/baumkronen/grm2023/processed/`:
 	--candidate grm2023=data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson
 ```
 
-Bei beiden Varianten sind die Werte zunächst **methodenabhängige Schätzungen**. Unser bisheriger Vergleichswert aus dem Baumkataster beträgt **7,82 %**. Für Variante C liegt **noch kein lokaler Straßenraum-Schnitt** vor; die 17.958 m² beziehen sich auf die volle WMS-Testbildfläche und sind nicht als Überschirmungsquote verwendbar.
+**Beide Varianten wurden inzwischen lokal ausgeführt und verglichen:** Variante A ergibt **7,82 %**, Variante C **9,35 %** Überschirmung der identischen Straßenmaske. Die **17.958 m²** Baumfläche des vollständigen WMS-Bilds bleiben ausdrücklich vom **Straßenraum-Schnitt (4.358,69 m²)** getrennt. Vollständige Ergebnisse, SHA-256 und methodische Einschränkungen stehen im anschließenden Referenzlauf.
 
 **Noch zu kontrollieren:** Wie gut folgt das gerenderte WMS-Bild den wirklichen Baumkronengrenzen? Die WMS-Farbklassen sind im Testbild eindeutig, aber der Dienst kann das Originalraster intern resamplen. Unterschiede zu Kronenkreisen müssen im Orthofoto und besonders an Straßenrändern überprüft werden. Eine höhere Fläche oder IoU allein beweist keine höhere Genauigkeit.
 
 ### Verbleibende Validierung
 
 1. **Raster gegen Orthofoto prüfen:** Im Straßenraum und an Kreuzungen kontrollieren, ob die WMS-Baumschicht der real sichtbaren Kronenfläche hinreichend gut folgt und wo zeitliche Unterschiede zwischen 2023 und aktuellem Baumkataster auftreten.
-2. **Methodenwerte vergleichen:** Den lokalen Straßenraum-Schnitt von C berechnen und gegen A (Kronenkreise: vorläufig 7,82 %) vergleichen, inklusive Flächenüberschneidung (IoU) und örtlicher Differenzen.
+2. **Berechneten Methodenvergleich räumlich überprüfen:** A = 7,82 %, C = 9,35 %, IoU = 58,02 %. Besonders die 707,44 m² nur in A und 1.419,08 m² nur in C über Orthofoto und Straßenraum prüfen; dazu möglichst eigene Differenz-GeoJSONs exportieren.
 3. **Pixelgenauigkeit vorsichtig interpretieren:** Die WMS-Ausgabe ist ein gerendertes Bild. Die fachliche 50-cm-Quellauflösung ist nicht automatisch ein Beleg für unveränderte 50-cm-Rohpixel im GetMap-Ausschnitt. Bei auffälligen Artefakten suchen wir besser die ursprünglichen kategorialen Rasterdaten, statt eine künstliche Exaktheit anzunehmen.
 4. **Datenänderungen absichern:** Ein zukünftiger WMS mit neuer Farbpalette, BBOX, Alpha oder Klassifikation muss neu diagnostiziert und seine Klassenabbildung überprüft werden.
 
-**Status:** C1 (WMS-Diagnose) lokal erfolgreich, C2 (Farb-/Klassenprüfung) für diesen konkreten Ausschnitt durchgeführt, **C3 (Kronenprovider) implementiert**. Der vollständige lokale Auswertungs- und Vergleichslauf sowie die fachliche Validierung stehen noch aus. Eine bevorzugte Standardmethode wird erst danach festgelegt. Variante D (eigene Infrarot-Segmentierung) bleibt eine spätere Option.
+**Status:** C1 (WMS-Diagnose), C2 (Farb-/Klassenprüfung) und C3 (Polygonprovider) sind im Testausschnitt erfolgreich ausgeführt. Die unveränderte Straßenraum-Schnittberechnung und der Methodenvergleich A/C liegen ebenfalls vor. **Offen bleiben die kartografische Sichtprüfung und eine unabhängige Genauigkeitsbewertung.** Eine bevorzugte Standardmethode wird erst danach festgelegt. Variante D (eigene Infrarot-Segmentierung) bleibt eine spätere Option.
+
+## Erster vollständiger lokaler Referenzvergleich A/C (13.–14.10.2026)
+
+Dieser Abschnitt dokumentiert die **tatsächlich lokal ausgeführten Ergebnisse** aus:
+
+- `data/processed/baumkronen/grm2023/processed/baumkronen_grm2023_bericht.json` (Erzeugung der WMS-Polygonmaske; 13.10.2026, **22:17:59 UTC**);
+- `data/processed/ueberschirmung/grm2023/ueberschirmung_bericht.json` (Straßenraum-Schnitt; 13.10.2026, **22:18:00 UTC**);
+- `data/processed/ueberschirmung/vergleich/kronenmethoden_vergleich.json` (A/C-Vergleich; 13.10.2026, **22:18:01 UTC**);
+- dem bereits geprüften Baumkataster-Lauf A mit 117 Kronenkreisen.
+
+Die Ergebnis-JSONs und ihre GeoJSON-Daten bleiben weiterhin **lokal unter `data/`**; nur die Referenzkennzahlen und Methodeninformationen stehen hier im Repository.
+
+### Pixel-zu-Polygon-Prüfung von C
+
+| Prüfung | Verifiziertes Ergebnis |
+| --- | ---: |
+| WMS-Ebene und Fachklasse | `GRM2023OGD`, **Baumschicht Klasse 3**, Farbe **`#38A800`** |
+| EPSG / PNG-Abmessungen | **31256**, **923 × 858 = 791.934 Pixel** |
+| Summe sämtlicher neun Rasterklassen | **791.934 Pixel** |
+| Davon Baumschicht | **71.892 Pixel** |
+| Größe einer Anfrage-Rasterzelle | **0,2497941962 m²** |
+| Baumfläche, aus Zellzahl berechnet | **17.958,204354872 m²** |
+| Baumfläche nach metrischer Raster-Polygonisierung | **17.958,204354872 m²** |
+| Flächenabweichung bei der Polygonisierung | **unter 0,000000001 m²** |
+| Zusammengefasste horizontale Zellläufe | **7.578** |
+| Getrennte Polygonbestandteile | **1.298** |
+| GeoJSON-Ausgabe | **1 MultiPolygon-Feature**, enthält diese Teilflächen |
+
+**Einordnung:** Die Rasterzellen wurden durch das Polygonisieren weder doppelt gezählt noch flächenmäßig verändert. Eine GeoJSON-Konvertierung über WGS84 und zurück nach EPSG:31256 liefert in der späteren Messung **17.958,204428868 m²** Gesamt-Kronenunion; die Differenz von rund **0,000074 m²** gegenüber der Quellprojektion ist für diese Gebietsgröße vernachlässigbar. Diese Rechenübereinstimmung prüft **die Verarbeitung**, nicht die Genauigkeit der GRM-2023-Klassifikation gegenüber tatsächlichen Kronengrenzen.
+
+### Beide Methoden auf demselben Straßenraum
+
+**Nenner:** Vereinigungsfläche von **487 Straßenraum-Features**, **46.630,560980 m²**. Die Straßenmaske ist für beide Läufe identisch; ihre SHA-256-Prüfsumme lautet:
+
+`dc53cd78d0bcd5cb242529e126a969f1be6ca5d27487ff1e85ee684654d7fc11`
+
+| Kennzahl | A – Wiener Baumkataster | C – GRM 2023 |
+| --- | ---: | ---: |
+| Eingabe-Kronengeometrie | 117 Kreise (je 1 Polygon-Feature) | 1 MultiPolygon-Feature (1.298 Einzelteile) |
+| Kronenunion vor Straßenraum-Schnitt | **4.777,20 m²** | **17.958,20 m²** |
+| **Baumkronen über Straßenraum** | **3.647,05 m²** | **4.358,69 m²** |
+| **Überschirmungsgrad** | **7,8212 %** | **9,3473 %** |
+| Baumkronenunion außerhalb Straßenraum | 1.130,15 m² | 13.599,51 m² |
+
+**Differenz C gegenüber A:** **+711,64 m²** Kronenfläche über Straßenraum, **+1,5261 Prozentpunkte** bzw. rund **19,5 % relativ zur A-Fläche**. Die außerhalb des Straßenraums liegende Kronenunion ist **keine fehlende Straßenraumfläche** – Methode C klassifiziert auch die privaten Grün- und Baumbereiche des vollständigen WMS-Ausschnitts.
+
+### Räumlicher Vergleich *innerhalb* des Straßenraums
+
+| Schnittfläche | Fläche |
+| --- | ---: |
+| **Von A und C gemeinsam erkannt** | **2.939,61 m²** |
+| **Nur A / Baumkataster** | **707,44 m²** |
+| **Nur C / Grünraummonitoring 2023** | **1.419,08 m²** |
+| **Vereinigung A ∪ C im Straßenraum** | **5.066,14 m²** |
+| **Intersection over Union (IoU)** | **0,5802465533 = 58,02 %** |
+
+Die beiden Methoden stimmen in vielen Bereichen überein, weichen aber **deutlich** voneinander ab. Die IoU ist eine **gegenseitige Ähnlichkeit**, keine Genauigkeit gegen reale Kronen. Aus „C zeigt mehr“ folgt **nicht** „C ist zuverlässiger“. Neben kreisförmigen A-Geometrien und echten bzw. klassifizierten Vegetationsformen in C unterscheiden sich auch Datenjahr, Erhebungsmethodik, Lagegenauigkeit, Abdeckung privater Bäume und WMS-Pixelraster. **Es gibt weiterhin keine unabhängige manuelle Validierung.**
+
+### Reproduzierbare Eingaben und Vergleichbarkeit
+
+- **Kronen A (Wiener Baumkataster):** `data/processed/baumkronen/baumkronen_kreise.geojson`, SHA-256 `a0122c28e52b2ec03daa68d2fcdf7004a37adfc71485bd7c8bd4ac8d745033ac`.
+- **Kronen C (GRM2023):** `data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson`, SHA-256 `a19acbe53ad58c0fd39000ee53dab5309e104827eb0e08e18ef49bc2aa1532ea`.
+- **WMS-Quellbild:** `data/processed/baumkronen/grm2023/grm2023_testausschnitt.png`, SHA-256 `076abd2fdf4159347c426792858c553ece48d4b89e792d27a632b6418bc9ee73`.
+- **WMS-Diagnose:** SHA-256 `f9446dca814cd58036c2e81c5c27e959e23f9c3cd0b5ff487da9eae788f6bac7`; **WMS-Legende:** SHA-256 `a0e2250f45929ff04d0b208b7c45678b0ca44f440762a8375b08abf00919c403`.
+- **Vergleichsskript:** `scripts/compare_canopy_methods.py`; nach identischer Straßenraum-Maske bereits ausgeführt. Die PNG-/GeoJSON-Hashes dienen der **Versionierung des konkreten lokalen Datenstands**.
+
+**Wichtig für die nächste Iteration:** Unsere nächste Aufgabe ist **nicht**, ohne Sichtprüfung eine Methode zum Sieger zu erklären, sondern die drei Differenzflächen `A ∩ C`, `A \ C` und `C \ A` **auf dem Straßenraum** als separate GeoJSON-Layer zu exportieren und über ein Orthofoto zu legen. Gerade an Straßenbäumen, privaten Kronenüberhängen und Kreuzungen lässt sich dann unterscheiden, ob es sich um Modellvereinfachung, fehlende Baumdaten oder GRM-Pixelklassifikation handelt. Erst danach über die bevorzugte Methode oder eine Hybridvariante entscheiden.
 
 ## Langfristige Modularität
 
