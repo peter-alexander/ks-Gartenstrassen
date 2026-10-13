@@ -17,7 +17,7 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 
 | Ansatz | Datengrundlage | Geometriemodell / Aussage | Stand |
 | --- | --- | --- | --- |
-| **A – Wien Baumkataster** | Punktgeometrien und Attribut `KRONENDURCHMESSER` via WFS `ogdwien:BAUMKATOGD` | Kreis um Stammposition, Radius = halber Durchmesser; fachliche Näherung | **Vorbereitet/implementiert** |
+| **A – Wien Baumkataster** | Punkte via WFS `ogdwien:BAUMKATOGD`; metrische **Klasse als Text in `KRONENDURCHMESSER_TXT`**; `KRONENDURCHMESSER` ist **nur der Kategoriencode** | Kreis um Stammpunkt; Radius = halber **Intervallmittelwert** (z. B. `16-18 m` → 17 m Durchmesser → 8,5 m Radius); Näherung | **Vorbereitet/implementiert; erster Messlauf muss nach Korrektur wiederholt werden** |
 | **B – Wien + OpenStreetMap** | Gleiche Baumkatasterdaten, dazu OSM `natural=tree` mit `diameter_crown` oder `crown_diameter` | Fehlende Bäume ergänzen, mögliche Dubletten behandeln; fehlende Durchmesser ausdrücklich markieren oder nur mit Opt-in schätzen | **Vorbereitet/implementiert** |
 | **C – Grünraummonitoring 2023** | Rasterklassifikation der Stadt Wien; **50 cm Rasterauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023, Infrarot-True-Orthofotos und Laserscanning | Potenziell direkter, unabhängiger Kronennachweis auch auf privaten Grundstücken. Raster zu Polygondaten nur mit geprüfter Pixel-/Farb-Klassenübersetzung | **Datenquelle identifiziert; Import noch offen** |
 | **D – BEV Orthofotos mit Infrarot** | BEV RGB/NIR bzw. IR-Darstellungen | Eigene Kronensegmentierung; nur NIR/NDVI allein trennt Bäume nicht sicher von Gras/Sträuchern, Höhe/Objektgrenzen benötigt | **Recherche, keine Implementierung** |
@@ -35,7 +35,20 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 | `scripts/measure_canopy_cover.py` | Universelle Kronen-Flächenmessung, **unabhängig vom Kronen-Provider**, identischer Straßenraumvertrag wie Modul 3 |
 | `scripts/compare_canopy_methods.py` | Vergleicht 2+ Kronen-GeoJSONs auf identischem Straßenraum: Prozentsatz, IoU, Fläche nur A/nur B |
 
-**Erster echter lokaler WFS-Abruf bestätigt (13.10.2026):** Der Wiener WFS hat **252 Baum-Punkte** geliefert (`wfs_heruntergeladen`) und die bestehende BBOX-/Koordinatenprüfung bestanden. Der nächste Schritt scheiterte zunächst ausschließlich an einer **zu restriktiven CRS-Prüfung** im Kronenkreis-Importer: Das alte GeoJSON-Format von WFS kann ein `crs`-Attribut enthalten, obwohl EPSG:4326 verwendet wird. Dieser Importfehler ist behoben: bekannte EPSG:4326-/CRS84-Deklarationen werden akzeptiert, andere Bezugssysteme weiterhin abgewiesen. **Der tatsächliche Kronenkreis- und Messlauf ist noch zu bestätigen**; die 252 Punkte sind die heruntergeladenen Baumstandorte, noch keine 252 fertigen Kronenpolygone. Die originale WFS-Datei bleibt unverändert im lokalen Cache.
+**Erster echter lokaler WFS-Abruf bestätigt (13.10.2026):** Der Wiener WFS hat **252 Baum-Punkte** geliefert (`wfs_heruntergeladen`) und die bestehende BBOX-/Koordinatenprüfung bestanden. Der nächste Schritt scheiterte zunächst ausschließlich an einer **zu restriktiven CRS-Prüfung** im Kronenkreis-Importer: Das alte GeoJSON-Format von WFS kann ein `crs`-Attribut enthalten, obwohl EPSG:4326 verwendet wird. Dieser Importfehler ist behoben: bekannte EPSG:4326-/CRS84-Deklarationen werden akzeptiert, andere Bezugssysteme weiterhin abgewiesen. **Der WFS-Download mit 252 Punkten ist bestätigt; ein erster Kreis-/Messlauf wurde durchgeführt, aber wegen der später entdeckten Verwechslung von Kategoriecode und metrischem Klassenintervall als ungültig verworfen.** Die originale WFS-Datei bleibt unverändert im lokalen Cache.
+
+### Korrektur der Wiener Kronendurchmesser (13.10.2026)
+
+**Echter Datenfehler im ersten Kronenprovider:** Die erste Version behandelte das numerische Feld `KRONENDURCHMESSER` als **Meterwert**. Dieses Feld ist tatsächlich ein **Kategoriencode**. Die Meterbereiche stehen in `KRONENDURCHMESSER_TXT` (etwa `16-18 m`). Die 252 erfolgreich heruntergeladenen WFS-Punkte waren korrekt, aber ihre Kronenradien wurden falsch abgeleitet.
+
+**Erster lokaler Lauf – ausdrücklich ungültig:** 117 erzeugte Kronenkreise, 536,88 m² Überschirmung und **1,15 %** von 46.630,56 m² Straßenraum sind **verworfen**. Die Werte dürfen nicht als Ergebnis von Variante A oder als Vergleichsmaßstab verwendet werden.
+
+**Neue Klassenauswertung:** Für **geschlossene Meterintervalle** der Form `a-b m` (auch Gedankenstriche, Abstände, Dezimalkomma) gilt `Durchmesser = (a+b)/2`. Beispiel: `16-18 m` → **17 m angenommener Durchmesser**, Kreisradius **8,5 m**. Dies ist **kein exakter Messwert** eines individuellen Baums, sondern eine deklarierte Näherung aus der Klasse. Die Klasse im Originaltext sowie der numerische Kategoriencode werden im Kronen-GeoJSON zur Prüfung aufbewahrt; die Häufigkeiten der Quellklassen stehen im Bericht.
+
+**Keine stille Rückfallregel:** Wenn der Text fehlt, offen ist (z. B. `über 21 m`), nicht eindeutig geparst werden kann oder außerhalb der Plausibilitätsgrenzen liegt, wird **kein Kreis aus dem Kategoriencode** erzeugt. Solche Bäume werden gezählt und bleiben zunächst unberücksichtigt. Vor einer späteren Behandlung offener Klassen müssen wir die **tatsächlich im WFS vorkommenden Werte** und die gewünschte Schätzstrategie prüfen.
+
+**Erneuter Lauf:** Nur der Kronenprovider und die Messung müssen wiederholt werden; der lokale WFS-Download bleibt gültig. Danach die Zahl verwertbarer Kronen, den Ausschlussbericht und die Kronenkreise visuell prüfen und **erst dann** den neuen Überschirmungsgrad als Referenz dokumentieren.
+
 
 ## Erste Testreihe: Ansatz A
 
