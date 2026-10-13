@@ -173,7 +173,7 @@ class BEVWMSProbeTests(unittest.TestCase):
 			for name in LAYERS:
 				self.assertTrue((target / f"bev_{name}_test.png").exists())
 				self.assertTrue((target / f"bev_{name}_test.pgw").exists())
-			self.assertTrue((target / "bev_test.prj").exists())
+				self.assertTrue((target / f"bev_{name}_test.prj").exists())
 			self.assertTrue((target / "bev_wms_diagnose.json").exists())
 			self.assertEqual(report["aufnahmejahr"], "unbekannt; BEV-Bildmetadaten je Abdeckungsbereich prüfen")
 			self.assertFalse(any(target.rglob("*.geojson")))
