@@ -67,6 +67,7 @@ def measure_embedding(
 	geometry, class_surfaces, *,
 	tolerance_m=0.25, minimum_sector_m=0.8,
 	sample_step_m=0.5, has_core_overlap=False,
+	prepared_class_buffers=None, prepared_core_buffer=None,
 ):
 	"""Merkmale für räumliche Einbettung von Grün-/unklaren Polygonen.
 
@@ -85,12 +86,16 @@ def measure_embedding(
 			continue
 		if geometry.distance(surface) > tolerance_m:
 			continue
-		lines = boundary.intersection(surface.buffer(tolerance_m))
+		buffered = (prepared_class_buffers or {}).get(code)
+		if buffered is None:
+			buffered = surface.buffer(tolerance_m)
+		lines = boundary.intersection(buffered)
 		by_class[code] = sector_lengths(lines, center, sample_step_m=sample_step_m)
 
-	all_class_geometries = list(class_surfaces.values())
-	core = union_all(all_class_geometries)
-	contact = boundary.intersection(core.buffer(tolerance_m))
+	if prepared_core_buffer is None:
+		core = union_all(list(class_surfaces.values()))
+		prepared_core_buffer = core.buffer(tolerance_m)
+	contact = boundary.intersection(prepared_core_buffer)
 	sectors = sector_lengths(contact, center, sample_step_m=sample_step_m)
 	opposing = bool(opposing_pairs(sectors, sectors, minimum_sector_m))
 	different_classes_opposing = any(
