@@ -79,7 +79,9 @@ def parse_trees(features, provider, *, default_osm_diameter=None):
 		if provider == "osm" and properties.get("natural") == "tree_row":
 			reasons["baumreihe_ohne_einzelbaumgeometrie"] += 1
 			continue
-		if provider == "osm" and properties.get("natural") not in ("tree", None):
+		if provider == "osm" and properties.get("natural") != "tree":
+			# Aus OSM-Exports ausschließlich bestätigte Baum-Punkte
+			# akzeptieren, nicht beliebige Punkte ohne natural-Tag.
 			reasons["kein_osm_baum"] += 1
 			continue
 		if geometry.get("type") != "Point":
