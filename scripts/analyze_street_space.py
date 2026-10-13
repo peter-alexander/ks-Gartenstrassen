@@ -109,8 +109,10 @@ def load_polygons(source):
 	return features, manifest, clip, repairs
 
 
-def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
-	if not (0 < tolerance_m <= 2 and 0 < near_m <= 20 and 0 < min_contact_m <= 10):
+def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5,
+	min_sector_m=0.8, probe_m=0.03):
+	if not (0 < tolerance_m <= 2 and 0 < near_m <= 20 and 0 < min_contact_m <= 10
+		and 0 < min_sector_m <= 10 and 0 < probe_m <= 1):
 		raise ValueError("Unzulässige Prüfdistanzen")
 	core_shapes = [geom for _, code, _, geom in features if code in CORE_CODES]
 	if not core_shapes:
@@ -156,7 +158,8 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
 			))
 			properties.update(measure_embedding(
 				geometry, contact_surfaces,
-				tolerance_m=tolerance_m,
+				tolerance_m=tolerance_m, minimum_sector_m=min_sector_m,
+				probe_m=probe_m,
 				has_core_overlap=properties["status"] == "ueberlappt_kern",
 				prepared_class_buffers=contact_buffers,
 				prepared_core_buffer=prepared_core_buffer,
@@ -187,7 +190,8 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
 	}
 
 
-def write_review(review, output_dir, source, manifest, clip, repairs, *, tolerance_m, near_m, min_contact_m):
+def write_review(review, output_dir, source, manifest, clip, repairs, *, tolerance_m, near_m, min_contact_m,
+	min_sector_m, probe_m):
 	output_dir = Path(output_dir)
 	output_dir.mkdir(parents=True, exist_ok=True)
 	to_wgs84 = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
@@ -231,6 +235,8 @@ def write_review(review, output_dir, source, manifest, clip, repairs, *, toleran
 			"randtoleranz_m": tolerance_m,
 			"nahe_distanz_m": near_m,
 			"mindest_randkontakt_m": min_contact_m,
+			"mindest_sektorkontakt_m": min_sector_m,
+			"normalen_pruefabstand_m": probe_m,
 			"status_ueberlappt_mindestflaeche_m2": 0.05,
 		},
 		"original_klassen_anzahl": review["class_counts"],
@@ -242,11 +248,14 @@ def write_review(review, output_dir, source, manifest, clip, repairs, *, toleran
 	return report
 
 
-def analyze(source=DEFAULT_SOURCE, output_dir=DEFAULT_OUTPUT, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
+def analyze(source=DEFAULT_SOURCE, output_dir=DEFAULT_OUTPUT, *, tolerance_m=0.25, near_m=2.0,
+	min_contact_m=0.5, min_sector_m=0.8, probe_m=0.03):
 	features, manifest, clip, repairs = load_polygons(source)
-	review = build_review(features, tolerance_m=tolerance_m, near_m=near_m, min_contact_m=min_contact_m)
+	review = build_review(features, tolerance_m=tolerance_m, near_m=near_m,
+		min_contact_m=min_contact_m, min_sector_m=min_sector_m, probe_m=probe_m)
 	report = write_review(review, output_dir, source, manifest, clip, repairs,
-		tolerance_m=tolerance_m, near_m=near_m, min_contact_m=min_contact_m)
+		tolerance_m=tolerance_m, near_m=near_m, min_contact_m=min_contact_m,
+		min_sector_m=min_sector_m, probe_m=probe_m)
 	print(f"FMZK-Features: {report['features_gesamt']}, Kernfläche: {report['kern_union_m2']:.2f} m²")
 	print(f"Prüfkandidaten: {len(review['candidates'])} (58/69 Grün; 59 unklare Nutzung)")
 	for row in review["summary"]:
@@ -267,10 +276,13 @@ def main():
 	parser.add_argument("--randtoleranz-m", type=float, default=0.25)
 	parser.add_argument("--nahe-m", type=float, default=2.0)
 	parser.add_argument("--mindest-randkontakt-m", type=float, default=0.5)
+	parser.add_argument("--mindest-sektorkontakt-m", type=float, default=0.8)
+	parser.add_argument("--normalen-probe-m", type=float, default=0.03)
 	args = parser.parse_args()
 	try:
 		analyze(args.source, args.out_dir, tolerance_m=args.randtoleranz_m,
-			near_m=args.nahe_m, min_contact_m=args.mindest_randkontakt_m)
+			near_m=args.nahe_m, min_contact_m=args.mindest_randkontakt_m,
+			min_sector_m=args.mindest_sektorkontakt_m, probe_m=args.normalen_probe_m)
 	except (ValueError, KeyError, FileNotFoundError, OSError, sqlite3.Error) as exc:
 		parser.exit(1, f"Fehler: {exc}\n")
 
