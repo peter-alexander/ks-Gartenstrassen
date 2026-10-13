@@ -1,0 +1,174 @@
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from pyproj import Transformer
+from shapely.geometry import box
+
+import scripts.analyze_kataster as kat
+
+
+class KatasterUsageTests(unittest.TestCase):
+	def test_cadastral_ids_and_endpoint_match_kartensammlung(self):
+		self.assertEqual(kat.cadastral_key({"kgez": "01004", "gnr": "123/4"}), ("01004", "123/4"))
+		self.assertEqual(kat.cadastral_key({"kg": 1004, "gnr": ".17"}), ("01004", ".17"))
+		self.assertIsNone(kat.cadastral_key({"gnr": "17"}))
+		self.assertEqual(kat.detail_url("01004", "123/4"),
+			"https://kataster.bev.gv.at/api/gst/01004/123/4/")
+
+	def test_parse_whole_parcel_with_known_names_and_codes(self):
+		detail = {"type": "Feature", "properties": {
+			"rstatus": "G",
+			"nutzungen": {
+				"foo": {"nutzung": "Straßenverkehrsanlagen", "fl": 220},
+				"bar": {"nutzung": "Verkehrsrandflächen", "fl": 30},
+			},
+		}}
+		usage, unknown, props = kat.parse_whole_parcel(detail)
+		self.assertEqual(usage, {65: 30, 95: 220})
+		self.assertFalse(unknown)
+		self.assertEqual(props["rstatus"], "G")
+		self.assertEqual(kat.classify_usages(usage, unknown)[0], "A")
+
+	def test_mixed_nutzung_includes_areas_outside_test_bbox(self):
+		detail = {"properties": {
+			"nutzungen": [
+				{"nutzung": "Straßenverkehrsanlagen", "fl": 35},
+				{"nutzung": "Gärten", "fl": 320},
+				{"nutzung": "Gebäude", "fl": 200},
+			]
+		}}
+		usages, unknown, _ = kat.parse_whole_parcel(detail)
+		self.assertEqual(usages[95], 35)
+		self.assertEqual(kat.classify_usages(usages, unknown)[0], "B")
+
+	def test_no_street_use_and_only_parking_not_high_confidence(self):
+		self.assertEqual(kat.classify_usages({41: 120, 52: 50}, [])[0], "C")
+		self.assertEqual(kat.classify_usages({42: 125}, [])[0], "C")
+		self.assertEqual(kat.classify_usages({65: 10}, [])[0], "A")
+
+	def test_unknown_and_partial_usage_never_produces_a(self):
+		usage, unknown, _ = kat.parse_whole_parcel({
+			"properties": {"nutzungen": {
+				"one": {"nutzung": "Straßenverkehrsanlagen", "fl": 100},
+				"two": {"nutzung": "Unbekannte Nutzung", "fl": 2},
+			}}
+		})
+		self.assertEqual(usage, {95: 100})
+		self.assertEqual(len(unknown), 1)
+		self.assertEqual(kat.classify_usages(usage, unknown)[0], "D")
+		self.assertEqual(kat.classify_usages({}, [])[0], "D")
+		with self.assertRaisesRegex(ValueError, "Nutzungsbilanz fehlt"):
+			kat.parse_whole_parcel({"properties": {"nutzungen": {}}})
+
+	def test_read_tile_with_correct_webmercator_y_axis(self):
+		# Kachel-Geometrie ist im lokalen Extent-Koordinatensystem,
+		# Y wächst im PBF nach unten.
+		z, x, y = 16, 35740, 22722
+		data = {
+			"gst": {"extent": 4096, "features": [
+				{"geometry": {
+					"type": "Polygon", "coordinates": [[
+						[0, 0], [200, 0], [200, 200], [0, 200], [0, 0]
+					]],
+				}, "properties": {"kgez": "01004", "gnr": "1"}},
+			]},
+			"nfl": {"extent": 4096, "features": [
+				{"geometry": {
+					"type": "Polygon", "coordinates": [[
+						[0, 0], [200, 0], [200, 200], [0, 200], [0, 0]
+					]],
+				}, "properties": {"ns": 95}},
+			]},
+		}
+		with patch.object(kat.mapbox_vector_tile, "decode", return_value=data) as decoder:
+			got = kat.decode_tile(b"some pbf", z, x, y)
+			decoder.assert_called_once_with(b"some pbf",
+				default_options={"y_coord_down": True})
+		self.assertEqual(len(got["gst"]), 1)
+		self.assertEqual(got["nfl"][0][0]["ns"], 95)
+		minx, miny, maxx, maxy = got["gst"][0][1].bounds
+		self.assertGreater(maxx, minx)
+		self.assertGreater(maxy, miny)
+		radius = kat.WEBMERCATOR_RADIUS
+		width = 2 * radius / 2**z
+		reprojection = Transformer.from_crs("EPSG:3857", "EPSG:31256", always_xy=True)
+		origin = reprojection.transform(-radius + x * width, radius - y * width)
+		self.assertAlmostEqual(got["gst"][0][1].exterior.coords[0][0], origin[0], delta=0.5)
+		self.assertAlmostEqual(got["gst"][0][1].exterior.coords[0][1], origin[1], delta=0.5)
+
+	def test_core_selection_uses_polygon_intersection_not_point_contact(self):
+		core = box(0, 0, 10, 10)
+		clip = box(-5, -5, 20, 20)
+		parcels = {
+			("01004", "1"): box(-5, -5, 5, 15),
+			("01004", "2"): box(5, -5, 15, 15),
+			("01004", "3"): box(10, 10, 15, 15),
+		}
+		nfl = [({"ns": 95}, box(-5, -5, 5, 15)),
+			({"ns": 52}, box(5, -5, 15, 15))]
+		details = {
+			("01004", "1"): {"properties": {"nutzungen": [{"nutzung": "Straßenverkehrsanlagen", "fl": 500}]}},
+			("01004", "2"): {"properties": {"nutzungen": [
+				{"nutzung": "Straßenverkehrsanlagen", "fl": 100},
+				{"nutzung": "Gärten", "fl": 600},
+			]}},
+		}
+		rows, polys, usages = kat.build_results(core, parcels, nfl, clip, details)
+		self.assertEqual([(row["table"]["gnr"], row["table"]["klasse"]) for row in rows],
+			[("1", "A"), ("2", "B")])
+		self.assertEqual(len(polys), 2)
+		self.assertTrue(all(not feature["properties"]["vollstaendig"] for feature in usages))
+		self.assertEqual(rows[1]["table"]["strassen_nutzung_m2"], 100)
+		self.assertEqual(rows[1]["table"]["sonstige_nutzung_m2"], 600)
+
+	def test_missing_detail_is_d_not_fake_a(self):
+		core = box(0, 0, 10, 10)
+		rows, _, _ = kat.build_results(core, {("01004", "1"): core},
+			[({"ns": 95}, core)], core, {("01004", "1"): {"error": "503"}})
+		self.assertEqual(rows[0]["table"]["klasse"], "D")
+
+	def test_cache_offline_and_atomic_update(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			path = Path(tmp) / "nested" / "tile.pbf"
+			with patch.object(kat, "fetch_bytes", return_value=b"tile") as fetch:
+				self.assertEqual(kat.cached_request("https://x.test", path), b"tile")
+				self.assertEqual(kat.cached_request("https://x.test", path, offline=True), b"tile")
+				fetch.assert_called_once()
+				self.assertEqual(kat.cached_request("https://x.test", path, refresh=True), b"tile")
+				self.assertEqual(fetch.call_count, 2)
+			with self.assertRaises(FileNotFoundError):
+				kat.cached_request("https://x.test", path.parent / "missing", offline=True)
+
+	def test_report_contains_completeness_and_three_classes(self):
+		core = box(0, 0, 10, 10)
+		clip = box(-5, -5, 30, 30)
+		parcels = {
+			("01004", "1"): box(-5, -5, 4, 15),
+			("01004", "2"): box(4, -5, 7, 15),
+			("01004", "3"): box(7, -5, 12, 15),
+			("01004", "4"): box(9, -5, 12, 15),
+		}
+		nfl = [({"ns": 95}, core)]
+		details = {
+			("01004", "1"): {"properties": {"nutzungen": {"1": {"nutzung": "Straßenverkehrsanlagen", "fl": 100}}}},
+			("01004", "2"): {"properties": {"nutzungen": {
+				"1": {"nutzung": "Verkehrsrandflächen", "fl": 5},
+				"2": {"nutzung": "Gärten", "fl": 300},
+			}}},
+			("01004", "3"): {"properties": {"nutzungen": {"1": {"nutzung": "Gebäude", "fl": 50}}}},
+		}
+		rows, polygons, uses = kat.build_results(core, parcels, nfl, clip, details)
+		with tempfile.TemporaryDirectory() as tmp:
+			report = kat.write_results(Path(tmp), rows, polygons, uses,
+				[(16, 35740, 22722)], [16.36, 48.22, 16.37, 48.23], [])
+			self.assertEqual(report["klassen"], {"A": 1, "B": 1, "C": 1, "D": 1})
+			self.assertTrue(report["nfl_geojson_nur_testausschnitt"])
+			self.assertTrue(report["vollstaendige_nutzungsbilanz_aus_api"])
+			self.assertEqual(len(json.loads((Path(tmp) / "kataster_grundstuecke.geojson").read_text())["features"]), 4)
+
+
+if __name__ == "__main__":
+	unittest.main()
