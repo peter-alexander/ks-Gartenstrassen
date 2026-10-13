@@ -123,6 +123,8 @@ class BEVWMSProbeTests(unittest.TestCase):
 		images = sample_images()
 		result = compare_channels(images)
 		self.assertTrue(result["alle_kanalreplikate_intern_konsistent"])
+		self.assertTrue(result["kernkanaele_intern_konsistent"])
+		self.assertEqual(result["abweichungen_alle_darstellungen"], [])
 		self.assertEqual(result["pixel_gemeinsam_deckend"], 216)
 		self.assertEqual(len(result["kanalgruppen"]["rot"]), 3)
 		self.assertEqual(len(result["kanalgruppen"]["nahinfrarot"]), 3)
@@ -146,6 +148,41 @@ class BEVWMSProbeTests(unittest.TestCase):
 		self.assertFalse(difference["alle_kanalreplikate_intern_konsistent"])
 		self.assertLess(
 			difference["kanalgruppen"]["nahinfrarot"][-1]["anteil_exakt_gleich"], 0.01)
+
+	def test_bev_real_world_pattern_irgb_red_green_differ_but_core_matches(self):
+		images = sample_images((32, 24))
+		# Wie im BEV-Livebericht: IRGB-NIR korrekt, aber die beiden
+		# IRGB-Kanäle für R/G sind anders gerendert.
+		irgb = images["irgb"]
+		for y in range(irgb.height):
+			for x in range(irgb.width):
+				nir, red, green, alpha = irgb.getpixel((x, y))
+				irgb.putpixel((x, y), (nir, min(255, red + 20),
+					min(255, green + 15), alpha))
+		result = compare_channels(images)
+		self.assertFalse(result["alle_kanalreplikate_intern_konsistent"])
+		self.assertTrue(result["kernkanaele_intern_konsistent"])
+		self.assertEqual(len(result["abweichungen_alle_darstellungen"]), 2)
+		self.assertEqual(
+			{x["kanal"] for x in result["abweichungen_alle_darstellungen"]},
+			{"rot", "gruen"})
+		self.assertTrue(all(
+			x["intern_konsistent"]
+			for rows in result["kernkanalgruppen"].values() for x in rows))
+		self.assertIn("KEIN Nachweis radiometrischer", result["interpretation_kernkanaele"])
+
+	def test_core_channel_mismatch_still_fails(self):
+		images = sample_images((32, 24))
+		for y in range(images["rgir"].height):
+			for x in range(images["rgir"].width):
+				r, g, nir, alpha = images["rgir"].getpixel((x, y))
+				images["rgir"].putpixel((x, y),
+					(min(255, r+25), g, nir, alpha))
+		result = compare_channels(images)
+		self.assertFalse(result["kernkanaele_intern_konsistent"])
+		self.assertFalse(result["alle_kanalreplikate_intern_konsistent"])
+		self.assertTrue(any(not item["intern_konsistent"]
+			for item in result["kernkanalgruppen"]["rot"]))
 
 	def test_transparency_counts_and_empty_masks_are_rejected(self):
 		images = sample_images()
