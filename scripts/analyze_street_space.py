@@ -61,7 +61,7 @@ def classify_contact(geometry, core, boundary_band, near_band, *, near_m, min_co
 		status = "fern_vom_kern"
 	return {
 		"status": status,
-		"flaeche_m2": round(geometry.area, 2),
+		"flaeche_m2": geometry.area,
 		"abstand_kern_m": round(distance, 3),
 		"randkontakt_m": round(contact_m, 2),
 		"randkontakt_anteil_pct": round(100 * contact_m / geometry.length, 2) if geometry.length else 0,
@@ -149,7 +149,7 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5,
 			"f_klasse_text": label,
 			"rolle": role,
 			"status": "kern" if role == "kern" else "nur_kontext",
-			"flaeche_m2": round(geometry.area, 2),
+			"flaeche_m2": geometry.area,
 		}
 		if code in CANDIDATE_CODES:
 			properties.update(classify_contact(
