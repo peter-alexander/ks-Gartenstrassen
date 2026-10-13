@@ -114,14 +114,23 @@ def parse_capabilities(content):
 		if local_tag(child.tag) == "Layer":
 			visit(child, set())
 	missing = sorted(set(LAYERS.values()) - found.keys())
-	if missing:
-		raise ValueError("WMS-Layer nicht in GetCapabilities: " + ", ".join(missing))
-	unsupported = [layer for layer, item in found.items()
-		if WMS_CRS not in item["crs"]]
-	if unsupported:
-		raise ValueError("EPSG:3857 nicht für alle Layer deklariert: " + ", ".join(unsupported))
-	return {"version": root.attrib["version"], "getmap_formate": formats,
-		"layer": found}
+	unsupported = sorted(layer for layer, item in found.items()
+		if WMS_CRS not in item["crs"])
+	# Der BEV-Orthofoto-WMS kann direkt per GetMap erreichbare Layer haben,
+	# die im GetCapabilities-Dokument nicht beworben werden. Capabilities
+	# dient daher der Dokumentation, nicht als vollständige Positivliste.
+	# Erst die fünf realen GetMap-PNG-Antworten entscheiden über Nutzbarkeit.
+	return {
+		"version": root.attrib["version"],
+		"getmap_formate": formats,
+		"layer": found,
+		"nicht_in_capabilities": missing,
+		"epsg3857_nicht_deklariert": unsupported,
+		"hinweis": (
+			"Nicht deklarierte Layer/CRS sind keine bestätigten GetMap-Fehler. "
+			"Direkte GetMap-Anfragen und ihre PNG-Antworten separat prüfen."
+		),
+	}
 
 
 def image_geometry(clip, *, padding_m=15, pixel_size_m=0.5):
@@ -318,9 +327,18 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	images = {}
 	for alias, layer in LAYERS.items():
 		url = get_map_url(layer, geometry)
-		raw = request_bytes(url)
-		image = decode_png(raw, (geometry["width"], geometry["height"]))
-		responses[alias] = {"url": url, "raw": raw, "sha256": hashlib.sha256(raw).hexdigest()}
+		try:
+			raw = request_bytes(url)
+			image = decode_png(raw, (geometry["width"], geometry["height"]))
+		except (OSError, ValueError) as exc:
+			raise ValueError(
+				f"Direkter GetMap-Abruf für {layer} ({alias}) fehlgeschlagen: {exc}"
+			) from exc
+		responses[alias] = {
+			"url": url, "raw": raw,
+			"sha256": hashlib.sha256(raw).hexdigest(),
+			"status": "getmap_png_valide",
+		}
 		images[alias] = image
 	# Eine leere/gerenderte/uneinheitliche WMS-Darstellung ist ein Prüfresultat
 	# und darf nicht stillschweigend in Kronenpolygone umgedeutet werden.
@@ -341,6 +359,8 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 				name: {"layer": LAYERS[name],
 					"getmap_url": responses[name]["url"],
 					"png_sha256": responses[name]["sha256"],
+					"status": responses[name]["status"],
+					"in_capabilities": LAYERS[name] in capabilities["layer"],
 					"datei": str(output / f"bev_{name}_test.png")}
 				for name in LAYERS
 			},
@@ -371,6 +391,14 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 			CRS.from_user_input(WMS_CRS).to_wkt() + "\n", encoding="utf-8")
 	(output / "bev_wms_diagnose.json").write_text(
 		json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+	if capabilities["nicht_in_capabilities"]:
+		print("Hinweis: Nicht in GetCapabilities aufgeführte, aber per GetMap "
+			"erfolgreich geprüfte Layer: "
+			+ ", ".join(capabilities["nicht_in_capabilities"]))
+	if capabilities["epsg3857_nicht_deklariert"]:
+		print("Hinweis: EPSG:3857 in Capabilities bei folgenden Layern "
+			"nicht deklariert: "
+			+ ", ".join(capabilities["epsg3857_nicht_deklariert"]))
 	print(f"BEV-WMS: {len(LAYERS)} gleich georeferenzierte GetMap-PNGs, "
 		f"{geometry['width']}x{geometry['height']} px (EPSG:3857)")
 	print("Gemeinsam deckende Pixel: "
