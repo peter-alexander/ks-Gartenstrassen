@@ -31,7 +31,7 @@ OSM_DIAMETER_FIELDS = ("diameter_crown", "crown_diameter")
 # Nur geschlossene, eindeutig metrische Bereiche. Offene Klassen werden
 # nicht automatisch nach oben oder unten extrapoliert.
 CROWN_RANGE = re.compile(
-	r"^\\s*(\\d+(?:[.,]\\d+)?)\\s*[-–—]\\s*(\\d+(?:[.,]\\d+)?)\\s*m\\s*$",
+	r"^\s*(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)\s*m\s*$",
 	re.IGNORECASE,
 )
 MAX_DIAMETER_M = 50
