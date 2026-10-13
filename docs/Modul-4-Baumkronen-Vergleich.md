@@ -1,6 +1,6 @@
 # Modul 4: Baumkronen und Überschirmungsgrad – modulare Vergleichsstrecke
 
-**Stand:** 14. Oktober 2026. **Status:** Die unabhängigen Kronenprovider **A (Wiener Baumkataster) und C (Grünraummonitoring 2023)** wurden im selben Straßenraum lokal ausgeführt und die Flächenwerte dokumentiert: **7,82 % bzw. 9,35 %**, räumliche IoU **58,02 %**. Der WMS-Kronenexport stimmt flächenmäßig mit den 71.892 klassifizierten Pixeln überein. **Die fachliche Genauigkeit der beiden Verfahren ist noch nicht anhand unabhängiger Referenzflächen validiert.** Die Straßenraum-Abgrenzung aus Modul 2 und die Bodenbegrünung aus Modul 3 bleiben unverändert.
+**Stand:** 14. Oktober 2026. **Status:** Die unabhängigen Kronenprovider **A (Wiener Baumkataster), B (Wien + OSM) und C (Grünraummonitoring 2023)** wurden im selben Straßenraum lokal ausgeführt und die Flächenwerte dokumentiert: **7,82 %, 7,89 % bzw. 9,35 %**. Räumliche IoU: **A/B 99,14 %, A/C 58,02 %, B/C 57,67 %**. Der WMS-Kronenexport stimmt flächenmäßig mit den 71.892 klassifizierten Pixeln überein. **Die fachliche Genauigkeit der beiden Verfahren ist noch nicht anhand unabhängiger Referenzflächen validiert.** Die Straßenraum-Abgrenzung aus Modul 2 und die Bodenbegrünung aus Modul 3 bleiben unverändert.
 
 ## Feste Schnittstellen
 
@@ -18,7 +18,7 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 | Ansatz | Datengrundlage | Geometriemodell / Aussage | Stand |
 | --- | --- | --- | --- |
 | **A – Wien Baumkataster** | Punkte via WFS `ogdwien:BAUMKATOGD`; metrische **Klasse als Text in `KRONENDURCHMESSER_TXT`**; `KRONENDURCHMESSER` ist **nur der Kategoriencode** | Kreis um Stammpunkt; Radius = halber **Intervallmittelwert** (z. B. `16-18 m` → 17 m Durchmesser → 8,5 m Radius); Näherung | **Erster korrigierter lokaler Lauf: 7,82 %; visuelle Genauigkeitsprüfung ausständig** |
-| **B – Wien + OpenStreetMap** | Wien-WFS plus OSM `natural=tree` und `natural=tree_row` nach der bestehenden Kartensammlungs-Merge-Logik | Originalpriorität, **4-m-Dubletten**, Baumreihensampling (**8 m**); fehlende OSM-Kronen explizit als Solar-Schätzungen markiert | **Eigenständiges Modul und Tests fertig; realer Overpass-Test ausständig** |
+| **B – Wien + OpenStreetMap** | Wien-WFS plus OSM `natural=tree` und `natural=tree_row` nach der bestehenden Kartensammlungs-Merge-Logik | Originalpriorität, **4-m-Dubletten**, Baumreihensampling (**8 m**); fehlende OSM-Kronen explizit als Solar-Schätzungen markiert | **Erster echter lokaler Lauf: 7,89 %; Baumreihen im Testgebiet nicht vorhanden** |
 | **C – Grünraummonitoring 2023** | Stadt-Wien-Rasterklassifikation; **50 cm Quellauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023 | Unabhängige Kronengeometrie aus geprüftem WMS-GetMap-Farbraster; im Testbild **#38A800** = Baumschicht, 71.892 Pixel; Rasterzellen als Polygone | **Lokaler Raster-/Polygonlauf geprüft, Straßenraumquote 9,35 %; visuelle Genauigkeitsprüfung ausständig** |
 | **D – BEV Orthofotos mit Infrarot** | BEV RGB/NIR bzw. IR-Darstellungen | Eigene Kronensegmentierung; nur NIR/NDVI allein trennt Bäume nicht sicher von Gras/Sträuchern, Höhe/Objektgrenzen benötigt | **Recherche, keine Implementierung** |
 
@@ -136,7 +136,7 @@ Der externe Build bereitet alle Wiener Bäume für ein kombiniertes Vektor-Tiles
 | Spezifische Zusammenführung | keine | **`scripts/canopy_osm_merge.py`** |
 | Default-Kronenausgabe | `data/processed/baumkronen/baumkronen_kreise.geojson` | `data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson` |
 | Aufruf der Flächenmessung | bestehendes `measure_canopy_cover.py` | **unverändert dasselbe** Skript |
-| Stand | Echter lokaler Referenzlauf: **7,82 %** | Code mit synthetischen Testdaten geprüft; **echter Overpass-/Messlauf ausständig** |
+| Stand | Lokaler Referenzlauf: **7,82 %** | **Echter Overpass-/Vergleichslauf abgeschlossen: 7,89 %** |
 
 A akzeptiert **keinen OSM-Dateipfad mehr**. Die Wiener Kronenpolygone von A bleiben auch als **Wiener Teilmenge von B** geometrisch identisch, sofern beide dieselben Wiener Quelldaten und FMZK-Testgeometrien erhalten. Dies ist in einem Integrationstest abgesichert. B schreibt **eigene** GeoJSON-Dateien und Berichte; weder A noch C werden verändert.
 
@@ -188,10 +188,47 @@ Voraussetzung: Wiener WFS-Daten aus Methode A (`baumkataster_wfs.geojson`) und v
 
 **Lokale Eingaben:** `data/processed/baumkronen/osm/osm_baeume_overpass.json` und `baumkataster_wfs.geojson`. Der Overpass-Adapter `scripts/fetch_osm_trees.py` dokumentiert Anfrage-BBOX samt 35 m Puffer, verwendeten Endpoint, Abfrage, Anzahl der OSM-Objekte und Prüfsummen. Ein Cache wird nur bei übereinstimmenden Metadaten wiederverwendet; unvollständige/fehlerhafte Antworten werden nicht als valide gespeichert. Der Overpass-Live-Abruf **wurde aus der Entwicklungsumgebung nicht ausgeführt** und muss lokal getestet werden.
 
-**Neue Ausgaben:** `data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson` und `baumkronen_kombiniert_bericht.json` mit Wien/OSM-/Reihen-/Schätzzahlen; Messbericht unter `data/processed/ueberschirmung/variante_b/`, Methodenvergleich unter `data/processed/ueberschirmung/vergleich/`. **Für B gibt es noch keinen validierten echten Überschirmungswert; keinesfalls die 7,82 % von A als B-Ergebnis ausgeben.**
+**Neue Ausgaben:** `data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson` und `baumkronen_kombiniert_bericht.json` mit Wien/OSM-/Reihen-/Schätzzahlen; Messbericht unter `data/processed/ueberschirmung/variante_b/`, Methodenvergleich unter `data/processed/ueberschirmung/vergleich/`. **Der erste echte B-Lauf ist inzwischen erfolgt: 7,89 % (3.678,65 m²) gegenüber A mit 7,82 %.** Die OSM-Kronenklassen und räumlichen Ausschlüsse stehen im direkt folgenden Abschnitt. Die reale Baumreihenverarbeitung konnte mangels OSM-Reihen im Testausschnitt noch nicht überprüft werden.
 
 **Begründung für die eigene Methode B:** Die Wiener Standortüberdeckung ist nicht vollständig (z. B. private Bäume fehlen teils). OSM kann zusätzliche Standorte und Baumreihen liefern. **Vollständigkeit und Genauigkeit der OSM-Kronen sind aber keinesfalls garantiert** – insbesondere in B mit typisierten, geschätzten Durchmessern. Der Vergleich mit C und dem Orthofoto entscheidet erst später über den tatsächlichen Nutzen.
 
+
+### Erster echter lokaler Referenzlauf B (13./14.10.2026)
+
+**Nachgereichte lokale Berichte:** `data/processed/baumkronen/variante_b/baumkronen_kombiniert_bericht.json` und `data/processed/ueberschirmung/vergleich/kronenmethoden_vergleich.json`. Der Vergleich basiert auf derselben 487-Feature-Straßenraummaske (**46.630,560980 m²**, SHA-256 `dc53cd78d0bcd5cb242529e126a969f1be6ca5d27487ff1e85ee684654d7fc11`) wie A/C.
+
+| Kennzahl | A – Wiener Baumkataster | B – Wien + OSM | C – GRM2023 |
+| --- | ---: | ---: | ---: |
+| Kronen-Features | 117 | **121** | 1 MultiPolygon |
+| Kronenfläche im Straßenraum | **3.647,05 m²** | **3.678,65 m²** | **4.358,69 m²** |
+| **Überschirmungsgrad** | **7,82 %** | **7,89 %** | **9,35 %** |
+
+**OSM-Datenbilanz der Methode B (nicht mit Straßenraumflächen gleichsetzen):**
+
+| Stufe | Zahl |
+| --- | ---: |
+| Geladene OSM-Elemente | **140**, davon 140 Einzelbaum-Nodes; **0 Baumreihen** |
+| OSM-Nodes innerhalb von 4 m eines Wien-Standorts, daher unterdrückt | **128** |
+| Zusätzliche OSM-Einzelbäume nach Dublettenprüfung | **12** |
+| Davon mit explizit erfasstem Kronendurchmesser | **3** |
+| Davon mit geschätztem Durchmesser aufgrund fehlender OSM-Höhe (12-m-Höhenannahme) | **9** |
+| OSM-Kronenpolygone mit räumlichem Kontakt zum FMZK-Testgebiet | **4** (3 explizite Maße, 1 Schätzung) |
+| Wiener Kronenpolygone, identisch zum A-Lauf | **117** |
+| **In B insgesamt erzeugte Kronenfeatures** | **121** |
+
+**Warum nur 4 der 12 OSM-Ergänzungen im GeoJSON erscheinen:** Die Quelle wird mit einem räumlichen Puffer abgefragt. Das Polygonmodul prüft auch Bäume knapp außerhalb des FMZK-Testausschnitts, speichert am Ende aber nur Kronen, die diesen berühren. Die zusammengefasste räumliche Filterstatistik von B lautet **64** Standorte außerhalb des Untersuchungsbereichs sowie **58** Kronen ohne Kontakt zur Gebietsfläche. Diese beiden Zahlen betreffen **Wien und OSM zusammen**, nicht ausschließlich OSM; ihre Zuordnung zu einzelnen Providern ist aus dem Bericht allein nicht rekonstruierbar. Die lokale Quellendifferenz `12 → 4` ist dennoch durch `quellen_im_ergebnis.osm_tree = 4` bestätigt.
+
+**Gemessener Zusatznutzen im Straßenraum:**
+
+- Von A und B gemeinsam erkannt: **3.647,052373 m²**.
+- Nur von B erfasst: **31,599582 m²**; nur von A: **0 m²**.
+- Gesamtfläche B: **3.678,651956 m²** = **7,888929 %** Überschirmungsgrad, also **+0,067766 Prozentpunkte** gegenüber A.
+- **IoU A/B = 99,1410 %**. Das bestätigt räumlich: B **erhält den vollständig gemessenen A-Anteil** und ergänzt nur wenige Flächen.
+- **IoU B/C = 57,6710 %** gegenüber **IoU A/C = 58,0247 %**. Die Unterschiede zum Grünraummonitoring wurden durch OSM im Testgebiet also **nicht aufgelöst**.
+
+**Versionierte Quellen für diesen B-Lauf:** WFS-GeoJSON SHA-256 `5c7cba3a44491be4450e07630301d1f3d515a6a179c9e758372ed8484fd3a9e6`, OSM-Overpass-Rohdaten SHA-256 `23f6f2c944ab2d22cb9b974813dc391140be1dcc0822e6b65299620d17195696`, B-Kronen-GeoJSON SHA-256 `cf964d2561c2aeaa395881208e85f905379f930f59d4937370c17676b554a8e2`. Grundlage ist die dokumentierte Reihenfolge `wien_baumkataster > osm_tree > osm_tree_row`; OSM-Fallback **aktiv**.
+
+**Interpretation und Grenzen:** Die vier zusätzlich relevanten Kronenkreise sind kein Beleg, dass nur vier nichtamtliche Bäume existieren. OSM kann unvollständig sein, Baumreihen fehlen in diesem Ausschnitt, und einer der vier Kreise beruht auf einem **frei angenommenen Höhenwert von 12 m**. Unterschiede zu C hängen außerdem an Geometriemodell und Erhebungszeitpunkt. **Mehr Überschirmung ist nicht automatisch bessere Genauigkeit.** Für eine quantitative Sensitivitätsprüfung empfiehlt sich als nächstes ein **getrennter B-Durchlauf mit `--strict-osm` in ein weiteres Ausgabeverzeichnis**; mit einem Orthofoto lassen sich die vier zusätzlichen Kronen direkt kontrollieren. Keine der früheren Referenzdateien von A oder C überschreiben.
 
 ## Variante C: Grünraummonitoring 2023 – WMS-Diagnose und Kronenprovider
 
