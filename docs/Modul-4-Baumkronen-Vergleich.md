@@ -395,7 +395,47 @@ Die beiden Methoden stimmen in vielen Bereichen überein, weichen aber **deutlic
 
 ## Variante D: BEV Orthofoto RGBI – Quellenprüfung D1 (14.10.2026)
 
-**Ziel:** Ein eigenständiges drittes Prinzip zur Kronengeometrie neben Stamm-Kreisnäherung (A/B) und GRM-Klassifikation (C). Die tatsächlichen BEV-Orthofotos sollen **nicht** anhand einer 3-Kanal-Falschfarbdarstellung, sondern nach Möglichkeit als echtes RGBI-Multispektralraster ausgewertet werden.
+**Ziel:** Ein eigenständiges drittes Prinzip zur Kronengeometrie neben Stamm-Kreisnäherung (A/B) und GRM-Klassifikation (C). **Zunächst den bereits in der Kartensammlung verwendeten BEV-WMS** und die tatsächliche interne Übereinstimmung seiner dargestellten Kanäle untersuchen. Erst falls das für unsere Zwecke nicht ausreicht, Roh-RGBI-Multispektralraster beschaffen und prüfen.
+
+### Vorrangiger erster Versuch: BEV-WMS aus der Kartensammlung (D0, implementiert)
+
+**Korrektur des ursprünglichen D-Plans:** In der Kartensammlung gibt es bereits einen öffentlich eingebundenen BEV-Orthofoto-WMS. Der Erstversuch muss daher **keine riesigen RGBI-Kacheln herunterladen**. Die vorhandene Einbindung steht in [`Kartensammlung/src/app/basemaps/providers/imagery.js`](https://github.com/peter-alexander/Kartensammlung/blob/main/src/app/basemaps/providers/imagery.js) und nutzt `https://kataster.bev.gv.at/ortho/ows`. Sie enthält diese fünf Layer:
+
+| Basemap | WMS-Layer | Laut Bezeichnung dargestellte Kanäle |
+| --- | --- | --- |
+| `bev_rgb` | `bev:RGB` | R / G / B |
+| `bev_irgb` | `bev:IRGB` | NIR / R / G |
+| `bev_rgir` | `bev:RGIR` | R / G / NIR |
+| `bev_rirb` | `bev:RIRB` | R / NIR / B |
+| `bev_ir` | `bev:IR` | NIR in Graustufen |
+
+Das sind **fünf gerenderte Darstellungen**, kein garantiertes RGBI-Rohdatenraster. Aus den Namen ist die erwartete Kanalanordnung plausibel, die tatsächliche Gleichheit wird **erst gemessen**. Nicht mit den in der BEV-Dokumentation genannten **anmeldepflichtigen anderen Darstellungsdiensten** verwechseln; der konkrete Kataster-WMS-Endpunkt ist die in der Kartensammlung vorhandene Adresse.
+
+**Neues, eigenständiges Diagnosemodul:** `scripts/probe_bev_wms.py`. Aufruf nach der Quellcode-Synchronisierung:
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.probe_bev_wms
+```
+
+Das Skript verwendet dieselbe lokale FMZK-Testregion wie A/B/C und bezieht einmalig `GetCapabilities` plus fünf `GetMap`-PNG-Bilder, **alle mit identischer BBOX, Projektion EPSG:3857, Rasterabmessungen und WMS-Version 1.3.0**. Standardmäßig wird ein etwa **0,5-m-Rastergitter** mit 15 m Umgebungspuffer angefragt, maximal 2.048 Pixel Kantenlänge und 3 Millionen Pixel/Bild. Der WMS kann intern neu sampeln; die Auflösung des Anfragegitters ist **keine zugesicherte BEV-Quellauflösung**.
+
+Ausgabe unter `data/processed/baumkronen/bev_wms/`:
+
+- `getcapabilities.xml`;
+- `bev_rgb_test.png`, `bev_irgb_test.png`, `bev_rgir_test.png`, `bev_rirb_test.png`, `bev_ir_test.png`;
+- für **jedes** Bild eine gleichnamige `.pgw`-Weltdatei und `.prj`-Projektionsdatei (EPSG:3857) zum GIS-Import;
+- `bev_wms_diagnose.json` mit Rastergeometrie, WMS-Anfrage-URLs, SHA-256 pro Quelle, Alpha-/NoData-Sichtbarkeit und **pixelgenauem Vergleich mehrfach dargestellter Spektralkanäle**.
+
+Insbesondere muss der **Rotkanal** in RGB, IRGB, RGIR und RIRB sowie der **NIR-Kanal** in IRGB, RGIR, RIRB und IR übereinstimmen. Das Skript vergleicht auf **gemeinsam deckenden Pixeln** den Anteil exakt gleicher Pixel, den Anteil mit maximal 1 Grauwert Unterschied und den mittleren absoluten Unterschied. Es prüft auch die drei Farbkanäle der Graustufendarstellung gegeneinander. Wenn Bilder oder GetCapabilities falsch bzw. nicht verfügbar sind, wird **keine scheinbar gültige Messung** erzeugt. Bestehende Ausgaben werden ohne bewusstes `--overwrite` nicht ersetzt.
+
+**Ganz wichtig:** Auch bei guter Übereinstimmung sind dies zunächst **gerenderte 8-bit-Werte** und *keine* nachgewiesenen linear-skalierenden, radiometrischen Rot-/NIR-Rohwerte. Ein daraus gerechneter Index dürfte zunächst höchstens **experimenteller WMS-Vegetationsindikator** heißen, nicht kalibrierter NDVI. Für die Kronentrennung brauchen wir darüber hinaus weitere Merkmale und idealerweise passende Höheninformationen.
+
+**Noch nicht erfolgt:** Ein echter BEV-Live-GetMap-Test war aus der Entwicklungsumgebung nicht erreichbar (Netz-/Namensauflösung). Die Funktionen sind automatisiert mit synthetischen, georeferenzierten PNG-Testfällen geprüft; der echte Dienst wird **erst lokal** überprüft. Nach dem ersten Lauf benötigen wir zunächst **nur `bev_wms_diagnose.json`** zur Entscheidung, ob WMS-Kanäle ausreichen. Das erstellte Bildmaterial bleibt lokal und muss nicht vollständig hochgeladen werden.
+
+**Wenn die WMS-Qualität unzureichend ist**, bleibt der eigenständige Roh-RGBI-Adapter `scripts/probe_bev_rgbir.py` als zweite Quelle erhalten. Ein großer TIFF-Download ist erst gerechtfertigt, wenn die WMS-Ergebnisse keine ausreichend verlässliche Spektraldiagnose zulassen.
+
+---
 
 ### Amtlich bestätigte Daten und Bezugswege
 
