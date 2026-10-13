@@ -1,6 +1,6 @@
 # Modul 4: Baumkronen und Überschirmungsgrad – modulare Vergleichsstrecke
 
-**Stand:** 13. Oktober 2026. **Status:** erste reproduzierbare Vektor- und Messmodule implementiert; **keine Aussage, welcher Ansatz die beste Genauigkeit hat**. Der erste echte lokale Lauf sowie die fachliche Sichtkontrolle stehen noch aus. Die Straßenraum-Abgrenzung aus Modul 2 und die Bodenbegrünung aus Modul 3 bleiben unverändert.
+**Stand:** 13. Oktober 2026. **Status:** Vektor- und Vergleichsmodule implementiert; Variante A lieferte lokal vorläufig **7,82 %**, Variante C wurde anhand des realen WMS samt Legende technisch vorbereitet. Der Straßenraum-Schnitt von C und die fachliche Vergleichsvalidierung stehen noch aus. **Noch keine Aussage, welcher Ansatz genauer ist.** Die Straßenraum-Abgrenzung aus Modul 2 und die Bodenbegrünung aus Modul 3 bleiben unverändert.
 
 ## Feste Schnittstellen
 
@@ -19,7 +19,7 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 | --- | --- | --- | --- |
 | **A – Wien Baumkataster** | Punkte via WFS `ogdwien:BAUMKATOGD`; metrische **Klasse als Text in `KRONENDURCHMESSER_TXT`**; `KRONENDURCHMESSER` ist **nur der Kategoriencode** | Kreis um Stammpunkt; Radius = halber **Intervallmittelwert** (z. B. `16-18 m` → 17 m Durchmesser → 8,5 m Radius); Näherung | **Vorbereitet/implementiert; erster Messlauf muss nach Korrektur wiederholt werden** |
 | **B – Wien + OpenStreetMap** | Gleiche Baumkatasterdaten, dazu OSM `natural=tree` mit `diameter_crown` oder `crown_diameter` | Fehlende Bäume ergänzen, mögliche Dubletten behandeln; fehlende Durchmesser ausdrücklich markieren oder nur mit Opt-in schätzen | **Vorbereitet/implementiert** |
-| **C – Grünraummonitoring 2023** | Rasterklassifikation der Stadt Wien; **50 cm Rasterauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023, Infrarot-True-Orthofotos und Laserscanning | Potenziell direkter, unabhängiger Kronennachweis auch auf privaten Grundstücken. Raster zu Polygondaten nur mit geprüfter Pixel-/Farb-Klassenübersetzung | **Datenquelle identifiziert; Import noch offen** |
+| **C – Grünraummonitoring 2023** | Stadt-Wien-Rasterklassifikation; **50 cm Quellauflösung**, **Baumschicht als Klasse 3**, Sommerbefliegungen 2023 | Unabhängige Kronengeometrie aus geprüftem WMS-GetMap-Farbraster; im Testbild **#38A800** = Baumschicht, 71.892 Pixel; Rasterzellen als Polygone | **WMS-Klassen geprüft; Polygonprovider implementiert, lokaler Straßenraum-Schnitt ausständig** |
 | **D – BEV Orthofotos mit Infrarot** | BEV RGB/NIR bzw. IR-Darstellungen | Eigene Kronensegmentierung; nur NIR/NDVI allein trennt Bäume nicht sicher von Gras/Sträuchern, Höhe/Objektgrenzen benötigt | **Recherche, keine Implementierung** |
 
 **Hinweis zu C:** Die Wiener OGD-Metadaten führen sowohl **Grünraummonitoring 2022** als auch **2023**; die 2023er Daten sind tatsächlich veröffentlicht. Die abgerufene WMS-Darstellung ist **kein garantierter kategorischer GeoTIFF-Rohdatenexport**. Vor der Automatisierung müssen wir die konkrete GetCapabilities-Ebene, den tatsächlich vorliegenden WMS-Rastertyp, NoData/Transparenz sowie die eindeutige Zuordnung zur **Baumschicht (3)** prüfen. Aus einer hübschen WMS-Kartenfarbe allein darf noch kein Kronenflächenwert abgeleitet werden.
@@ -140,11 +140,11 @@ Lokale OSM-Daten benötigen **GeoJSON-Punkte** für `natural=tree`. Sie können 
 
 Die A/B-Gegenüberstellung ist zunächst nur möglich, wenn eine geeignete OSM-GeoJSON-Datei bereitgestellt wird. **Es gibt im Repo noch keinen fertig geprüften OSM-Downloaddienst.** Eine später angebotene kombinierte Tilequelle könnte dafür als eigener weiterer Quelladapter dienen, ohne das Messmodul zu verändern.
 
-## Variante C: Grünraummonitoring 2023 – WMS-Diagnose implementiert
+## Variante C: Grünraummonitoring 2023 – WMS-Diagnose und Kronenprovider
 
 **Datengrundlage:** Grünraummonitoring 2023 der Stadt Wien, Rasterbasis 50 cm, **Baumschicht als thematische Klasse 3**. Der WMS-Ebenenname ist **`GRM2023OGD`**, Dienst **`https://data.wien.gv.at/daten/wms`**. Die amtliche Methodik verwendet 2023er Sommer-Infrarotbilder und Höhendaten; diese Quelle unterscheidet sich grundlegend von der Kreisapproximation des Baumkatasters.
 
-**Wichtige Unterscheidung:** „Baumschicht = Klasse 3“ ist eine **fachliche Bedeutung der Quellklassifikation**. Es ist **nicht nachgewiesen**, dass ein WMS-`GetMap`-PNG Pixelwert 3 oder eine bestimmte RGB-Farbe für die Baumschicht verwendet. PNG-Rendering kann klassenspezifische Farben, NoData-Transparenz, Rasterresampling und Mischpixel enthalten. Deshalb wäre automatisches Extrahieren einer „grünen“ WMS-Farbe ohne Legendenprüfung unzuverlässig.
+**Wichtige Unterscheidung:** „Baumschicht = Klasse 3“ bezeichnet die **fachliche Klasse des Quellrasters**, nicht unmittelbar den PNG-Pixelwert. Für **das tatsächlich diagnostizierte WMS-Bild** ist jetzt durch neun exakt vorkommende Rasterfarben und die mitgelieferte Legende belegt, dass **#38A800** die Baumschicht darstellt. Eine andere oder geänderte WMS-Ausgabe darf dennoch nicht ungeprüft dieselbe Farbzuordnung übernehmen.
 
 ### Schritt C1 – Metadaten, Legende und Test-Raster sichern
 
@@ -168,7 +168,7 @@ Es wird die vom WMS deklarierte **EPSG:31256**-Projektion bevorzugt, sonst **EPS
 
 Das Modul **berechnet noch keine Baumkronenfläche und erzeugt absichtlich kein Kronen-GeoJSON**, solange wir nicht sicher wissen, welche Farben/Pixelwerte der Klasse 3 entsprechen. Der Code verweigert Nicht-PNG-Antworten (z. B. XML-WMS-Fehlermeldungen) und unerwartete Bildabmessungen, anstatt sie als gültige Rasterdaten zu behandeln. Die Abfrage gegen den **echten Wiener Dienst ist von GitHub Actions nicht erreichbar** und muss lokal überprüft werden.
 
-**Bitte nach dem ersten Lauf die `grm2023_wms_diagnose.json` und die beiden PNGs (Legende, Kartenausschnitt) gemeinsam ansehen bzw. bereitstellen.** Erst dadurch können wir klären, ob WMS-Pixel wirklich eindeutige Klassen ermöglichen.
+**Die lokalen Diagnose-Dateien wurden bereitgestellt und geprüft.** Die dabei bestätigte Klassenzuordnung und ihre Verwendung im eigenständigen Provider sind im folgenden Abschnitt dokumentiert.
 
 ### Schritt C2 – Baumschichtfarben anhand der echten WMS-Ausgabe bestätigt
 
