@@ -112,9 +112,12 @@ def decode_tile(raw, z, x, y):
 	maxy = WEBMERCATOR_RADIUS - y * width
 	features = {"gst": [], "nfl": []}
 	for layer_name in features:
+		# Leere Quelllayer können in einzelnen MVT-Kacheln fehlen.
+		# Erst nach dem Zusammenführen wird geprüft, ob im gesamten
+		# Testbereich sowohl gst als auch nfl vorhanden sind.
 		layer = layers.get(layer_name)
 		if layer is None:
-			raise ValueError(f"Kachel {z}/{x}/{y}: Layer {layer_name} fehlt")
+			continue
 		extent = layer.get("extent", 4096)
 		if not isinstance(extent, int) or extent <= 0:
 			raise ValueError(f"Kachel {z}/{x}/{y}: ungültiger Kachelextent")
@@ -249,7 +252,7 @@ def build_results(core, parcels, nfl, clip, details):
 		if clipped.is_empty or clipped.area <= 0:
 			continue
 		intersection = clipped.intersection(clip_core).area
-		if intersection <= 0.05:
+		if intersection <= 0:
 			continue
 		key = (kgez, gnr)
 		detail = details.get(key)
@@ -362,8 +365,8 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 	parcels, nfl, tiles = read_tiles(bbox, Path(cache), refresh=refresh,
 		offline=offline, max_tiles=max_tiles)
 	keys = [key for key, geometry in sorted(parcels.items())
-		if geometry.intersection(core).area > 0.05
-		and geometry.intersection(clip).area > 0.05]
+		if geometry.intersection(core).area > 0
+		and geometry.intersection(clip).area > 0]
 	if len(keys) > max_parcels:
 		raise ValueError(f"{len(keys)} getroffene Grundstücke, maximal {max_parcels}; bitte kleineres Gebiet")
 	details = {}
