@@ -152,6 +152,46 @@ class SampleStreetSpaceTest(unittest.TestCase):
 			with self.assertRaisesRegex(ValueError, "veraltet"):
 				read_review(review)
 
+	def test_rounded_zero_area_recovered_without_rerunning_street_analysis(self):
+		# Das alte Street-Space-Skript schrieb <0,005 m² als 0.00.
+		# GeoJSON enthält trotzdem das gültige kleine Polygon.
+		with tempfile.TemporaryDirectory() as tmp:
+			folder = Path(tmp)
+			features = synthetic_features()
+			target = features[0]
+			fid = target["properties"]["id"]
+			target["properties"]["flaeche_m2"] = 0.0
+			review_path, source = local_fixture(folder, features)
+			before = review_path.read_bytes()
+			read = read_review(review_path)
+			recovered = next(f for f in read if f["properties"]["id"] == fid)
+			self.assertGreater(recovered["properties"]["flaeche_m2"], 0)
+			self.assertEqual(review_path.read_bytes(), before)
+			report = create_sample(review_path, source, folder / "out")
+			self.assertEqual(report["objekte"], 25)
+			with (folder / "out" / "pruefbeispiele.csv").open(encoding="utf-8-sig", newline="") as file:
+				rows = list(csv.DictReader(file))
+			row = next(row for row in rows if int(row["fid"]) == fid)
+			self.assertGreater(float(row["flaeche_m2"]), 0)
+
+	def test_negative_area_and_true_empty_geometry_rejected(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			folder = Path(tmp)
+			features = synthetic_features()
+			features[0]["properties"]["flaeche_m2"] = -1.0
+			review, _ = local_fixture(folder, features)
+			with self.assertRaisesRegex(ValueError, "ungültiger Flächenwert"):
+				read_review(review)
+			features[0]["properties"]["flaeche_m2"] = 0.0
+			features[0]["geometry"] = {
+				"type": "Polygon", "coordinates": [
+					[[16.36, 48.22], [16.36, 48.22], [16.36, 48.22], [16.36, 48.22]],
+				],
+			}
+			review.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+			with self.assertRaisesRegex(ValueError, "keine gültige Polygongeometrie"):
+				read_review(review)
+
 	def test_group_shortage_fails_without_guessing(self):
 		smaller = [f for f in self.features if f["properties"]["f_klasse"] != 58]
 		with self.assertRaisesRegex(ValueError, "verfügbare Objekte"):
