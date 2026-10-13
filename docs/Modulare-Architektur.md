@@ -106,6 +106,39 @@ Alle Flächenberechnungen erfolgen **metrisch in EPSG:31256**. Dies verhindert d
 
 **Kein Automatikschritt** zur Übernahme noch ungeklärter Grünflächen außerhalb der Straßenmaske. Sie bleiben für Qualitätskontrolle und spätere Verfeinerung erhalten. Die Gesamtrate bezieht sich ausschließlich auf die aktuelle vorläufige Maske.
 
+### Erster lokaler Referenzlauf – Bodenbegrünung (13.10.2026)
+
+Das Modul wurde nach der Implementierung mit den **tatsächlichen lokalen Daten des FMZK-Testausschnitts** ausgeführt. Die hier dokumentierten Werte stammen aus `data/processed/bodenbegruenung/bodenbegruenung_bericht.json` (Schema-Version **1**, Messzeitpunkt **2026-10-13 20:49:26 UTC**). **Der Ergebnisbericht und die GeoJSON-Daten werden nicht in Git eingecheckt**; folgende Angaben dokumentieren ihren Stand reproduzierbar.
+
+| Ergebnis | Wert |
+| --- | ---: |
+| Straßenraumfläche, vereinigt (Nenner) | **46.630,56 m²** |
+| Bodenbegrünte Straßenraumfläche, vereinigt (Zähler) | **889,18 m²** |
+| **Bodenbegrünungsanteil** | **1,9069 %** (gerundet **1,91 %**) |
+| FMZK-Klasse 58 innerhalb der Straßenmaske | 0,001653 m² |
+| FMZK-Klasse 69 innerhalb der Straßenmaske | 889,182788 m² |
+| FMZK-Objekte insgesamt | 2.401 |
+| FMZK-Grünobjekte (Klassen 58/69) insgesamt | 276 |
+| Grünobjekte mit positiver Überschneidung zur Straßenmaske | 107 |
+| Objekte in der Straßenraum-Eingabemaske | 487 |
+| Überlagerung zwischen Grünklassen 58 und 69 | 0,00 m² |
+| Straßenraum ohne FMZK-Flächendeckung | 0,038146 m² |
+| Anzahl reparierter Geometrien der Straßenmaske | 0 |
+| Summe außerhalb der Testausschnittsgrenze, vor dem Schnitt | 0,177884 m² |
+
+**Eingaben dieses Referenzlaufs:**
+
+- **Straßenraum-Maske:** `data/processed/street_space/fmzk_strassenraum.geojson`; SHA-256 **`dc53cd78d0bcd5cb242529e126a969f1be6ca5d27487ff1e85ee684654d7fc11`**. Der Hash gilt **für die konkreten Datei-Bytes**, nicht für das abstrakte Verfahren oder die Straßenraumgeometrie unabhängig von der Kodierung.
+- **FMZK-Ausschnitt:** `data/processed/fmzk_test.gpkg`, Layer `fmzk`, EPSG:31256.
+- **Test-BBOX:** `16.361012,48.221226,16.366948,48.224902` (EPSG:4326).
+- **Berechnung:** FMZK-`F_KLASSE` 58/69, mit der vereinigten Straßenraumgeometrie geschnitten; Nenner ist die vereinigte Straßenraumfläche. Diese Prozentzahl ist **nur für die aktuelle Straßenraum-Version und diesen Ausschnitt** gültig.
+
+**Einordnung / Qualität:** Der Benutzer hat die Darstellung bzw. das erste Ergebnis qualitativ mit **„Das schaut sehr gut aus!“** bewertet. Das ist eine positive Sichtkontrolle, **keine quantitativ belegte Klassifikationsgenauigkeit**. Mit lediglich rund **0,002 m²** aus FMZK-Klasse 58 stammt die hier gezählte Bodenbegrünung faktisch vollständig aus Klasse 69. **Warum** Klasse 58 so wenig beiträgt, ist noch nicht verifiziert: Das kann mit den konkreten Grünflächen, der vorläufigen Straßenraumzuordnung oder Grenzüberschneidungen zusammenhängen. Die Zahl darf nicht als Beleg dafür interpretiert werden, dass Klasse 58 grundsätzlich nicht im Straßenraum vorkommt.
+
+Der Bericht meldet praktisch vollständige FMZK-Flächendeckung (nur **0,038 m²** ohne Quellüberdeckung). Die rund **0,178 m²** Eingabegeometrie außerhalb des Testausschnitts wurden bei der Ermittlung der Maske zugeschnitten; dieser kleine Wert ist als **numerischer/geometrischer Prüfhinweis**, nicht als Beleg fehlerfreier Koordinaten, zu lesen. Änderungen am Straßenraum-Modul, an FMZK-Daten oder Grünklassendefinitionen führen zu **einem neuen Messstand**; den heutigen Bericht und seinen Masken-Hash als Vergleich erhalten.
+
+**Festlegung:** Modul 3 bleibt in dieser Fassung als eigenständig arbeitendes, getestetes Modul bestehen. Erst konkrete Gegenbeispiele oder eine neue fachliche Anforderung sind Anlass, die Flächenklassen bzw. Straßenraum-Maske anzupassen. Nächster eigenständiger Schritt ist die **Datenquelle und Methodik für Modul 4 – Kronenüberschirmung** festzulegen; Bodenbegrünung wird dadurch nicht rückwirkend ersetzt oder mit der Kronenfläche addiert.
+
 ## 4. Kronenüberschirmung – geplant, noch nicht implementiert
 
 Eine spätere, unabhängige Datenquelle wird die projizierte Baumkronenfläche liefern; diese wird mit derselben Straßenraum-Maske geschnitten. Die Kennzahl **Kronenüberschirmungsgrad** ist unabhängig von der Bodenbegrünung und muss nicht mit ihr zu einer einzigen Flächenzahl addiert werden: Begrünter Boden und Baumkronen können übereinander liegen.
