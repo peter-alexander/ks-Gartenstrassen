@@ -88,6 +88,39 @@ Die BBOX-Grenze wird mit den Metadaten der Extraktion überprüft. Fehlende Klas
 
 **Wichtig:** Die Prozentspalte ist der Flächenanteil an der **gesamten Test-BBOX**. Sie ist **noch kein Grünanteil im öffentlichen Straßenraum**: Dieser braucht erst eine fachlich geprüfte Straßenflächenabgrenzung.
 
+## Schritt 3: Öffentlichen Straßenraum vorläufig abgrenzen
+
+Die Straßenraum-Analyse ist absichtlich **eine Sichtung**, keine automatische Zuweisung aller anliegenden Flächen zum Straßenraum.
+
+```bash
+.venv/bin/python -m scripts.analyze_street_space
+```
+
+**Ergebnisse nur lokal** in `data/processed/street_space/`:
+
+- `strassenraum_kern.geojson`: geometrische Vereinigung der sicher erkennbaren öffentlichen Verkehrsflächen (Klassen **21 Fahrbahn, 23 Gehsteig, 24 Fußgängerzone, 33 ruhender Verkehr**), WGS84.
+- `strassenraum_pruefung.geojson`: einzelne Kernflächen, sämtliche Grün-Kandidaten **58/69**, unklare Flächen **39/59** und **private Kontextflächen 25/26/51**. Jede Geometrie hat `rolle`, `status` und relevante Kenngrößen. Andere FMZK-Klassen werden nicht exportiert.
+- `strassenraum_kandidaten.csv`: pro Grün- bzw. unklarer Fläche Kennzahlen zu Abstand, Grenzkontakt und Umfeldnähe.
+- `strassenraum_bericht.json`: Flächensummen pro Klasse und Lage-Status (jeweils als geometrische Vereinigung), verwendete Schwellen und eventuelle Geometriereparaturen.
+
+Die Berechnung erfolgt in **EPSG:31256**, nur die GeoJSON-Ausgabe in **EPSG:4326**. Der Status ist ausschließlich eine räumliche Vorprüfung:
+
+| Status | Bedeutung |
+| --- | --- |
+| `ueberlappt_kern` | Polygon überlappt die Kernfläche um mehr als 0,05 m² – geometrischen Konflikt prüfen |
+| `grenzt_an_kern` | Randkontakt von mindestens 0,5 m entlang des Kerns, geprüft mit 0,25 m Toleranz |
+| `nahe_kern` | Randkontakt zu kurz, aber innerhalb von 2 m zum Kern |
+| `fern_vom_kern` | Kein entsprechender räumlicher Bezug zum Kern |
+
+Die Randtoleranz/Distanz und Mindestkontaktlänge sind Parameter (`--randtoleranz-m`, `--nahe-m`, `--mindest-randkontakt-m`). Der Kennwert `flaeche_im_umfeld_pct` misst den Anteil des jeweiligen Kandidatenpolygons innerhalb des `--nahe-m`-Buffers um den Kern.
+
+**Wichtig:**
+- Auch `grenzt_an_kern` ist **keine Bestätigung**, dass die ganze Fläche öffentlich ist. Insbesondere große private Grundstücke können an Gehsteige grenzen.
+- Klasse **59** (befestigte Fläche) ist nicht automatisch öffentliche Verkehrsfläche, ebenso wenig Klasse 39. Klasse 51 (Innenhof) und private Verkehrsflächen 25/26 bleiben Kontext, keine Kandidaten.
+- Der Kern ist eine **Teilmenge** des Straßenraums; Verkehrsinseln, sonstige öffentliche Flächen und Grünstreifen sind damit noch nicht vollständig erfasst.
+- Deshalb gibt es bewusst **noch keinen Grünanteil pro Straße** und keine Grünfläche / Kernfläche als vermeintlich gültigen Anteil.
+- Die Ergebnislayer in QGIS öffnen oder in die Kartensammlung importieren. Verdächtige Flächen (z. B. Klasse 59 und große angrenzende Klasse-58-Polygone) anhand des Orthofotos/der FMZK überprüfen. Danach den exakten Straßenraum festlegen.
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
@@ -119,6 +152,6 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 1. Extrahiertes GeoPackage prüfen: Feature-Anzahl, Flächenklassen, Geometrien und Quellenbezug.
 2. Flächenbericht für den neuen Layer `fmzk` anhand der Kartendarstellung kontrollieren (Klassentexte, Geometrien, Überlagerungen und Grünflächen).
 3. Öffentliche Straßenflächen von privaten Höfen und sonstigen Flächen trennen. Erst danach Kennzahlen je Straßensegment bestimmen.
-4. Bodenbegrünung und Kronenüberschirmung unabhängig voneinander berechnen, mit bekannten positiven und negativen Beispielen validieren.
+4. Kandidaten aus `scripts.analyze_street_space` räumlich prüfen, öffentliche Straßenraumgrenzen festlegen und erst dann Bodenbegrünung und Kronenüberschirmung unabhängig voneinander je Abschnitt berechnen.
 
 Datenquelle: **Stadt Wien – data.wien.gv.at**, gemäß [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.de). 
