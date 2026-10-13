@@ -35,7 +35,7 @@ Kronen dürfen über Straßenflächen ragen, obwohl der Baumstamm **außerhalb**
 | `scripts/measure_canopy_cover.py` | Universelle Kronen-Flächenmessung, **unabhängig vom Kronen-Provider**, identischer Straßenraumvertrag wie Modul 3 |
 | `scripts/compare_canopy_methods.py` | Vergleicht 2+ Kronen-GeoJSONs auf identischem Straßenraum: Prozentsatz, IoU, Fläche nur A/nur B |
 
-Der WFS-Abholcode konnte bisher **nicht gegen den echten Server aus dieser Umgebung ausgeführt werden**. Der Dienst und sein tatsächliches JSON-/BBOX-Verhalten müssen beim ersten lokalen Durchlauf geprüft werden. Bei einer inkonsistenten Antwort bricht der Import ab und überschreibt keinen bisherigen validen Download.
+**Erster echter lokaler WFS-Abruf bestätigt (13.10.2026):** Der Wiener WFS hat **252 Baum-Punkte** geliefert (`wfs_heruntergeladen`) und die bestehende BBOX-/Koordinatenprüfung bestanden. Der nächste Schritt scheiterte zunächst ausschließlich an einer **zu restriktiven CRS-Prüfung** im Kronenkreis-Importer: Das alte GeoJSON-Format von WFS kann ein `crs`-Attribut enthalten, obwohl EPSG:4326 verwendet wird. Dieser Importfehler ist behoben: bekannte EPSG:4326-/CRS84-Deklarationen werden akzeptiert, andere Bezugssysteme weiterhin abgewiesen. **Der tatsächliche Kronenkreis- und Messlauf ist noch zu bestätigen**; die 252 Punkte sind die heruntergeladenen Baumstandorte, noch keine 252 fertigen Kronenpolygone. Die originale WFS-Datei bleibt unverändert im lokalen Cache.
 
 ## Erste Testreihe: Ansatz A
 
@@ -44,10 +44,12 @@ Voraussetzung: FMZK-Testausschnitt aus Modul 1 und `fmzk_strassenraum.geojson` a
 
 ```bash
 ./scripts/update-and-sync.sh
-.venv/bin/python -m scripts.fetch_vienna_trees
+.venv/bin/python -m scripts.fetch_vienna_trees  # nur bei fehlendem WFS-Cache nötig
 .venv/bin/python -m scripts.build_canopy_circles --wien data/processed/baumkronen/baumkataster_wfs.geojson
 .venv/bin/python -m scripts.measure_canopy_cover
 ```
+
+**Nach dem erfolgreichen WFS-Download vom 13.10.2026:** Nach `./scripts/update-and-sync.sh` reichen die letzten **beiden** Befehle (`build_canopy_circles`, `measure_canopy_cover`); den Download nicht unnötig wiederholen. Falls weiterhin ein CRS-Fehler erscheint, die `crs`-Deklaration der WFS-Datei kontrollieren, statt das Attribut ohne Prüfung zu löschen.
 
 Dateien:
 
