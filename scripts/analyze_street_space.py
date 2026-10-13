@@ -21,13 +21,14 @@ from shapely.validation import explain_validity
 
 from scripts.analyze_gpkg import decode_gpkg_geometry, polygonal_part
 from scripts.extract_fmzk import gpkg_info, parse_bbox, projected_clip
+from scripts.street_embedding import CORE_CLASSES, make_contact_surfaces, measure_embedding
 
 DEFAULT_SOURCE = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_OUTPUT = Path("data/processed/street_space")
 
 # Sicher erkennbarer Kern öffentlicher Verkehrsflächen – bewusst NICHT
 # als vollständige Grenze des öffentlichen Straßenraums ausgeben.
-CORE_CODES = frozenset((21, 23, 24, 33, 39))
+CORE_CODES = frozenset(CORE_CLASSES)
 GREEN_CODES = frozenset((58, 69))
 AMBIGUOUS_CODES = frozenset((59,))
 PRIVATE_CONTEXT_CODES = frozenset((25, 26, 51))
@@ -37,6 +38,10 @@ CANDIDATE_FIELDS = (
 	"id", "f_klasse", "f_klasse_text", "rolle", "status",
 	"flaeche_m2", "abstand_kern_m", "randkontakt_m",
 	"randkontakt_anteil_pct", "flaeche_im_umfeld_pct",
+	"einbettung", "mehrseitiger_kontakt", "gegenueber_verschiedene_klassen",
+	"kontaktklassen", "kontakt_sektoren", "kontakt_rand_pct",
+	"richtung_ungeklaert_m", "kontakt_21_m", "kontakt_23_m",
+	"kontakt_24_m", "kontakt_33_m", "kontakt_39_m",
 )
 
 
@@ -115,10 +120,14 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
 		raise ValueError("Vereinigte Kernfläche leer")
 	boundary_band = core.boundary.buffer(tolerance_m)
 	near_band = core.buffer(near_m)
+	contact_surfaces = make_contact_surfaces(features)
+	contact_buffers = {code: geom.buffer(tolerance_m) for code, geom in contact_surfaces.items()}
+	prepared_core_buffer = core.buffer(tolerance_m)
 
 	review = []
 	candidates = []
 	by_class_and_status = defaultdict(list)
+	embedding_counts = Counter()
 	raw_counts = Counter()
 	for fid, code, label, geometry in features:
 		raw_counts[code] += 1
@@ -145,6 +154,14 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
 				geometry, core, boundary_band, near_band,
 				near_m=near_m, min_contact_m=min_contact_m,
 			))
+			properties.update(measure_embedding(
+				geometry, contact_surfaces,
+				tolerance_m=tolerance_m,
+				has_core_overlap=properties["status"] == "ueberlappt_kern",
+				prepared_class_buffers=contact_buffers,
+				prepared_core_buffer=prepared_core_buffer,
+			))
+			embedding_counts[(code, properties["einbettung"])] += 1
 			by_class_and_status[(code, properties["status"])].append(geometry)
 			candidates.append({field: properties.get(field) for field in CANDIDATE_FIELDS})
 		review.append((properties, geometry))
@@ -163,6 +180,10 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5):
 		"candidates": candidates,
 		"summary": rows,
 		"class_counts": dict(sorted(raw_counts.items())),
+		"embedding_counts": [
+			{"f_klasse": code, "einbettung": kind, "objekte": amount}
+			for (code, kind), amount in sorted(embedding_counts.items())
+		],
 	}
 
 
@@ -215,6 +236,7 @@ def write_review(review, output_dir, source, manifest, clip, repairs, *, toleran
 		"original_klassen_anzahl": review["class_counts"],
 		"geometrie_reparaturen": repairs,
 		"kandidaten_je_klasse_und_lage": review["summary"],
+		"kandidaten_je_klasse_und_einbettung": review["embedding_counts"],
 	}
 	(output_dir / "strassenraum_bericht.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 	return report
@@ -229,6 +251,9 @@ def analyze(source=DEFAULT_SOURCE, output_dir=DEFAULT_OUTPUT, *, tolerance_m=0.2
 	print(f"Prüfkandidaten: {len(review['candidates'])} (58/69 Grün; 59 unklare Nutzung)")
 	for row in review["summary"]:
 		print(f"  Klasse {row['f_klasse']:2d} {row['status']:22s} {row['objekte']:4d} Objekte  {row['flaeche_union_m2']:10.2f} m²")
+	print("Einbettung (nur topologische Hinweise, keine öffentliche Widmung):")
+	for row in review["embedding_counts"]:
+		print(f"  Klasse {row['f_klasse']:2d} {row['einbettung']:34s} {row['objekte']:4d} Objekte")
 	if repairs:
 		print(f"Geometriereparaturen: {len(repairs)} (siehe Bericht)")
 	print(f"Lokale Dateien unter: {Path(output_dir).resolve()}")
