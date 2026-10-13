@@ -6,6 +6,8 @@ Wir suchen anhand nachvollziehbarer Flächen- und später Kronenkennzahlen beste
 
 **Ausführliche Dokumentation:** [Methodik und Arbeitsstand der FMZK-Kataster-Straßenraumabgrenzung](docs/Methodik-Strassenraum-FMZK-Kataster.md) – Datenquellen, Regeln, Prüfergebnisse, visuelle Kontrolle, bekannte Grenzen und weitere Schritte.
 
+**Modularer Aufbau:** [Architektur und Datenschnittstellen](docs/Modulare-Architektur.md). Das Straßenraum-Erzeugungsverfahren (Modul 2) kann später ausgetauscht werden, ohne die Berechnung von Bodenbegrünung und künftiger Kronenüberschirmung anzupassen.
+
 
 ## Datenbasis: vollständige FMZK als lokales GeoPackage
 
@@ -284,6 +286,31 @@ Die vorsichtige Schwelle von 95 % kann für **Vergleichstests** mit `--min-stras
 Wenn sich die FMZK-Extraktion oder die Kataster-BBOX geändert hat, verweigert der Export die Kombination nicht zusammenpassender Daten. Die Aufteilung verwendet keine historischen `pruefbeispiele`-Bewertungen als automatische Trainingsdaten; diese bleiben unabhängige Kontrollbeispiele.
 
 
+## Schritt 7: Bodenbegrünungsanteil als unabhängiges Modul bestimmen
+
+Das eigenständige Modul `scripts/measure_ground_greening.py` benötigt **nur** eine Polygon-GeoJSON-Maske des Straßenraums (EPSG:4326) und den FMZK-Testausschnitt. **Es importiert keine Implementierung des Straßenraum-Algorithmus.** Der lokale FMZK-Leser liegt jetzt separat in `scripts/fmzk_source.py` und wird auch von der bisherigen Straßenraumanalyse genutzt.
+
+Es berechnet den **bodenbezogenen** Begrünungsanteil ausschließlich aus `F_KLASSE` **58 und 69** innerhalb der Straßenraum-Maske. Alle Flächen werden zuerst räumlich vereinigt (keine doppelte Zählung überlappender Polygone) und in **EPSG:31256** vermessen. Die Grünflächen werden für die Messung an der Maske geschnitten; die Ermittlung der Straßenmaske selbst bleibt unverändert.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.measure_ground_greening
+```
+
+Ausgaben unter `data/processed/bodenbegruenung/`:
+
+- `bodenbegruenung_bericht.json`: Straßenraumfläche, tatsächlich zugeordnete Boden-Grünfläche, **Begrünungsanteil in %**, getrennte Werte für FMZK 58/69, methodische Hinweise, Eingabe-Pfade und SHA-256 der Straßenmaske.
+- `bodenbegruenung_flaechen.geojson`: an der Maske geschnittene FMZK-Grünteilflächen zum Kontrollieren in der Kartensammlung.
+
+**Austauschbar:** Ein späteres Straßenraumverfahren muss nur eine geometrisch gültige Polygon-`FeatureCollection` in EPSG:4326 für denselben Testbereich erzeugen. Attribute aus FMZK oder Kataster sind für das Begrünungsmodul nicht erforderlich.
+
+```bash
+.venv/bin/python -m scripts.measure_ground_greening \
+	--street-geojson data/processed/alternative/strassenraum.geojson
+```
+
+Der Anteil ist **noch keine endgültige Qualitäts- oder Gartenstraßenbewertung**: Unklare Straßenraumflächen außerhalb der jetzigen Maske fehlen im Zähler und im Nenner. Kronenüberschirmung wird später in einem eigenen Modul berechnet und **nicht** mit Bodenbegrünung vermischt. Details und feste Modulschnittstelle: [Modulare Architektur](docs/Modulare-Architektur.md).
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
@@ -310,12 +337,12 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 
 `scripts/fetch_fmzk.py` und `scripts/analyze_fmzk.py` bleiben vorläufig als experimenteller Nachvollziehbarkeitsnachweis erhalten. **Sie gehören nicht mehr zur aktuellen Verarbeitung und sollen nicht ausgeführt werden.** Der WFS-Workflow wurde entfernt. Die damals lokal erzeugten beiden GeoJSON-Dateien werden nicht mehr gebraucht.
 
-## Nächste Schritte (nach dem dokumentierten Straßenraum-Zwischenstand)
+## Nächste Schritte (modular)
 
-1. **Nächste Phase: Bodenbegrünung im vorläufigen Straßenraum des Testausschnitts** auf Basis der FMZK-Klassen flächenmäßig bestimmen. Zunächst eine nachvollziehbare Gesamtkennzahl, mit Trennung von sicher zugeordneten und noch unklaren Flächen.
-2. **Danach Straßenabschnitte als Bezugsräume** definieren und die Straßenraum- und Begrünungsflächen einzelnen Abschnitten zuordnen. Noch keine fertige Gartenstraßen-Bewertung.
-3. **Später unabhängig:** Baumkronenüberschirmung und ggf. weitere Merkmale ergänzen. Bodenbegrünung und Kronen dürfen nicht vermischt oder unbemerkt doppelt gezählt werden.
-4. **Bei Bedarf:** Konkrete Fehlerfälle der bisherigen Abgrenzung mit FMZK-`fid`, KG/Grundstück und Nutzungscode dokumentieren und gezielt nachbessern; dabei den Testlauf als vergleichbare Basis erhalten.
+1. **Bodenbegrünungsmodul im Testausschnitt ausführen und prüfen**: Bericht und überlagerte Grünpolygone kontrollieren; insbesondere 58/69 und unklare Randflächen.
+2. **Modul 4 – Kronenüberschirmung planen**: geeignete Quelle und eigenständige Kennzahl definieren, dieselbe austauschbare Straßenmaske nutzen.
+3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
+4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
 Die vollständige Beschreibung der derzeitigen Zuordnungsregeln und Grenzen steht in [docs/Methodik-Strassenraum-FMZK-Kataster.md](docs/Methodik-Strassenraum-FMZK-Kataster.md).
 
