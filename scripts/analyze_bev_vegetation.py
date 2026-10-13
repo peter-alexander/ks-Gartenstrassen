@@ -248,7 +248,7 @@ def run(*, input_dir=DEFAULT_INPUT, output=DEFAULT_OUTPUT,
 			"Zuerst probe_bev_wms mit echten Daten ausführen.")
 	if not isinstance(thresholds, (tuple, list)) or not thresholds:
 		raise ValueError("Mindestens eine Schwelle erforderlich")
-	thresholds = parse_thresholds(",".join(f"{float(t):.2f}" for t in thresholds))
+	thresholds = parse_thresholds(",".join(str(t) for t in thresholds))
 	files = [output / "bev_vegetation_index.png",
 		output / "bev_vegetation_index.pgw",
 		output / "bev_vegetation_index.prj",
