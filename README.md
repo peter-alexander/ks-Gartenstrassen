@@ -340,6 +340,24 @@ Die nächste Vergleichsvariante **B (Wien + OSM)** kann zusätzlich OSM-GeoJSON-
 **[Ausführliche Anleitung, Datenquellen und Grenzen von Modul 4](docs/Modul-4-Baumkronen-Vergleich.md).** Die bestehende Bodenbegrünung von **1,91 %** ist eine eigenständige Kennzahl und darf **nicht** zum Überschirmungsgrad addiert werden.
 
 
+### Variante C: Grünraummonitoring 2023 – WMS-Diagnose
+
+Die amtliche **Baumschicht (Klasse 3)** des Grünraummonitorings 2023 mit **50 cm Quellrasterauflösung** ist ein unabhängiger Kandidat zu den Kronenkreisen. Die WMS-Ebene ist **`GRM2023OGD`**. Bevor wir daraus Kronenpolygone erzeugen, untersuchen wir **die echten Farben, Transparenz und WMS-Legende**, statt die Fachklasse 3 mit einem unbestätigten RGB-Wert zu verwechseln.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.probe_grm2023_wms
+```
+
+Das neue Skript `scripts/probe_grm2023_wms.py` erzeugt unter `data/processed/baumkronen/grm2023/`:
+
+- `getcapabilities.xml` – die tatsächlich vom Wiener Dienst gemeldeten Layer-/CRS-Angaben.
+- `grm2023_testausschnitt.png` – WMS-Raster für denselben kleinen FMZK-Ausschnitt (mit 10 m Puffer).
+- `grm2023_legende.png` – wenn GetLegendGraphic unterstützt wird.
+- `grm2023_wms_diagnose.json` – exakte Raster-BBOX/Größe, PNG-Farbverteilung und Transparenz, Stile und SHA-256 der Rohdaten.
+
+**Das ist ausdrücklich noch keine neue Überschirmungsberechnung.** Die Farben müssen zuerst gegen die Legende oder besser gegen klassencodierte Rasterrohdaten geprüft werden. Anschließend kann ein **eigener Kronenprovider C** die gesicherte Baumschicht als Polygon-GeoJSON an die vorhandene, unveränderte Überschirmungsmessung liefern. Details: [Modul 4 – Grünraummonitoring 2023](docs/Modul-4-Baumkronen-Vergleich.md#variante-c-grünraummonitoring-2023--wms-diagnose-implementiert).
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
@@ -369,7 +387,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Modul 4 – 7,82-%-Ergebnis prüfen und Verfahren vergleichen:** 117 Kronenkreise aus 252 geladenen Baumstandorten anhand des Ausschlussberichts und Orthofotos prüfen; anschließend OSM und die Baumschicht des Grünraummonitorings 2023 getrennt vergleichen.
+2. **Modul 4 – weitere Kronenquelle prüfen:** 7,82-%-Kreisnäherung bleibt vorläufiger Bezug; WMS-Diagnose des Grünraummonitorings 2023 lokal durchführen, Klasse-3-Pixelzuordnung fachlich prüfen und erst danach Variante C als Kronen-GeoJSON exportieren/mit A vergleichen. OSM bleibt eigenständige Variante B.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
