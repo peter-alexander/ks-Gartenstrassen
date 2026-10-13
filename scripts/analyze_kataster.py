@@ -55,7 +55,7 @@ TABLE_FIELDS = (
 	"kgez", "gnr", "klasse", "grund", "rechtstatus", "fmzk_kern_ueberlappung_m2",
 	"kataster_tile_flaeche_im_ausschnitt_m2", "nutzungscodes",
 	"strassen_nutzung_m2", "sonstige_nutzung_m2", "beobachtete_nfl_codes",
-	"api_url", "details_status",
+	"tile_nutzungshinweis", "api_url", "details_status",
 )
 
 
@@ -279,6 +279,17 @@ def build_results(core, parcels, nfl, clip, details):
 			code = p.get("ns")
 			if code is not None:
 				seen_codes.add(str(code))
+		# Tile-Code-Hinweise beziehen sich NUR auf den untersuchten
+		# Ausschnitt und sind kein Ersatz für die Grundstücks-API.
+		observed = {int(value) for value in seen_codes if str(value).isdigit()}
+		if not seen_codes or len(observed) != len(seen_codes):
+			tile_hint = "unvollstaendig_oder_unbekannt"
+		elif observed <= STRASSEN_CODES:
+			tile_hint = "nur_95_65_im_ausschnitt"
+		elif observed & STRASSEN_CODES:
+			tile_hint = "gemischt_im_ausschnitt"
+		else:
+			tile_hint = "keine_95_65_im_ausschnitt"
 		row = {
 			"kgez": kgez, "gnr": gnr, "klasse": class_name,
 			"grund": reason, "rechtstatus": properties.get("rstatus") or "",
@@ -288,6 +299,7 @@ def build_results(core, parcels, nfl, clip, details):
 			"strassen_nutzung_m2": sum(area for code, area in usages.items() if code in STRASSEN_CODES),
 			"sonstige_nutzung_m2": sum(area for code, area in usages.items() if code not in STRASSEN_CODES),
 			"beobachtete_nfl_codes": ",".join(sorted(seen_codes)),
+			"tile_nutzungshinweis": tile_hint,
 			"api_url": detail_url(kgez, gnr),
 			"details_status": detail_status,
 		}
@@ -342,7 +354,12 @@ def write_results(output, results, parcels_geojson, nfl_geojson, tiles, bbox, fa
 		"api_fehler": failures,
 		"nfl_geojson_nur_testausschnitt": True,
 		"grundstueck_geojson_nur_tileausschnitt": True,
-		"vollstaendige_nutzungsbilanz_aus_api": True,
+		"vollstaendige_nutzungsbilanz_aus_api": bool(results) and all(
+			item["table"]["details_status"] == "ok" for item in results
+		),
+		"grundstuecke_mit_api_nutzungsbilanz": sum(
+			item["table"]["details_status"] == "ok" for item in results
+		),
 		"details": [{"kgez": item["table"]["kgez"], "gnr": item["table"]["gnr"],
 			"klasse": item["table"]["klasse"], "nutzungen_m2": item["usages"],
 			"nicht_zugeordnet": item["unknown"]} for item in results],
@@ -352,10 +369,54 @@ def write_results(output, results, parcels_geojson, nfl_geojson, tiles, bbox, fa
 	return report
 
 
+def load_parcel_details(keys, cache, *, online=False, refresh=False, pause=0.15):
+	"""Cache immer verwenden; online nur nach explizitem Opt-in.
+
+	Ein 429/5xx-Status oder Netzwerkfehler öffnet den Schutzschalter:
+	Keine weiteren Anfragen bei derselben Störung. Bereits vorhandene
+	Detailantworten bleiben nutzbar, andere Grundstücke bleiben Klasse D.
+	"""
+	details = {}
+	failures = []
+	disabled_reason = ""
+	requests_made = 0
+	for kgez, gnr in keys:
+		key = (kgez, gnr)
+		path = cache / "details" / kgez / (quote(gnr, safe="") + ".json")
+		if path.is_file() and not refresh:
+			try:
+				details[key] = json.loads(path.read_text(encoding="utf-8"))
+			except (OSError, ValueError, UnicodeError) as exc:
+				details[key] = {"error": "Cache ungültig: " + str(exc)}
+			continue
+		if not online or disabled_reason:
+			details[key] = {"error": disabled_reason or "keine API-Daten im Cache"}
+			continue
+		if requests_made and pause > 0:
+			time.sleep(pause)
+		requests_made += 1
+		try:
+			url = detail_url(kgez, gnr)
+			raw = cached_request(url, path, refresh=refresh)
+			details[key] = json.loads(raw.decode("utf-8"))
+		except (HTTPError, URLError, OSError, ValueError, UnicodeError) as exc:
+			details[key] = {"error": str(exc)}
+			failures.append({"kgez": kgez, "gnr": gnr, "fehler": str(exc)})
+			if (isinstance(exc, HTTPError) and (exc.code == 429 or exc.code >= 500)
+				or isinstance(exc, (URLError, TimeoutError, ConnectionError))):
+				disabled_reason = "API-Störung nach " + str(requests_made) + " Anfrage(n): " + str(exc)
+	return details, failures, disabled_reason
+
+
 def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
-	*, offline=False, refresh=False, pause=0.15, max_tiles=36, max_parcels=250):
+	*, online_details=False, offline=False, refresh=False, pause=0.15,
+	max_tiles=36, max_parcels=250):
 	if offline and refresh:
 		raise ValueError("--offline und --refresh schließen sich aus")
+	if offline and online_details:
+		raise ValueError("--offline und --details schließen sich aus")
+	if refresh and not online_details:
+		raise ValueError("--refresh setzt --details voraus")
 	features, manifest, clip, _ = load_polygons(source)
 	core_shapes = [geom for _, code, _, geom in features if code in CORE_CODES]
 	if not core_shapes:
@@ -369,25 +430,25 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 		and geometry.intersection(clip).area > 0]
 	if len(keys) > max_parcels:
 		raise ValueError(f"{len(keys)} getroffene Grundstücke, maximal {max_parcels}; bitte kleineres Gebiet")
-	details = {}
-	failures = []
-	for index, (kgez, gnr) in enumerate(keys, 1):
-		url = detail_url(kgez, gnr)
-		path = Path(cache) / "details" / kgez / (quote(gnr, safe="") + ".json")
-		try:
-			details[(kgez, gnr)] = json.loads(
-				cached_request(url, path, refresh=refresh, offline=offline).decode("utf-8"))
-		except (OSError, ValueError, UnicodeError) as exc:
-			details[(kgez, gnr)] = {"error": str(exc)}
-			failures.append({"kgez": kgez, "gnr": gnr, "fehler": str(exc)})
-		if not offline and pause > 0 and index < len(keys):
-			time.sleep(pause)
+	details, failures, disabled_reason = load_parcel_details(
+		keys, Path(cache), online=online_details, refresh=refresh,
+		pause=pause
+	)
 	results, polygons, uses = build_results(core, parcels, nfl, clip, details)
 	report = write_results(Path(output), results, polygons, uses, tiles, bbox, failures)
+	report["detail_abfragen_online"] = online_details
+	report["detail_abbruchgrund"] = disabled_reason
+	(Path(output) / "kataster_bericht.json").write_text(
+		json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+	)
 	print(f"Kataster z{ZOOM}: {len(tiles)} Kacheln, {len(parcels)} Grundstücks-IDs in Tiles")
 	print(f"FMZK-Kern trifft {report['grundstuecke']} Grundstücke")
 	for category in ("A", "B", "C", "D"):
 		print(f"  {category}: {report['klassen'].get(category, 0)}")
+	if disabled_reason:
+		print(f"Detail-API: {disabled_reason}")
+	if not online_details:
+		print("Keine neuen Grundstücks-API-Abfragen (Standardmodus; Cache wird genutzt).")
 	if failures:
 		print(f"Warnung: {len(failures)} Detailabfragen fehlgeschlagen; diese Grundstücke bleiben D")
 	print(f"Ausgabe: {Path(output).resolve()}")
@@ -400,13 +461,15 @@ def main():
 	parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUTPUT)
 	parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
 	parser.add_argument("--offline", action="store_true", help="Ausschließlich bereits geladene Daten verwenden")
-	parser.add_argument("--refresh", action="store_true", help="Cache bei BEV neu laden")
+	parser.add_argument("--refresh", action="store_true", help="BEV-Daten neu laden; nur zusammen mit --details")
+	parser.add_argument("--details", action="store_true", help="Vollständige Grundstücksdetails online abrufen; stoppt bei API-Störung")
 	parser.add_argument("--max-tiles", type=int, default=36)
 	parser.add_argument("--max-parcels", type=int, default=250)
 	args = parser.parse_args()
 	try:
-		run(args.source, args.out_dir, args.cache_dir, offline=args.offline,
-			refresh=args.refresh, max_tiles=args.max_tiles, max_parcels=args.max_parcels)
+		run(args.source, args.out_dir, args.cache_dir, online_details=args.details,
+			offline=args.offline, refresh=args.refresh,
+			max_tiles=args.max_tiles, max_parcels=args.max_parcels)
 	except (OSError, ValueError, KeyError, TypeError, URLError, HTTPError) as exc:
 		parser.exit(1, f"Fehler: {exc}\n")
 
