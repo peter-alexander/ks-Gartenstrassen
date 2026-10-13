@@ -13,6 +13,7 @@ from scripts.probe_grm2023_wms import (
 	choose_srs,
 	get_map_url,
 	image_request_geometry,
+	worldfile_parameters,
 	parse_capabilities,
 	raster_inventory,
 	require_png,
@@ -73,6 +74,7 @@ class GRM2023ProbeTest(unittest.TestCase):
 			padding_m=10, pixel_size_m=0.5)
 		self.assertEqual(spec["bbox"], [990.0, 2990.0, 1050.0, 3030.0])
 		self.assertEqual((spec["width"], spec["height"]), (120, 80))
+		self.assertEqual(worldfile_parameters(spec), (0.5, 0, 0, -0.5, 990.25, 3029.75))
 		query = parse_qs(urlparse(get_map_url(spec)).query)
 		self.assertEqual(query["layers"], ["GRM2023OGD"])
 		self.assertEqual(query["srs"], ["EPSG:31256"])
@@ -123,6 +125,10 @@ class GRM2023ProbeTest(unittest.TestCase):
 			self.assertEqual(report["raster_farbstatistik"]["pixel_gesamt"], 120 * 80)
 			self.assertTrue((out / "getcapabilities.xml").is_file())
 			self.assertTrue((out / "grm2023_testausschnitt.png").is_file())
+			self.assertTrue((out / "grm2023_testausschnitt.pgw").is_file())
+			self.assertTrue((out / "grm2023_testausschnitt.prj").is_file())
+			world = [float(v) for v in (out / "grm2023_testausschnitt.pgw").read_text().splitlines()]
+			self.assertEqual(world, [0.5, 0, 0, -0.5, 990.25, 3029.75])
 			self.assertTrue((out / "grm2023_legende.png").is_file())
 			self.assertTrue((out / "grm2023_wms_diagnose.json").is_file())
 			self.assertFalse((out / "baumkronen.geojson").exists())
