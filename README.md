@@ -413,7 +413,7 @@ Die Details, geprüfte Farbtabelle und Qualitätsgrenzen sind in [Modul 4 – Ba
 
 In [`Kartensammlung/src/app/basemaps/providers/imagery.js`](https://github.com/peter-alexander/Kartensammlung/blob/main/src/app/basemaps/providers/imagery.js) werden bereits **fünf BEV-Orthofoto-Darstellungen** über `https://kataster.bev.gv.at/ortho/ows` verwendet: `bev:RGB`, `bev:IRGB`, `bev:RGIR`, `bev:RIRB` und `bev:IR`. Damit können wir **ohne vorzeitigen Download riesiger 50-km-RGBI-Kacheln** einen ersten Versuch beginnen.
 
-**Erster Schritt: WMS-Kanäle auf demselben Rastergitter vergleichen.** Dafür existiert der eigenständige Adapter `scripts/probe_bev_wms.py`:
+**Erster Schritt: WMS-Kanäle auf demselben Rastergitter vergleichen.** Dafür existiert der eigenständige Adapter `scripts/probe_bev_wms.py`. **BEV-Besonderheit aus dem ersten lokalen Versuch:** Die vier Infrarot-/Falschfarben-Layer werden nicht in `GetCapabilities` aufgelistet, funktionieren aber laut Kartensammlung direkt per `GetMap`. Die fehlende Auflistung wird daher nur im Diagnosebericht dokumentiert, nicht mehr als Fehler gewertet. Erst die tatsächlichen fünf gültigen PNG-Antworten entscheiden über die Nutzbarkeit:
 
 ```bash
 ./scripts/update-and-sync.sh
