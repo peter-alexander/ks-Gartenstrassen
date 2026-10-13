@@ -254,6 +254,31 @@ Alle Abrufe werden lokal in `data/cache/kataster/` gespeichert. Dadurch ist der 
 Wir prüfen die Ergebnisse zuerst anhand des bekannten Testgebietes und der bereits bewerteten 25 FMZK-Polygone. Erst danach entwickeln wir Regeln, mit denen Verkehrsgrundstücke und Grünflächen tatsächlich flächendeckend zugeordnet werden können.
 
 
+## Schritt 6: Alle FMZK-Flächen in zwei GeoJSONs aufteilen
+
+Der getrennte Export verwendet **den vollständigen lokalen FMZK-Testausschnitt** (`fmzk_test.gpkg`) und die bereits erzeugten Kataster-Geometrien aus Schritt 5, ohne weitere BEV-API-Abfragen. Der vorherige Katasterlauf ist Voraussetzung, weil der Export ausschließlich die `nfl`-Nutzungsflächen **auf den durch den Kern ermittelten Grundstücksausschnitten** berücksichtigt.
+
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.export_fmzk_strassenraum
+```
+
+Daraus entstehen unter `data/processed/street_space/`:
+
+- **`fmzk_strassenraum.geojson`**: Alle FMZK-Kernflächen (Klassen 21/23/24/33/39) sowie die weiteren FMZK-Polygone, die zu mindestens **95 % ihrer Fläche** von den Kataster-Nutzungen 95 (Straßenverkehrsanlagen) oder 65 (Verkehrsrandflächen) gedeckt sind und nicht zu mehr als 5 % eine andere Nutzung überlagern.
+- **`fmzk_uebrige_flaechen.geojson`**: Alle übrigen FMZK-Polygone. Diese Kategorie bedeutet **nicht** „privat“ oder „kein öffentlicher Straßenraum“. Teilweise überdeckte oder unklare Polygone bleiben hier und erhalten `grund=teilweise_strassenlage_pruefen` bzw. einen Hinweis auf unvollständige Katasterabdeckung.
+- **`fmzk_aufteilung_bericht.json`**: Anzahl und Fläche beider Gruppen sowie die Zuweisungsgründe und Kenndaten zur Katastermaske.
+
+**Jedes originale FMZK-Polygon wird vollständig, unverändert im Umriss und genau einmal** in einer der beiden GeoJSON-Dateien ausgegeben. Die originale `fid` und die FMZK-Klasse bleiben erhalten; bei Verfügbarkeit außerdem `FMZK_ID` und einige Quellattribute. Die GeoJSONs haben wie üblich EPSG:4326, Berechnungen erfolgen metrisch in EPSG:31256.
+
+Die überlappenden `nfl`-Vektorkachelfragmente werden vor der Klassifizierung **geometrisch vereinigt**, fehlerhafte Polygonringe repariert. Nicht automatisch übernommene Fälle sind anhand von `kataster_strassenanteil_pct`, `kataster_sonstige_pct` und `kataster_ohne_nutzung_pct` prüfbar. Bei einer Abweichung zwischen FMZK-Kern und Kataster kennzeichnet `pruefhinweis=kern_abweichung_zum_kataster` den Fall, ohne die Kernfläche automatisch zu entfernen.
+
+Die vorsichtige Schwelle von 95 % kann für **Vergleichstests** mit `--min-strassenanteil 0.9` verändert werden. Die Aufteilung bleibt immer eine **vorläufige GIS-Klassifizierung**, weder eine amtliche Abgrenzung noch ein Nachweis der öffentlichen Widmung. Ausschließlich über die Katasterklasse 42 erfasste Parkplätze werden **nicht** automatisch dem Straßenraum zugeordnet (außer ein FMZK-Polygon gehört bereits zum Kern).
+
+Wenn sich die FMZK-Extraktion oder die Kataster-BBOX geändert hat, verweigert der Export die Kombination nicht zusammenpassender Daten. Die Aufteilung verwendet keine historischen `pruefbeispiele`-Bewertungen als automatische Trainingsdaten; diese bleiben unabhängige Kontrollbeispiele.
+
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
