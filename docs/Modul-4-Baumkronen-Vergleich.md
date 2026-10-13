@@ -496,7 +496,30 @@ Das ist **kein kalibrierter NDVI**; es werden weder radiometrische Rohdaten ange
 	--out-dir data/processed/baumkronen/bev_vegetation_versuch2
 ```
 
-Für die erste Qualitätsbeurteilung schauen wir nach **Treffern und Fehlklassifikationen an Baumkronen, Rasen/Beeten, Gebäuden, Schatten und Straßenoberflächen**. Es genügt, anschließend das **Vergleichsbild** und die **Berichts-JSON** zu teilen. Die Quelle `bev_wms_diagnose.json` liegt bereits vor. Die echte Vegetationserkennung muss lokal noch ausgeführt und visuell geprüft werden; automatisierte Tests mit synthetischen Pixelwerten ersetzen dies nicht.
+### Erster echter lokaler D2-Lauf – Vergleichsbild und Bericht geprüft (14.10.2026)
+
+Der Nutzer hat `data/processed/baumkronen/bev_vegetation/bev_vegetation_vergleich.png` sowie `bev_vegetation_bericht.json` des lokalen Testausschnitts bereitgestellt. Die Berechnung wurde gegen die dokumentierten RGB-/IR-WMS-Prüfsummen validiert. Als Quellbeleg enthält der Bericht die Prüfsummen `684fc4dcf312186b8887ee3022f79582d25ac9cee87428e8f46fc583a6f405ec` (`bev:RGB`) und `9ca9630eb3f06d0a96f6199f07d04952a2f12c6d20f5ab485162d749e752b1ca` (`bev:IR`). Die ältere WMS-Kernkanalprüfung wurde aus den Einzelvergleichswerten rekonstruiert.
+
+| Experimentelle Indexschwelle | Positive Rasterpixel | Anteil am gesamten WMS-Bild |
+| --- | ---: | ---: |
+| ≥ 0,10 | 125.345 | **15,14 %** |
+| ≥ 0,20 | 100.521 | **12,14 %** |
+| ≥ 0,30 | 73.720 | **8,90 %** |
+| ≥ 0,40 | 37.915 | **4,58 %** |
+
+**Alle 827.954 Rasterpixel** waren verwertbar. Der Bericht weist weder Transparenz noch ausgeschlossene, sehr dunkle Pixel auf (`min_signal=20`). Damit verändern sich die vier Trefferanteile ausschließlich durch die Indexschwelle. Die Werte sind **kein Begrünungs- oder Überschirmungsgrad**; innerhalb der WMS-BBOX sind auch Privatgrund, Innenhöfe und Dächer enthalten, außerdem der 15-m-Puffer.
+
+**Vorläufige visuelle Bewertung des verkleinerten Kontaktblatts:**
+
+- Baumreihen an Straßen und zahlreiche Einzelkronen werden in den Varianten **0,20 und 0,30** deutlich markiert; größere versiegelte Flächen bleiben überwiegend frei.
+- **0,10** erkennt mehr schwächere Vegetationssignale, erhöht aber auch verstreute Markierungen auf schwer eindeutig einzuordnenden Flächen. Es ist aus dem Kontaktblatt allein nicht zu klären, ob diese Fehlklassifikationen darstellen.
+- **0,40** entfernt viele Kandidaten und zerlegt einige größere Baum-/Vegetationsbestände in Teilbereiche. Es erscheint für eine vollständige Erfassung zu restriktiv, ist aber keine statistisch validierte Aussage über Recall.
+- Die große begrünte Innenhoffläche im westlichen Teil und andere zusammenhängende Grünbereiche bleiben selbst bei höheren Schwellen überwiegend bzw. teilweise markiert. Das Verfahren **unterscheidet weder Baumkronen von bodennaher Vegetation noch hohe Sträucher von Bäumen**; daraus folgt noch kein Kronenpolygon.
+- Schatten, Objektform und Mischpixel an Vegetationsrändern bleiben Unsicherheitsquellen. Ohne Pixel-Stichproben mit bestätigter Bodenwahrheit lassen sich weder Genauigkeit noch die beste Schwelle seriös bestimmen.
+
+**Nächster überprüfbarer Schritt:** Kleine, nach Art getrennte Prüfflächen im Originalorthofoto markieren (z. B. sichere Baumkronen, Rasen/Beet, niedrige Sträucher, Dächer/Asphalt und schattige Kronen) und **die Indexwerte je Klasse** auswerten. Außerdem die Vegetationsmaske mit der vorhandenen Straßenraummaske überlagern, damit private Innenhofvegetation nicht die Diskussion über Straßenüberschirmung dominiert. Referenzkronen aus A/C können zum räumlichen **Vergleich** dienen, aber sie dürfen nicht unbemerkt als Trainings- oder Eingangsdaten für eine behauptete unabhängige Methode D verwendet werden. **Vorher keinen Schwellenwert als endgültige Kronenklassifikation festlegen.**
+
+Die WMS-Quelldaten und die Programme A/B/C wurden bei dieser Dokumentation nicht verändert.
 
 ---
 
