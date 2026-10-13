@@ -18,6 +18,7 @@ from pyproj import Transformer
 from shapely.geometry import Point, mapping
 
 from scripts.fmzk_source import load_polygons
+from scripts.geojson_crs import require_geojson_lonlat
 
 DEFAULT_FMZK = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_OUTPUT = Path("data/processed/baumkronen")
@@ -34,8 +35,7 @@ def read_points(source, *, provider):
 	data = json.loads(path.read_text(encoding="utf-8"))
 	if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
 		raise ValueError(f"{provider}: GeoJSON-FeatureCollection erwartet")
-	if "crs" in data:
-		raise ValueError(f"{provider}: Quell-GeoJSON muss EPSG:4326 ohne crs-Override sein")
+	require_geojson_lonlat(data, label=provider)
 	if not isinstance(data.get("features"), list):
 		raise ValueError(f"{provider}: features fehlen")
 	return data["features"], hashlib.sha256(path.read_bytes()).hexdigest()
