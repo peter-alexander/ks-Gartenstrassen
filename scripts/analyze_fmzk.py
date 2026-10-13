@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 
 from pyproj import Transformer
+from shapely import make_valid
 from shapely.geometry import box, mapping, shape
 from shapely.ops import transform, unary_union
+from shapely.validation import explain_validity
 
 # Quelle: https://www.wien.gv.at/pdf/ma41/fmzk-attribute-wertebereiche.pdf
 FMZK_CLASSES = {
@@ -49,6 +51,17 @@ def parse_class(raw, layer, feature_id):
 	return code
 
 
+def polygonal_part(geometry):
+	"""Bei make_valid entstehende Linien/Punkte dürfen keine Bodenfläche bilden."""
+	if geometry.geom_type in ("Polygon", "MultiPolygon"):
+		return geometry
+	if geometry.geom_type == "GeometryCollection":
+		parts = [polygonal_part(part) for part in geometry.geoms]
+		parts = [part for part in parts if part is not None and not part.is_empty]
+		return unary_union(parts) if parts else None
+	return None
+
+
 def analyze(raw_dir, output_dir):
 	manifest = json.loads((raw_dir / "manifest.json").read_text(encoding="utf-8"))
 	if manifest.get("crs") != "EPSG:4326":
@@ -67,6 +80,7 @@ def analyze(raw_dir, output_dir):
 	counts = defaultdict(int)
 	clipped_counts = defaultdict(int)
 	layer_counts = {}
+	geometry_repairs = []
 
 	for layer_name in ("verkehr1", "verkehr2"):
 		path = raw_dir / f"fmzk_{layer_name}.geojson"
@@ -90,8 +104,19 @@ def analyze(raw_dir, output_dir):
 			geom = shape(geom_dict)
 			if geom.geom_type not in ("Polygon", "MultiPolygon"):
 				raise ValueError(f"{layer_name}: Feature {feature_id} ist {geom.geom_type}, nicht Polygon")
-			if not geom.is_valid:
-				raise ValueError(f"{layer_name}: Feature {feature_id} besitzt ungültige Geometrie (nicht automatisch repariert)")
+			was_repaired = not geom.is_valid
+			if was_repaired:
+				reason = explain_validity(geom)
+				geom = polygonal_part(make_valid(geom))
+				if geom is None or geom.is_empty or not geom.is_valid:
+					raise ValueError(f"{layer_name}: Feature {feature_id} kann nicht in gültige Polygonfläche repariert werden: {reason}")
+				geometry_repairs.append({
+					"layer": layer_name,
+					"feature_id": str(feature_id),
+					"f_klasse": code,
+					"reason": reason,
+					"method": "shapely.make_valid; nur polygonale Flächen",
+				})
 			cut = geom.intersection(bbox)
 			if cut.is_empty or cut.area <= 0:
 				continue
@@ -108,6 +133,7 @@ def analyze(raw_dir, output_dir):
 					"QUELLE": layer_name,
 					"FMZK_TEXT": FMZK_CLASSES[code],
 					"AREA_M2": round(cut_projected.area, 2),
+					"GEOM_FIX": was_repaired,
 				},
 				"geometry": mapping(cut),
 			})
@@ -140,6 +166,7 @@ def analyze(raw_dir, output_dir):
 		"union_area_m2": round(union_area, 2),
 		"overlap_across_classes_m2": round(max(0.0, class_area_sum - union_area), 2),
 		"layer_feature_counts": layer_counts,
+		"geometry_repairs": geometry_repairs,
 		"categories": rows,
 	}
 	output_dir.mkdir(parents=True, exist_ok=True)
@@ -162,6 +189,8 @@ def main():
 	except (ValueError, FileNotFoundError, KeyError, OSError) as exc:
 		parser.exit(1, f"Fehler: {exc}\n")
 	print(f"BBOX: {report['bbox_area_m2']:.1f} m²; FMZK-Polygonvereinigung: {report['union_area_m2']:.1f} m²")
+	if report["geometry_repairs"]:
+		print(f"Achtung: {len(report['geometry_repairs'])} fehlerhafte Quellgeometrien kontrolliert repariert – Einzelheiten in fmzk_report.json")
 	if report["overlap_across_classes_m2"] > 1:
 		print(f"Achtung: {report['overlap_across_classes_m2']:.1f} m² Überlagerungen zwischen Klassen/Layern")
 	for row in report["categories"]:
