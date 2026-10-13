@@ -36,7 +36,7 @@ CANDIDATE_CODES = GREEN_CODES | AMBIGUOUS_CODES
 CANDIDATE_FIELDS = (
 	"id", "f_klasse", "f_klasse_text", "rolle", "status",
 	"flaeche_m2", "abstand_kern_m", "randkontakt_m",
-	"randkontakt_anteil_pct", "flaeche_im_2m_umfeld_pct",
+	"randkontakt_anteil_pct", "flaeche_im_umfeld_pct",
 )
 
 
@@ -60,7 +60,7 @@ def classify_contact(geometry, core, boundary_band, near_band, *, near_m, min_co
 		"abstand_kern_m": round(distance, 3),
 		"randkontakt_m": round(contact_m, 2),
 		"randkontakt_anteil_pct": round(100 * contact_m / geometry.length, 2) if geometry.length else 0,
-		"flaeche_im_2m_umfeld_pct": round(near_share, 2),
+		"flaeche_im_umfeld_pct": round(near_share, 2),
 	}
 
 
