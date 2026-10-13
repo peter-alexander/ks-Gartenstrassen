@@ -191,6 +191,8 @@ Die erzeugten Dateien stehen ausschließlich unter `data/processed/street_space/
 3. In **`pruefbeispiele.csv`** pro Zeile `pruefstatus` mit `strassenraum`, `kein_strassenraum` oder `unklar` ausfüllen; Beobachtungen unter `pruefnotiz` ergänzen. `offen` ist der Ausgangszustand.
 4. Änderungen in der CSV erhalten und später gemeinsam auswerten. Für die ersten 25 Fälle reicht diese Tabelle; es ist noch keine automatische Klassifikation implementiert.
 
+**Flächenpräzision:** Sehr kleine, gültige FMZK-Polygone können bei einer Anzeige mit zwei Nachkommastellen als `0,00 m²` erscheinen. Die Stichprobenauswahl verwendet für solche bereits erzeugten GeoJSONs die tatsächliche Geometriefläche in EPSG:31256; die Straßenraumanalyse exportiert künftig ungerundete Objektflächen. **Für die Korrektur muss `analyze_street_space` nicht erneut ausgeführt werden.**
+
 **Schutz gegen Datenverlust:** Das Skript überschreibt bestehende Dateien standardmäßig nicht. Die Option `--overwrite` darf nur eine **noch unbewertete** Stichprobe ersetzen und verweigert die Überschreibung, wenn Bewertungen/Notizen in CSV oder Polygon-GeoJSON vorhanden sind. Alternativ `--out-dir` mit einem neuen Ausgabeverzeichnis wählen.
 
 **Nicht behaupten:** Die Beurteilung einer bewusst ausgewählten Stichprobe liefert weder eine Fehlerrate für ganz Wien noch eine allgemeine Genauigkeit der Heuristik. Dafür wären später zusätzliche zufällig gezogene Kontrollfälle nötig.
