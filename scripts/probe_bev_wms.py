@@ -303,6 +303,7 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	output = Path(output)
 	files = [output / f"bev_{name}_test.png" for name in LAYERS]
 	files += [output / f"bev_{name}_test.pgw" for name in LAYERS]
+	files += [output / f"bev_{name}_test.prj" for name in LAYERS]
 	files += [output / "getcapabilities.xml", output / "bev_wms_diagnose.json"]
 	if any(path.exists() for path in files) and not overwrite:
 		raise FileExistsError(
@@ -356,7 +357,7 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 			"getcapabilities": str(output / "getcapabilities.xml"),
 			"raster_bilder": [str(path) for path in files if path.suffix == ".png"],
 			"worldfiles": [str(path) for path in files if path.suffix == ".pgw"],
-			"prj": str(output / "bev_test.prj"),
+			"projektion_prj": [str(output / f"bev_{name}_test.prj") for name in LAYERS],
 			"bericht": str(output / "bev_wms_diagnose.json"),
 		},
 	}
@@ -366,8 +367,8 @@ def run(*, fmzk=DEFAULT_FMZK, output=DEFAULT_OUTPUT,
 	for alias in LAYERS:
 		(output / f"bev_{alias}_test.png").write_bytes(responses[alias]["raw"])
 		(output / f"bev_{alias}_test.pgw").write_text(world, encoding="ascii")
-	(output / "bev_test.prj").write_text(
-		CRS.from_user_input(WMS_CRS).to_wkt() + "\n", encoding="utf-8")
+		(output / f"bev_{alias}_test.prj").write_text(
+			CRS.from_user_input(WMS_CRS).to_wkt() + "\n", encoding="utf-8")
 	(output / "bev_wms_diagnose.json").write_text(
 		json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 	print(f"BEV-WMS: {len(LAYERS)} gleich georeferenzierte GetMap-PNGs, "
