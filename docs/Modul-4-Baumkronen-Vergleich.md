@@ -85,13 +85,31 @@ Nach der Korrektur auf `KRONENDURCHMESSER_TXT` und der Verwendung des **Mittelwe
 | Zuvor per WFS geladene Baumkataster-Punkte | **252** |
 | Gemeldete mögliche OSM/Wien-Dubletten | **0** |
 
-**Bewertung:** Plausiblerer erster Arbeitswert gegenüber der wegen Verwechslung von Kategoriecode und Meterwert **verworfen**en Messung (1,15 %). **Noch kein endgültiger, als vollständig validierter Referenzwert**: Es wurden nur **117 Kreise aus 252 heruntergeladenen Baumstandorten** erzeugt. Die Differenz von **135** darf noch keiner bestimmten Ursache zugerechnet werden. Neben unbekannten/offenen Kronenklassen können Bäume wegen der Lage außerhalb der konkreten FMZK-Testfläche entfallen; die WFS-Abfrage umfasst einen zusätzlichen Randbereich. Die Einzelgründe stehen in `data/processed/baumkronen/baumkronen_kreise_bericht.json` und müssen noch ausgewertet werden. Die reine Zahl `117/252` ist **keine Flächenabdeckungsquote**. **0 OSM/Wien-Dubletten** ist bei der bisherigen ausschließlichen Wien-Variante erwartbar und keine geprüfte Dublettenfreiheit eines kombinierten Datensatzes.
+**Ergebnisprüfung anhand des lokalen Kronenkreis-Berichts:** Die Differenz von **135 Bäumen** ist inzwischen vollständig erklärt. Es handelt sich dabei nicht um 135 unerklärte oder verlorene Kronen:
 
-**Qualitätskontrolle vor Festlegung von Variante A:**
+| Auswahl/Ausschluss | Baumstandorte |
+| --- | ---: |
+| Vom WFS geladen | **252** |
+| Ohne bestimmbaren Kronendurchmesser: `nicht bekannt` | −20 |
+| Offene Kronenklasse `>21 m` (nicht als Intervallmittelwert darstellbar) | −1 |
+| **Mit verwertbarer, geschlossener Kronenklasse** | **231** |
+| Punkt außerhalb des räumlichen Untersuchungsbereichs für Kronenkreise | −57 |
+| Kreis ohne Flächenkontakt zum FMZK-Testgebiet | −57 |
+| **Erzeugte Kronenkreise mit Kontakt zum Testgebiet** | **117** |
 
-1. Den **lokalen Bericht `baumkronen_kreise_bericht.json`** prüfen: `ausgeschlossene_eingabefeatures` (insbesondere Textklassen und unlesbare Werte), `ausgeschlossen_raeumlich` und `kronenklassen_txt_haeufigkeiten`.
-2. Die **117 Kronenpolygone** über Orthofoto und Straßenraum kontrollieren: insbesondere große Klassen, Standortversatz, Überschneidungen und Bäume außerhalb der Straßenfläche, deren Kronen hineinragen.
-3. Danach den tatsächlichen Nutzungsumfang des Wiener Baumkatasters als Variante A beurteilen und mit B (OSM) sowie C (Grünraummonitoring 2023) vergleichen. Größere gemessene Kronenfläche bedeutet nicht automatisch höhere Genauigkeit.
+**Die Kronenklassen-Häufigkeiten der 252 WFS-Punkte** sind: `0-3 m`: **79**, `4-6 m`: **49**, `7-9 m`: **51**, `10-12 m`: **40**, `13-15 m`: **7**, `16-18 m`: **5**, `>21 m`: **1**, `nicht bekannt`: **20**. Summe: **252**. Damit sind **231/252 = 91,67 %** der WFS-Bäume mit einer auswertbaren Größenklasse versehen; die verbliebenen **114** Abgänge aus dieser Gruppe sind vollständig durch räumliche Filter erklärt. Die WFS-Abfrage enthält **absichtlich einen Randbereich** um das Testgebiet, um hineinragende Kronen nicht abzuschneiden.
+
+**Wichtig zur Interpretation:** „117 erzeugte Kronenkreise“ heißt lediglich, dass diese Kreise das **FMZK-Testgebiet** berühren. Es beweist **nicht**, dass alle 117 Bäume den *Straßenraum* überschirmen. Der gemessene Überschirmungsgrad von **7,82 %** beruht auf der **vereinigten Fläche aller Kronen ∩ Straßenraum**, nicht auf der Zahl der Kreise. Die 57 + 57 räumlich ausgeschlossenen Bäume stellen **keine Datenverluste** dar. **0 OSM/Wien-Dubletten** ist ohne OSM-Eingabe kein aussagekräftiger Dublettencheck.
+
+**Offene methodische Unsicherheit:** Wir wissen aus diesem zusammenfassenden Bericht nicht, **ob die 20 Bäume ohne bekannte Kronenklasse oder der einzelne Baum in der offenen Klasse `>21 m` überhaupt Kronen über dem Straßenraum hätten**. Falls ja, kann die derzeitige Flächenschätzung zu niedrig sein. Keine improvisierte Pauschalschätzung, sondern erst diese Fälle räumlich prüfen. Die Klassendurchmesser sind ohnehin nur **Intervallmittelwerte** und kreisförmige Kronen eine Näherung.
+
+**Bewertung:** Der korrigierte Lauf von **3.647,05 m² bzw. 7,82 %** ist als **vorläufiger Referenzlauf für Ansatz A** verwendbar; die ehemals gemeldeten **536,88 m² bzw. 1,15 % sind verworfen**. Die rein numerische Vollständigkeitsfrage ist geklärt. Für eine **fachlich validierte** Genauigkeit fehlen weiterhin die Sichtprüfung der Kronenpolygone auf einem geeigneten Orthofoto, insbesondere an den Straßenrändern, und der unabhängige Vergleich mit OSM bzw. Grünraummonitoring 2023.
+
+**Nächste Qualitätskontrolle:**
+
+1. Die 117 Kreise und die aus ihnen abgeleitete **tatsächlich überschnittene Straßenraumfläche** auf einem Orthofoto prüfen. Ein Kreis kann im Testgebiet liegen, ohne eine Straßenfläche zu treffen.
+2. Bei Bedarf für die **21 Bäume ohne verwertbaren Klassenwert** getrennt untersuchen, ob ihr Standort innerhalb oder nahe genug an der Straßenraumfläche liegt, um die Quote beeinflussen zu können. Das erfordert die Punkte bzw. einen ergänzten diagnostischen Lauf, ist aus diesem Bericht nicht ableitbar.
+3. Für den methodischen Vergleich mit **B (Wien + OSM)** und **C (Grünraummonitoring 2023)** denselben Straßenraum und dieselbe Berechnung verwenden. Mehr erfasste Kronenfläche bedeutet nicht automatisch bessere Genauigkeit.
 
 **Unverändert:** Die Kennzahl **Bodenbegrünungsanteil 1,91 %** aus Modul 3 ist davon getrennt. Die beiden Prozentwerte dürfen wegen räumlicher Überlagerung nicht addiert werden.
 
