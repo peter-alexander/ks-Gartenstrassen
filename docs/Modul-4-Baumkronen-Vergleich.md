@@ -72,6 +72,29 @@ Dateien:
 
 Zunächst die Ergebnisse mit einem aktuellen Orthofoto und dem Baumkataster der Kartensammlung vergleichen. **Nicht bereits einen stadtweiten Prozentwert extrapolieren.**
 
+### Erster lokaler Messlauf mit korrigierten Kronenklassen (13.10.2026)
+
+Nach der Korrektur auf `KRONENDURCHMESSER_TXT` und der Verwendung des **Mittelwerts geschlossener Meterintervalle** wurde Methode **A – Wiener Baumkataster als Kronenkreise** im selben Testausschnitt erneut ausgeführt. Die folgende Ausgabe wurde lokal gemeldet:
+
+| Kennzahl | Neuer Wert |
+| --- | ---: |
+| Straßenraum (gleiche vorläufige Maske wie Modul 3) | **46.630,56 m²** |
+| Vereinte Baumkronenfläche über dem Straßenraum | **3.647,05 m²** |
+| **Überschirmungsgrad** | **7,82 %** |
+| Generierte Kronenkreis-Features | **117** |
+| Zuvor per WFS geladene Baumkataster-Punkte | **252** |
+| Gemeldete mögliche OSM/Wien-Dubletten | **0** |
+
+**Bewertung:** Plausiblerer erster Arbeitswert gegenüber der wegen Verwechslung von Kategoriecode und Meterwert **verworfen**en Messung (1,15 %). **Noch kein endgültiger, als vollständig validierter Referenzwert**: Es wurden nur **117 Kreise aus 252 heruntergeladenen Baumstandorten** erzeugt. Die Differenz von **135** darf noch keiner bestimmten Ursache zugerechnet werden. Neben unbekannten/offenen Kronenklassen können Bäume wegen der Lage außerhalb der konkreten FMZK-Testfläche entfallen; die WFS-Abfrage umfasst einen zusätzlichen Randbereich. Die Einzelgründe stehen in `data/processed/baumkronen/baumkronen_kreise_bericht.json` und müssen noch ausgewertet werden. Die reine Zahl `117/252` ist **keine Flächenabdeckungsquote**. **0 OSM/Wien-Dubletten** ist bei der bisherigen ausschließlichen Wien-Variante erwartbar und keine geprüfte Dublettenfreiheit eines kombinierten Datensatzes.
+
+**Qualitätskontrolle vor Festlegung von Variante A:**
+
+1. Den **lokalen Bericht `baumkronen_kreise_bericht.json`** prüfen: `ausgeschlossene_eingabefeatures` (insbesondere Textklassen und unlesbare Werte), `ausgeschlossen_raeumlich` und `kronenklassen_txt_haeufigkeiten`.
+2. Die **117 Kronenpolygone** über Orthofoto und Straßenraum kontrollieren: insbesondere große Klassen, Standortversatz, Überschneidungen und Bäume außerhalb der Straßenfläche, deren Kronen hineinragen.
+3. Danach den tatsächlichen Nutzungsumfang des Wiener Baumkatasters als Variante A beurteilen und mit B (OSM) sowie C (Grünraummonitoring 2023) vergleichen. Größere gemessene Kronenfläche bedeutet nicht automatisch höhere Genauigkeit.
+
+**Unverändert:** Die Kennzahl **Bodenbegrünungsanteil 1,91 %** aus Modul 3 ist davon getrennt. Die beiden Prozentwerte dürfen wegen räumlicher Überlagerung nicht addiert werden.
+
 ## Zweite Testreihe: Ansatz B (OSM ergänzen)
 
 Lokale OSM-Daten benötigen **GeoJSON-Punkte** für `natural=tree`. Sie können unabhängig bereitgestellt werden. Baumreihen `natural=tree_row` werden derzeit **bewusst nicht künstlich in Einzelbäume umgewandelt**; eine solche räumliche Approximation müsste separat geprüft werden.
