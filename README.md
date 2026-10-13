@@ -321,7 +321,7 @@ Erste Methode **A (Wiener Baumkataster/WFS)**, vorerst nur für das vorhandene k
 
 ```bash
 ./scripts/update-and-sync.sh
-.venv/bin/python -m scripts.fetch_vienna_trees
+.venv/bin/python -m scripts.fetch_vienna_trees  # nur nötig, wenn WFS-Cache fehlt
 .venv/bin/python -m scripts.build_canopy_circles --wien data/processed/baumkronen/baumkataster_wfs.geojson
 .venv/bin/python -m scripts.measure_canopy_cover
 ```
@@ -333,7 +333,7 @@ Lokale Ergebnisse:
 - `data/processed/ueberschirmung/ueberschirmung_bericht.json`: Straßenraum, tatsächlich überschnittene Kronenfläche, Überschirmungsgrad und Eingabeversionen.
 - `data/processed/ueberschirmung/ueberschirmte_flaeche.geojson`: die vereinigten Baumkronen **innerhalb** des Straßenraums, zur Kartenkontrolle.
 
-**Erster lokaler WFS-Abruf erfolgreich (13.10.2026): 252 Baumstandorte.** Die damalige Folgeauswertung wurde durch eine zu strenge Ablehnung des WFS-GeoJSON-`crs`-Attributs gestoppt. Das ist korrigiert: ausdrücklich deklarierte EPSG:4326/CRS84-Quellen sind zulässig, unbekannte CRS bleiben gesperrt. **Für den nächsten Versuch nach `./scripts/update-and-sync.sh` nur `build_canopy_circles` und `measure_canopy_cover` erneut aufrufen**; der erfolgreiche WFS-Download liegt bereits im lokalen Cache. Der tatsächliche Kronenkreis-/Messlauf steht noch aus.
+**Erster lokaler WFS-Abruf erfolgreich (13.10.2026): 252 Baumstandorte.** Nach dem behobenen WFS-`crs`-Problem wurde ein erster Messlauf durchgeführt (117 Kreise, 536,88 m², **1,15 %**). **Dieser Wert ist ungültig und verworfen**, weil `KRONENDURCHMESSER` als Meter statt als **Kategoriencode** behandelt wurde. Korrekt steht die metrische Klasse in `KRONENDURCHMESSER_TXT` (z. B. `16-18 m`). Der überarbeitete Kronenprovider verwendet nun für **geschlossene Klassenintervalle** den **Mittelwert** (17 m im Beispiel); unbekannte/offene Bereiche werden mit Ausschlussgrund dokumentiert und nicht frei geschätzt. **Nur Kronenkreise und Überschirmungsmessung erneut berechnen**, kein neuer WFS-Download notwendig. Der nächste reale Messwert muss noch geprüft werden.
 
 Die nächste Vergleichsvariante **B (Wien + OSM)** kann zusätzlich OSM-GeoJSON-Punkte (`natural=tree`) einlesen. Bäume ohne Kronendurchmesser werden standardmäßig nicht künstlich geschätzt. Weitere Module untersuchen die **Baumschicht des Grünraummonitorings 2023** (50 cm, WMS-Raster) und später optional BEV-Infrarot-Orthofotos. Vor einer Klassifizierung aus WMS-Pixelfarben müssen Klassenwerte und Darstellung überprüft werden. Die jeweiligen Kronen-Geometrien können anschließend mit `scripts.compare_canopy_methods` auf identischem Straßenraum verglichen werden.
 
