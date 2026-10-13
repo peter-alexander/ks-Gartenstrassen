@@ -14,7 +14,9 @@ from pathlib import Path
 import sqlite3
 from urllib.parse import quote
 
+from pyproj import Transformer
 from shapely.geometry import shape, mapping
+from shapely.ops import transform
 
 DEFAULT_REVIEW = Path("data/processed/street_space/strassenraum_pruefung.geojson")
 DEFAULT_SOURCE = Path("data/processed/fmzk_test.gpkg")
@@ -49,6 +51,9 @@ def read_review(path):
 		raise ValueError("Keine gültige GeoJSON FeatureCollection")
 	features = []
 	seen = set()
+	# Alte Straßenraum-GeoJSONs runden m² auf zwei Stellen. Kleine Polygone
+	# erscheinen daher fälschlich mit 0.00 m², obwohl die Geometrie Fläche hat.
+	project = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform
 	for feat in data["features"]:
 		props = feat.get("properties") or {}
 		if props.get("f_klasse") not in (58, 59, 69):
@@ -59,12 +64,24 @@ def read_review(path):
 		if not isinstance(fid, int) or isinstance(fid, bool) or fid in seen:
 			raise ValueError(f"Ungültige oder doppelte FMZK-FID: {fid}")
 		seen.add(fid)
-		if float(props["flaeche_m2"]) <= 0:
-			raise ValueError(f"Feature {fid}: nicht-positive Fläche")
 		geom = shape(feat["geometry"])
-		if geom.is_empty or geom.geom_type not in ("Polygon", "MultiPolygon"):
-			raise ValueError(f"Feature {fid}: keine Polygongeometrie")
-		features.append({"type": "Feature", "properties": props.copy(), "geometry": feat["geometry"]})
+		if geom.is_empty or geom.geom_type not in ("Polygon", "MultiPolygon") or not geom.is_valid:
+			raise ValueError(f"Feature {fid}: keine gültige Polygongeometrie")
+		try:
+			area = float(props["flaeche_m2"])
+		except (TypeError, ValueError) as exc:
+			raise ValueError(f"Feature {fid}: ungültiger Flächenwert") from exc
+		if not math.isfinite(area) or area < 0:
+			raise ValueError(f"Feature {fid}: ungültiger Flächenwert {area}")
+		if area == 0:
+			# Ausschließlich der gerundete Nullwert wird aus der exakten
+			# Polygongeometrie nach EPSG:31256 nachberechnet.
+			area = transform(project, geom).area
+			if not math.isfinite(area) or area <= 0:
+				raise ValueError(f"Feature {fid}: tatsächlich flächenlose Geometrie")
+		clean_props = props.copy()
+		clean_props["flaeche_m2"] = area
+		features.append({"type": "Feature", "properties": clean_props, "geometry": feat["geometry"]})
 	return features
 
 
