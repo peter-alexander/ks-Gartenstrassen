@@ -207,7 +207,7 @@ Die separate Analyse `scripts/analyze_kataster.py`:
 
 1. Liest den **bisherigen FMZK-Testausschnitt** aus `data/processed/fmzk_test.gpkg` und berechnet den bestehenden Kern **21/23/24/33/39**.
 2. Lädt die BEV-Kacheln auf **Zoomstufe 16**, einschließlich einer zusätzlichen Kachel rings um die Test-BBOX. Die GeoPackage- und Tile-Geometrien werden in **EPSG:31256** verschnitten. Kernflächen mit echtem Flächenschnitt identifizieren getroffene `gst`-Grundstücke anhand **Katastralgemeinde + Grundstücksnummer**.
-3. Ruft für jedes getroffene Grundstück **einmal** die öffentliche BEV-Detail-API ab. Aus der **gesamten**, nicht auf die Test-BBOX beschnittenen Nutzungsbilanz werden die Fälle A/B/C/D bestimmt.
+3. Verwendet standardmäßig **nur bereits zwischengespeicherte** Antworten der Grundstücks-API. Falls vollständige Nutzungsbilanzen im Cache fehlen, bleibt die Grundstücksklasse **D**, während die in den Kacheln sichtbaren `nfl`-Nutzungsarten lediglich als vorläufiger Hinweis ausgegeben werden. Mit `--details` werden die fehlenden Grundstücksdaten online angefordert; bei HTTP 429/5xx oder Verbindungsproblemen stoppt der Skriptlauf weitere Detailabfragen.
 4. Exportiert die `nfl`-Teilflächen zur Sichtkontrolle. Diese stammen weiterhin nur aus den verwendeten Kacheln und werden für die Klassifizierung **nicht** als vollständiger Flächennachweis verwendet.
 
 Installation nach dem Synchronisieren und erster Durchlauf:
@@ -218,6 +218,16 @@ Installation nach dem Synchronisieren und erster Durchlauf:
 .venv/bin/python -m pip install -r requirements-analysis.txt
 .venv/bin/python -m scripts.analyze_kataster
 ```
+
+**Während die BEV-Grundstücks-API ausfällt**, führt der obige Aufruf **keine Grundstücksdetail-Anfragen** aus. Vorhandene API-Antworten aus dem Cache können weiterhin A/B/C ermöglichen; sonst erscheint D mit zusätzlichem `tile_nutzungshinweis` (`nur_95_65_im_ausschnitt`, `gemischt_im_ausschnitt`, `keine_95_65_im_ausschnitt` oder `unvollstaendig_oder_unbekannt`). Dieser Hinweis basiert nur auf den verfügbaren Kacheln, **nicht** auf der Nutzung des ganzen Grundstücks.
+
+Erst wenn der Endpunkt wieder funktioniert:
+
+```bash
+.venv/bin/python -m scripts.analyze_kataster --details
+```
+
+Der Online-Modus nutzt den Cache und unterbricht nach dem ersten HTTP-429-/Server-5xx- oder Netzwerkfehler weitere API-Anfragen. Mit `--refresh --details` werden bereits vorhandene Antworten erneut geholt; ohne diese Kombination bleiben die archivierten Antworten erhalten.
 
 **Einstufung der ganzen Grundstücke anhand der BEV-API:**
 
@@ -234,7 +244,7 @@ Die Bezeichnung A steht für **hohe Plausibilität, nicht hohe rechtliche Autori
 
 - `kataster_grundstuecke.geojson`: vom Kern getroffene Grundstücksfragmente innerhalb der BBOX, eingefärbt nach `klasse` möglich.
 - `kataster_nfl_ausschnitt.geojson`: Nutzungsflächen **nur innerhalb des verfügbaren Ausschnitts** (Eigenschaft `vollstaendig=false`); zur Kartenkontrolle, **nicht** als Nutzungsbilanz des Grundstücks.
-- `kataster_grundstuecke.csv`: je Grundstück KG, Nummer, A/B/C/D, Kernüberschneidung, API-Nutzungscodes und Flächensummen sowie im Tile beobachtete `nfl.ns`-Codes.
+- `kataster_grundstuecke.csv`: je Grundstück KG, Nummer, A/B/C/D, Kernüberschneidung, API-Nutzungscodes und Flächensummen sowie im Tile beobachtete `nfl.ns`-Codes und einen **vorläufigen `tile_nutzungshinweis`**.
 - `kataster_bericht.json`: Gesamtstatistik, alle vollständigen API-Nutzungsbilanzen, Fehlermeldungen und Liste der verwendeten Kacheln.
 
 Alle Abrufe werden lokal in `data/cache/kataster/` gespeichert. Dadurch ist der zweite Lauf schnell und reproduzierbar. Für **erneuten Onlineabruf** der aktuellen BEV-Daten `--refresh` angeben. Mit `--offline` werden ausschließlich bereits vorhandene Cache-Dateien gelesen. Der Testausschnitt ist über die Metadaten der FMZK-Extraktion vorgegeben; es erfolgen keine bundesweiten Massendownloads. Schutzgrenzen: maximal 36 Kacheln und 250 Grundstücksabfragen pro Lauf.
