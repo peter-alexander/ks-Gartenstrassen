@@ -59,7 +59,7 @@ def parse_wien_crown_range(value):
 	"""
 	if value is None or not str(value).strip():
 		return None, "durchmesser_fehlt"
-	text = str(value).replace("\\u00a0", " ").strip()
+	text = str(value).replace(chr(160), " ").strip()
 	match = CROWN_RANGE.fullmatch(text)
 	if match is None:
 		return None, "unlesbare_oder_offene_kronenklasse"
