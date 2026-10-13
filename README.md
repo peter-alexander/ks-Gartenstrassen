@@ -409,6 +409,30 @@ Die WMS-Diagnose ist bereits lokal erfolgt; sie muss für denselben Bildstand **
 
 Die Details, geprüfte Farbtabelle und Qualitätsgrenzen sind in [Modul 4 – Baumkronen-Vergleich](docs/Modul-4-Baumkronen-Vergleich.md) dokumentiert.
 
+### Variante D: BEV Orthofoto RGBI – erste Quellen- und Rasterdiagnose
+
+**Stand 14.10.2026:** Der BEV bietet echte digitale RGBI-Orthofotos mit etwa **20 cm** Bodenauflösung an. **RGBI** enthält den Nahinfrarotkanal zusätzlich zu RGB. [Offizielle BEV-Produktbeschreibung](https://www.bev.gv.at/Services/Produkte/Luftbildprodukte/Orthophoto-Farbe.html). Die frei verfügbaren [BEV-Daten](https://data.bev.gv.at/) werden unter anderem als **50 × 50-km-Kacheln** abgegeben; bitte vor dem Download Dateigröße, Gebietsabdeckung und tatsächliches Flugjahr kontrollieren. Einige [BEV-RGBI-Datensätze](https://data.europa.eu/data/datasets/34490301-7c3e-40b4-8cb8-e82e5c304e8e~~1) enthalten **separate RGB- und NIR-TIFFs**.
+
+Mit `scripts/probe_bev_rgbir.py` haben wir eine **eigenständige D1-Diagnose** vorbereitet (GDAL erforderlich, `sudo apt install gdal-bin`). Sie prüft Projektion, Bandzahl/Interpretation und Georeferenzierung. Ein Zuschnitt ist optional; **es werden noch keine Baumkronen klassifiziert**.
+
+```bash
+./scripts/update-and-sync.sh
+
+# Entweder: ein echtes RGBI-TIFF mit vier Bändern
+.venv/bin/python -m scripts.probe_bev_rgbir --input /pfad/bev_rgbi.tif
+
+# Oder: separate BEV-RGB- und -NIR-Dateien
+.venv/bin/python -m scripts.probe_bev_rgbir \
+	--input /pfad/bev_rgb.tif \
+	--nir-input /pfad/bev_nir.tif
+
+# Wenn der Metadatencheck passt: oben gewählten Aufruf um --clip ergänzen.
+```
+
+Die Auswertung schreibt `data/processed/baumkronen/bev_rgbir/bev_rgbir_diagnose.json`; mit `--clip` zusätzlich einen kleinen EPSG:31256-TIFF-Ausschnitt (bei getrennten Quellen zwei ausgerichtete Testdateien). **A/B/C bleiben unverändert.** Ein NDVI darf erst entstehen, nachdem die tatsächliche Zuordnung von Rot und NIR und das Datenjahr überprüft wurden. Auch dann erkennt NDVI **Vegetation und nicht automatisch Baumkronen**; eine fachliche Kronenabgrenzung mit Form-/Höhenprüfung ist ein separater nächster Schritt.
+
+[Quellen, Bezugsmöglichkeiten, Risiken und die Schritte D1–D4](docs/Modul-4-Baumkronen-Vergleich.md#variante-d-bev-orthofoto-rgbi--quellenprüfung-d1-14102026).
+
 ## Synchronisierung des Quellcodes
 
 Das ausführbare Skript `scripts/update-and-sync.sh` synchronisiert `main` bidirektional: Es committet **alle nicht ignorierten** lokalen Änderungen, holt `origin/main`, rebased lokale Commits, pusht und kontrolliert anschließend den Stand.
@@ -438,7 +462,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Modul 4 – neuen B-Ergebnisstand gezielt prüfen:** Die vier zusätzlich im Testgebiet erfassten OSM-Kronen über Orthofoto beurteilen, insbesondere die eine Schätzung. Optional B einmal mit **`--strict-osm`** getrennt rechnen. Erst danach neue Quellen, einen Hybridansatz oder weitere Baumreihentests untersuchen. Die Methoden **A (7,82 %), B (7,89 %) und C (9,35 %)** bleiben separat vergleichbar.
+2. **Modul 4 – BEV-Orthofoto RGBI als Methode D:** Zunächst das tatsächlich für Wien verfügbare Vierkanalbild (oder RGB-/NIR-Dateipaar) anhand seiner BEV-Metadaten samt Flugjahr beschaffen bzw. einen kleinen Ausschnitt sicherstellen; dann die neue D1-Rasterdiagnose ausführen. Die bisherigen Methoden **A (7,82 %), B (7,89 %) und C (9,35 %)** bleiben unverändert. Die vier zusätzlichen OSM-Kronen aus B und die geschätzte Kronengröße werden später in einem eigenen Kontrollschritt überprüft.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
