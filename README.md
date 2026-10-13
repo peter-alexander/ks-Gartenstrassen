@@ -363,13 +363,9 @@ Die bisherige OSM-Option im A-Skript wurde entfernt: **A ist ausschließlich Wie
 
 Die OSM-Einzelbäume haben oft **keinen** gemessenen Kronendurchmesser. B verwendet dafür **ausdrücklich gekennzeichnet** dieselbe *Höhe×0,5*-Näherung wie die bisherige 3D-Schattenberechnung (fehlende OSM-Höhe: angenommene 12 m → 6 m Krone). Die Option `--strict-osm` erzeugt eine Untervariante ohne solche Schätzungen. **Diese Angaben sind keine vermessenen Kronen.** Wien erhält keine neuen Schätzungen, sodass seine Teilmenge in A und B identisch bleibt.
 
-Ergebnisse unter `data/processed/baumkronen/variante_b/` (`baumkronen_kombiniert.geojson`, `baumkronen_kombiniert_bericht.json`), Messbericht unter `data/processed/ueberschirmung/variante_b/`. **B ist auf GitHub getestet; der erste echte lokale Overpass-Lauf steht noch aus.** A (7,82 %) und C (9,35 %), IoU 58,02 %, bleiben unsere bisherigen Vergleichswerte. Die gemeinsame Straßenraumfläche beträgt 46.630,56 m². Eine eigene BEV-Infrarot-Auswertung ist weiterhin eine spätere Option.
+Ergebnisse unter `data/processed/baumkronen/variante_b/` (`baumkronen_kombiniert.geojson`, `baumkronen_kombiniert_bericht.json`), Messbericht unter `data/processed/ueberschirmung/variante_b/`. **Der erste echte B-Lauf wurde lokal erfolgreich durchgeführt:** 140 OSM-Einzelbäume, davon 128 bereits innerhalb von 4 m eines Wiener Baumstandorts; 12 OSM-Ergänzungen nach Dublettenprüfung, vier davon mit Kronenkontakt zum Testgebiet (drei explizite Kronendurchmesser, eine gekennzeichnete Schätzung). Es gab **keine OSM-Baumreihen** im Ausschnitt. B ergibt **3.678,65 m² / 7,89 %**, also nur **+31,60 m² bzw. +0,068 Prozentpunkte** gegenüber A (3.647,05 m² / 7,82 %). C bleibt bei **4.358,69 m² / 9,35 %**; IoU **A/B 99,14 %, A/C 58,02 %, B/C 57,67 %**. Die echten Baumreihen und das Verhalten ohne Schätzungen sind gesondert zu prüfen. Die gemeinsame Straßenraumfläche beträgt 46.630,56 m². Eine eigene BEV-Infrarot-Auswertung ist weiterhin eine spätere Option.
 
 **[Ausführliche Anleitung, Datenquellen und Grenzen von Modul 4](docs/Modul-4-Baumkronen-Vergleich.md).** Die Bodenbegrünung von **1,91 %** bleibt eine eigenständige Kennzahl und darf nicht zur Überschirmung addiert werden.
-
-
-
-**[Ausführliche Anleitung, Datenquellen und Grenzen von Modul 4](docs/Modul-4-Baumkronen-Vergleich.md).** Die bestehende Bodenbegrünung von **1,91 %** ist eine eigenständige Kennzahl und darf **nicht** zum Überschirmungsgrad addiert werden.
 
 
 ### Variante C: Grünraummonitoring 2023 – bestätigte WMS-Baumschicht
@@ -442,7 +438,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Modul 4 – neuen OSM-Vergleich B real prüfen:** Die implementierte eigenständige Methode B mit kleinen Overpass-Ausschnittsdaten lokal ausführen; die getrennten Kronen-/Schätzberichte und den Überschirmungsgrad mit **A (7,82 %) und C (9,35 %)** vergleichen. Danach räumliche Abweichungen über Orthofoto prüfen, bevor ein Standard- oder Hybridverfahren festgelegt wird.
+2. **Modul 4 – neuen B-Ergebnisstand gezielt prüfen:** Die vier zusätzlich im Testgebiet erfassten OSM-Kronen über Orthofoto beurteilen, insbesondere die eine Schätzung. Optional B einmal mit **`--strict-osm`** getrennt rechnen. Erst danach neue Quellen, einen Hybridansatz oder weitere Baumreihentests untersuchen. Die Methoden **A (7,82 %), B (7,89 %) und C (9,35 %)** bleiben separat vergleichbar.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
