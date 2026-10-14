@@ -347,7 +347,7 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 							else p["s_m"], 3),
 						"methode": cut_method, "status": status}))
 			intersection = cut.intersection(line)
-			outside = cut.difference(street.buffer(.03)).length
+			outside = cut.difference(street).length
 			# Ein Punkt im Achskorridor und keine Durchdringung von
 			# Straßenraum-Löchern / fremden Flächen.
 			accepted = (cut.length >= 2 and cut.length <= 70
