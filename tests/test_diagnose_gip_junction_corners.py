@@ -10,7 +10,8 @@ from shapely.geometry import LineString, Point, box, mapping
 from shapely.ops import transform
 
 from scripts.diagnose_gip_junction_corners import (
-	METRIC, LONLAT, _profile, analyze, fahrbahn_mask, run,
+	METRIC, LONLAT, _profile, _side_transition, analyze,
+	fahrbahn_mask, gebaeudekonturen, run,
 )
 
 
@@ -134,6 +135,56 @@ class JunctionCornerDiagnosticsTests(unittest.TestCase):
 		clipped = fahrbahn_mask(data, box(0, 0, 35, 30))
 		self.assertAlmostEqual(clipped.area, 350, places=5)
 
+
+	def test_inner_transition_before_outer_plateau(self):
+		# Reproduziert eine abfallende, auf den normalen
+		# Querschnitt zulaufende Randaufweitung in 1-m-Schritten.
+		profiles = []
+		for s in range(1, 23):
+			excess = max(0.0, 8.0-(s-1)*1.0)
+			profiles.append({"s_m": float(s),
+				"left_m": 5.0+excess, "right_m": 5.0,
+				"width_m": 10.0+excess,
+				"clipped_left": False, "clipped_right": False})
+		inner, err = _side_transition(profiles, "left", step_m=1,
+			position="innen")
+		outer, olderr = _side_transition(profiles, "left", step_m=1,
+			position="aussen")
+		self.assertIsNone(err)
+		self.assertIsNone(olderr)
+		self.assertLess(inner["s_m"], outer["s_m"])
+		self.assertGreaterEqual(outer["s_m"]-inner["s_m"], 2.0)
+		with self.assertRaisesRegex(ValueError, "Übergangsposition"):
+			_side_transition(profiles, "left", position="falsch")
+
+	def test_building_contours_are_separate_from_traffic_surfaces(self):
+		street, axes, nodes = synthetic_cross()
+		x, y = METRIC(16.363, 48.223)
+		house = box(x+15, y+15, x+30, y+30)
+		auxiliary = [(1, 11, "Gebäude", house),
+			(2, 19, "Nebengebäude", box(x-30,y-30,x-20,y-20)),
+			(3, 12, "Überbauung", box(x-30,y+20,x-20,y+25))]
+		buildings = gebaeudekonturen(auxiliary, street)
+		self.assertIsNotNone(buildings)
+		self.assertTrue(buildings.intersects(house))
+		self.assertFalse(buildings.intersects(box(x-30,y+20,x-20,y+25)))
+		traffic = union_all([box(x-50,y-3,x+50,y+3),
+			box(x-3,y-50,x+3,y+50)])
+		for mode, active, support in (
+			("hauswand", street, traffic),
+			("gehsteigkante", traffic, street),
+		):
+			with self.subTest(mode=mode):
+				layers, report = analyze(active, axes, nodes,
+					node_ids=["10"], max_junctions=1,
+					boundary_mode=mode, support_mask=support,
+					building_mask=buildings)
+				self.assertTrue(report["parameter"]["support_mask_aktiv"])
+				self.assertEqual(report["parameter"]["transition_position"], "innen")
+				self.assertTrue(all("abstand_gebaeudekontur_m"
+					in f["properties"] for f in layers["eckpunkte"]))
+				self.assertTrue(all(f["properties"]["position"] == "innen"
+					for f in layers["schnittlinien"]))
 
 	def test_straight_road_does_not_invent_crossing_corners(self):
 		street, axes, nodes = synthetic_cross()
