@@ -445,6 +445,136 @@ Die bereits erzeugte `aufteilung.sqlite` und
 Entscheidung betrifft lediglich die **vorläufige fachliche
 Auswertung** und ihre dokumentierte Abdeckung.
 
+### 4b. Bodenbegrünung und Baumkronen je GIP-Abschnitt (neue Stufe)
+
+Ausgangspunkt sind die **vollständige V0-Partition** mit den
+586 eindeutigen FOW=3-GIP-Abschnitten und das bereits geprüfte
+`alsergrund_qa.gpkg`. Die bestehenden Rohdaten werden nicht
+verändert. Die Auswertung arbeitet auf allen **10 metrischen
+Kachelfragmenten** getrennt und summiert anschließend je GIP-ID.
+Knotenbereiche, Sonderachsen und nicht zugeordnete Flächen
+bleiben im QA-GeoPackage und der Flächenbilanz erhalten,
+werden aber **nicht** zu einem regulären GIP-Abschnitt gerechnet.
+
+**Bodenbegrünung (aus den vorhandenen FMZK-Daten):**
+
+~~~bash
+git pull --ff-only
+
+.venv/bin/python -m scripts.wienwide_gip_greening \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --gip-index data/processed/wienweit/alsergrund/gip.sqlite \
+  --street-root data/processed/wienweit/alsergrund/strassenraum \
+  --input-root data/processed/wienweit/alsergrund/eingaben \
+  --partition-db data/processed/wienweit/alsergrund/aufteilung.sqlite \
+  --qa-gpkg data/processed/wienweit/alsergrund/alsergrund_qa.gpkg \
+  --out-dir data/processed/wienweit/alsergrund/begruenung_boden
+~~~
+
+Dieser Schritt benötigt **kein Netzwerk** und misst die
+metrisch vereinigten FMZK-F_KLASSE **58 und 69** innerhalb
+der zugeordneten GIP-Flächen. Die Klassensummen werden
+getrennt ausgewiesen; eine Überlagerung zwischen 58 und
+69 wird in `boden_klassen_ueberlagerung_m2` dokumentiert,
+aber **nicht doppelt gezählt**.
+
+**GRM2023-WMS-Baumschicht vollständig für den Bezirk vorbereiten:**
+
+Die bisherige Kronenmethode C bezog sich nur auf den
+**kleinen Testausschnitt**. Sie darf **nicht** ohne
+neue Quellenabdeckung auf Alsergrund oder ganz Wien
+übertragen werden. Der neue Provider `wienwide_grm2023.py`
+fragt den amtlichen `GRM2023OGD`-WMS in **EPSG:31256**
+ab: maximal **500 × 500 m** pro Anfrage, **0,5 m**
+angefragte Pixelgröße (meist 1000 × 1000 Bildpunkte),
+bekannte **neun exakte Klassenfarben**, Baumschicht
+**#38A800**. Sämtliche GetMap-PNGs erhalten
+Abfrageparameter und SHA-256 im lokalen Cache.
+Ein normaler Lauf benötigt für ein vollständig
+deckendes 1000-m-Tile höchstens vier Bildanfragen.
+Zwischen neuen Abrufen liegen standardmäßig 0,4 s;
+bestehende geprüfte Daten werden nicht erneut geladen.
+Keine Grundstücks-API oder sonstiger BEV-Zugriff.
+
+~~~bash
+# 1. Fehlende GRM-Kachelbilder laden; läuft bei Unterbrechung weiter.
+.venv/bin/python -m scripts.wienwide_grm2023 fetch \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --root data/processed/wienweit/alsergrund/grm2023 \
+  --pause-s 0.5
+
+# 2. Alle Bildfarben streng prüfen und metrische Masken erzeugen.
+.venv/bin/python -m scripts.wienwide_grm2023 build \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --root data/processed/wienweit/alsergrund/grm2023
+
+# 3. Boden- und Kronenquoten je GIP-ID vollständig berechnen.
+.venv/bin/python -m scripts.wienwide_gip_greening \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --gip-index data/processed/wienweit/alsergrund/gip.sqlite \
+  --street-root data/processed/wienweit/alsergrund/strassenraum \
+  --input-root data/processed/wienweit/alsergrund/eingaben \
+  --partition-db data/processed/wienweit/alsergrund/aufteilung.sqlite \
+  --qa-gpkg data/processed/wienweit/alsergrund/alsergrund_qa.gpkg \
+  --grm-root data/processed/wienweit/alsergrund/grm2023 \
+  --out-dir data/processed/wienweit/alsergrund/begruenung_grm
+~~~
+
+**Ausgaben (je neuem Verzeichnis):**
+`gip_abschnitte_begruenung.csv` enthält **eine Zeile
+je eindeutiger GIP-ID** mit Straßenname, FOW, Summe
+der Kachelfragmente, Bodenbegrünung in m² und Prozent
+sowie getrennten FMZK-Klassen 58/69.
+`gip_abschnitte_begruenung.gpkg` ist eine **Kopie
+des bereits geprüften vierlagigen QA-GeoPackage**
+mit zusätzlichen Kennzahlenspalten auf den
+`gip_abschnitte`-Polygonen. Die anderen drei
+räumlichen QA-Layer bleiben erhalten und unverändert.
+Die CSV enthält die über alle Kachelfragmente
+aufsummierten Kennzahlen je GIP-ID, im GeoPackage
+stehen dagegen **je Kachelfragment** dessen eigene
+Quoten. `begruenung_bericht.json` protokolliert
+Quellprüfsummen, Abdeckungsbilanz, Flächen und
+Einschränkungen.
+
+**Nennersystematik:**
+Eine Abschnittsquote ist stets
+`Grün- bzw. Kronenfläche im GIP-Abschnitt / geometrisch
+zugeordnete GIP-Abschnittsfläche`.
+Der Gesamtnenner der GIP-Abschnittsauswertung ist
+**652.048,85 m²**, nicht der volle
+Bezirks-Straßenraum von **790.994,06 m²**.
+Die **138.945,21 m²** Knoten-, Sonderachsen-
+und Restflächen bleiben außerhalb dieser Quoten
+und werden weiterhin mit ihrem Anteil ausgewiesen.
+Kronen können unabhängig vom Stammstandort
+über dem Straßenraum liegen; Baumkronen- und
+Bodenbegrünungsprozente dürfen **nicht addiert** werden.
+
+**Fehlende Kronendaten sind kein Nullwert:**
+Ohne `--grm-root` werden ausschließlich die
+Bodenwerte berechnet; sämtliche Kronenspalten
+sind **NULL/leere CSV-Felder**, nicht 0 %.
+Mit `--grm-root` ist jede der zehn bereits
+erzeugten Baumschichtmasken inklusive
+sämtlicher Ausgangs-PNG-SHA erforderlich. Bei
+fehlender oder geänderter Quelle wird
+**abgebrochen**, nicht partiell bilanziert.
+Berechnete Ausgabeverzeichnisse werden **nie**
+überschrieben; für eine neue Methode stets
+einen anderen `--out-dir` verwenden.
+
+**Qualitätsgrenze:** Die WMS-Baumschicht ist
+ein **serverseitig gerendertes Raster**, auch
+wenn das Anfragegitter 0,5 m/px verwendet.
+Sie ist kein originaler GRM-Quellpixel-Export,
+keine direkte Messung von Kronenindividuen und
+keine unabhängig validierte Baumartenerkennung.
+Die realen Alsergrund-Kennzahlen sind erst
+nach Durchführung dieser lokalen Befehle bekannt.
+Spätere methodische Varianten A/B können mit
+derselben GIP-Abschnittsgeometrie verglichen werden.
+
 ### 5. Benchmark protokollieren
 
 ~~~bash
