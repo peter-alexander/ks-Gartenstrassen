@@ -1,7 +1,13 @@
 # Modul 5 – Kreuzungsgrenzen aus Eck-/Übergangspunkten (Entwurf v1)
 
-**Stand: 14.10.2026. Diagnose-Prototyp implementiert; noch keine
-Kreuzungspolygone und keine neue Abschnittsaufteilung.** Der bestehende
+**Stand 14.10.2026: ENTWICKLUNG PAUSIERT.** Nach mehreren realen
+Diagnoseläufen hat der Nutzer ausdrücklich entschieden,
+**`aufteilung_v0` mit kreisförmigen Knotenbereichen (7 m)**
+vorläufig beizubehalten. Die Eckpunkt-Heuristik ist
+nicht fachlich validiert; keine weitere Arbeit daran,
+bis ein möglicherweise früher vorhandener Kreuzungsalgorithmus
+vom Nutzer gesichtet wurde. **Noch keine Kreuzungspolygone
+oder neue Abschnittsaufteilung aus V1.** Der bestehende
 Stand `aufteilung_v0` bleibt unverändert. Der diagnostische Ansatz
 aus dieser Spezifikation ist als `scripts/diagnose_gip_junction_corners.py`
 implementiert und besitzt synthetische Tests. Weitere Schritte der
@@ -638,7 +644,42 @@ die Straßenkreuzung hineingezogen werden.
 Straßenraummaske, Schnittmengen der Begrünung und
 Kronenüberschirmung sowie die amtlichen GIP-Quell-GeoJSONs.
 
-## Empfohlene Implementierungsreihenfolge
+## Abschließender Vergleich der V1.2-Diagnosen (14.10.2026)
+
+Die beiden anschließend hochgeladenen
+`kreuzungen_diagnose_bericht.json`-Dateien mit identischen acht
+GIP-Kreuzungsknoten wurden ausgewertet:
+
+| Status bei 28 Armen | `gehsteigkante` | `hauswand` |
+| --- | ---: | ---: |
+| Schnittlinien `kandidat_pruefen` | 17 | 19 |
+| `schnittlinie_geometrisch_abgelehnt` | 6 | 1 |
+| `arm_zu_kurz` | 2 | 2 |
+| Weitere ungeklärte / am Suchlimit endende Arme | 3 | 6 |
+| Erzeugte Querprofile | 741 | 745 |
+| Punktkandidaten | 46 | 40 |
+| Ausgegebene Schnittlinien gesamt (auch abgelehnt) | 23 | 20 |
+
+Die inneren Eckpunktstationen verschieben sich zwar Richtung
+Kreuzungsmittelpunkt; **geometrisch verworfene Schnitte
+und auffällig lange Querlinien** zeigen aber, dass die
+Methode die gewünschte Topologie weiterhin nicht verlässlich
+abbildet. Die Positionen der Kandidaten sind nicht
+visuell als korrekt validiert. Die Flächenreferenzen
+liegen bei 27.562,23 m² (vereinigte Verkehrsflächen)
+beziehungsweise 46.630,56 m² (äußere Maske).
+Diese Flächen sind **nur Diagnosemasken** und ändern
+nicht den V0-Nenner. Die bloße Zahl der Kandidaten
+ist keine Genauigkeitsmetrik.
+
+**Beschluss:** Keine weiteren V1-/Eckpunkt-Tests als
+nächster Arbeitsschritt. V0 behalten und später
+mit dem eventuell vorhandenen früheren
+Kreuzungsalgorithmus vergleichen. Der unten stehende
+Ablauf bleibt als historische, **nicht aktive Planung**
+erhalten.
+
+## Frühere, jetzt pausierte Implementierungsplanung
 
 1. **Diagnose-only (Code vorhanden, lokaler Realtest offen):**
    Für acht ausgewählte echte Kreuzungen Querprofile,
@@ -659,7 +700,8 @@ Kronenüberschirmung sowie die amtlichen GIP-Quell-GeoJSONs.
    abschnittsweise Bodenbegrünung und
    Kronenüberschirmung ermitteln.
 
-**Aktuelle Festlegung:** Den implementierten Diagnose-Prototyp
-an den realen lokalen Straßenraum-/GIP-Daten ausführen und
-seine vier Ausgabedateien prüfen. Kein Code von `aufteilung_v0`
-oder bestehende Daten werden verändert.
+**Aktuelle Festlegung (14.10.2026):** Eckpunkt-Diagnose
+einstellen; `aufteilung_v0` mit 7-m-Kreisen als
+vorläufige Arbeitsgrundlage behalten. Die bisherigen
+V1-Experimente sind archivierte Vergleichsvarianten.
+Keine bestehende Datei und kein Code von V0 werden geändert.

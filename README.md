@@ -529,29 +529,8 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 
 ## Nächste Schritte (modular)
 
-1. **Modul 5 – Straßenabschnitte als Bezugsräume vorbereiten:** Der erste reale lokale GIP-Abruf ist ausgewertet: **80 Straßenachsen und 47 Knoten**, keine doppelten IDs. Alle 140 Linienenden mit abrufbarem Knoten stimmen lagegenau überein; die 20 restlichen Endpunkte liegen außerhalb der angefragten WFS-BBOX. Vier Teilnetze (74/3/2/1 Achsen) erfordern eine differenzierte Behandlung. Der Topologieprüfer `scripts/analyze_gip_topology.py` und ein **experimenteller Flächenpartitionierer** `scripts/assign_gip_section_areas.py` sind vorhanden. Die erste geometrische Aufteilung wird lokal aus vorhandener Straßenmaske und GIP-Daten erzeugt, Kreuzungen/Sonderwege/Reste bleiben explizit ungeklärt. Der erste reale Durchlauf liefert **43.217,91 m² (92,68 %) auf 45
-Abschnitte zugeordnet und 3.412,65 m² (7,32 %) ungeklärt**, davon
-3.368,09 m² Kreuzungszonen. Die Flächenbilanz hat keine messbaren
-Lücken oder Überlappungen; die räumliche Zuordnung ist jedoch
-**noch nicht visuell/fachlich validiert**. Für die Kreuzungsgrenzen ist zusätzlich
-ein **V1-Diagnose-Prototyp**
-`scripts/diagnose_gip_junction_corners.py` implementiert,
-der Querprofile, vorläufige Eckpunkte und Schnittlinien
-für acht GIP-Kreuzungen erzeugt. Für dreiarmige Kreuzungen
-verwendet er nun bei einseitigen Übergängen eine **90°-Querlinie**.
-Seit V1.2 wird **der kreuzungsnahe Beginn** der Aufweitung
-statt der äußere stabile Endpunkt gesucht; beide
-Referenzvarianten berücksichtigen dieselben
-FMZK-Verkehrsflächen und Gebäude-Konturen als Zusatzdiagnose;
-mit `--boundary-mode gehsteigkante` ist alternativ die
-**vereinigten FMZK-Klassen 21/30/32/33/39** (Fahrbahn,
-Zebrastreifen, Tempo-Schwellen/Rampen, Parkspuren und
-sonstige Verkehrsfläche) als Näherung für den Gehsteigrand
-wählbar. Standard bleibt `hauswand` (äußerer Straßenraum). Der echte lokale V1-Lauf
-und die Sichtprüfung stehen noch aus;
-[Methodik und Aufruf](docs/Modul-5-Eckpunkte-Kreuzungen.md).
-**Keine** der bisherigen Abschnittsflächen wird damit geändert
-und es werden keine abschnittsweisen Quoten als gesichert ausgegeben. **Ausführung und Prüfkriterien:** [Modul 5 – Straßenabschnitte](docs/Modul-5-Strassenabschnitte.md). Noch keine mit realer Straßenmaske validierten Abschnittspolygone erzeugt.
+1. **Modul 5 – Straßenabschnitte: V0 als vorläufige Arbeitsgrundlage festgelegt (14.10.2026).** Der amtliche GIP-Straßengraph wurde im Testgebiet geprüft (80 Achsen, 47 Knoten). **Maßgebliche Flächenaufteilung bleibt `scripts/assign_gip_section_areas.py` mit kreisförmigen Kreuzungsbereichen von 7 m Radius**, 5 m Voronoi-Stützpunktabstand, 25 m maximalem Achsabstand und FOW 3 für reguläre Abschnitte. Der reale V0-Lauf ergibt **45 zugeordnete Abschnitte mit 43.217,91 m² (92,68 %)** und **3.412,65 m² (7,32 %) gesonderte ungeklärte Flächen**, vor allem Kreuzungen (3.368,09 m²). Die geometrische Gesamtbilanz ist lücken- und überlappungsfrei; **die fachliche Lagezuordnung ist noch nicht vollständig validiert**. Die spätere V1/V1.1/V1.2-Eckpunkt-/Gehsteigkanten-Diagnose ist **vorerst pausiert und nicht Teil der Flächenaufteilung**. Sie bleibt für einen späteren Vergleich mit einem möglicherweise bereits vorhandenen früheren Kreuzungsalgorithmus im Repository erhalten; **keine weitere Eckpunkterkennung bis dahin**. [Modul-5-Methode und offene Punkte](docs/Modul-5-Strassenabschnitte.md).
+
 2. **Bodenbegrünung und Baumkronenüberschirmung je Abschnitt messen**, nachdem die Geometriebilanz überprüft wurde. Die bestehenden Gesamtwerte A/B/C und Bodenbegrünung nicht verändern und Quoten nicht addieren.
 3. **Methode D als abgeschlossenes Zwischenergebnis belassen:** D2 **0,20 als Baseline** für Vegetation. Die **Trennung von Baumkronen und sonstiger Vegetation bleibt offen**; derzeit keine weitere D-Optimierung.
 4. **Später fachlich prüfen:** FMZK-Klasse 58 in Modul 3, unsichere Randbereiche und mögliche Fehlzuordnungen von Modul 2. Die Module nur auf Grundlage konkreter Prüffälle verändern.

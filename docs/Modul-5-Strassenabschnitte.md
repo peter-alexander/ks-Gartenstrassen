@@ -1,6 +1,6 @@
 # Modul 5 – Straßenabschnitte als Bezugsräume
 
-**Stand 14.10.2026: GIP-Abruf und Topologie-Audit implementiert; erster experimenteller Flächenpartitionierer umgesetzt und synthetisch getestet. Reale Ausgabe und fachliche/visuelle Validierung der Abschnittsflächen stehen noch aus.**
+**Beschlossener Zwischenstand 14.10.2026: V0 mit kreisförmigen Kreuzungsbereichen (7 m) ist die vorläufig maßgebliche Straßenabschnittsbildung. Der reale lokale V0-Lauf und die numerische Flächenbilanz sind geprüft, die räumliche Zuordnung bleibt fachlich vorläufig. V1/V1.1/V1.2-Eckpunktversuche sind pausiert; keine Integration und keine weitere Optimierung, bis der Nutzer einen früheren Kreuzungsalgorithmus geprüft hat.**
 
 ## Ziel und Abgrenzung
 
@@ -179,7 +179,26 @@ Straßenraum-Polygonabschnitten sind. Eine fehlende Knotenreferenz
 innerhalb der Anfrage-BBOX wäre ein tatsächlicher Hinweis zur
 Nachprüfung. Ohne Flächenzuordnung noch keine Abschnittsquoten.
 
-## Entwurf für präzisere Kreuzungsgrenzen (v1)
+## Festlegung: V0 bleibt in Verwendung (14.10.2026)
+
+**Vorläufig maßgebliche Methode:** `scripts/assign_gip_section_areas.py`
+mit **kreisförmigen Kreuzungsbereichen, 7 m Radius**. Die GIP-Achsen
+bleiben Grundlage der exklusiven Zuordnung außerhalb dieser
+Knotenflächen. Kreuzungen, Sonderachsen und Restflächen werden
+getrennt ausgewiesen. Die ursprüngliche Straßenraummaske und
+die geprüfte Flächenbilanz bleiben erhalten.
+
+**Kein funktionaler Rückbau erforderlich:** Die V1-Kreuzungsdiagnose
+ist ein eigenständiges Skript und wurde **nicht** in die
+V0-Straßenabschnittsbildung eingebaut. Der Nutzer hat entschieden,
+sie **vorerst nicht weiterzuentwickeln**. Möglicherweise existiert
+bereits ein früher ausgearbeiteter Algorithmus; erst nach dessen
+Sichtung erneut über die Kreuzungsgeometrie entscheiden.
+Keinen der experimentellen Schnitte in die aktive V0-Aufteilung
+übernehmen. Bisherige Diagnose-Skripte und Berichte zu Vergleichszwecken
+behalten, aber nicht als produktive Abschnitte verwenden.
+
+## Dokumentierter, derzeit pausierter Entwurf für präzisere Kreuzungsgrenzen (v1)
 
 Auf Basis der Nutzer-Skizze wird eine **eck-/übergangspunktbasierte
 Kreuzungsabgrenzung** untersucht: an jedem Kreuzungsarm die beiden
@@ -192,11 +211,12 @@ gekennzeichneter Fallback und Vergleich erhalten.
 **Konkreter Algorithmus, Randfälle, Geometrieprüfung,
 Abnahmekriterien und Umsetzungsschritte:**
 [Modul 5 – Eckpunkt-Erkennung an Kreuzungen](Modul-5-Eckpunkte-Kreuzungen.md).
-**Status:** Diagnose-Prototyp `scripts/diagnose_gip_junction_corners.py`
-ist implementiert (GeoJSON mit Querschnitten, Eckpunkt- und
-Schnittlinienkandidaten und Diagnosebericht);
-**noch kein realer lokaler Diagnose-Lauf und kein Austausch
-des v0-Codes**.
+**Status: pausiert.** Diagnose-Prototyp
+`scripts/diagnose_gip_junction_corners.py` wurde mit lokalen
+Straßenraum-/GIP-Daten in mehreren Varianten tatsächlich getestet.
+Die Schnittlinien bleiben **unvalidierte Kandidaten** und wurden
+**niemals in V0 integriert**. Keine weitere Entwicklung geplant,
+bis der früher eventuell vorhandene Kreuzungsalgorithmus geprüft ist.
 
 **V1.1-Diagnose:** Für T-Kreuzungen ist die **rechtwinklige
 Schnittlinie** mit einem einseitigen Übergang als Fallback
@@ -214,8 +234,9 @@ mit explizitem äußerem Fallback und gemeinsam genutzter
 Verkehrsflächen-Maske für **beide** Randvarianten.
 FMZK-Gebäude 11/19 werden als eigene Kontur- und
 Abstandsdiagnose verwendet, nicht als automatisch
-gültige Schnittlinie. Die Realerprobung der Änderung
-steht noch aus.
+gültige Schnittlinie. **Zwei reale V1.2-Diagnoseläufe liegen vor;
+die Ergebnisse sind weiterhin nicht fachlich bestätigt und
+die V1-Entwicklung ist pausiert.**
 [Methodik und Aufruf](Modul-5-Eckpunkte-Kreuzungen.md#v12-beginn-statt-ende-der-ohrwaschln--beide-referenzen-14102026).
 
 ## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (erste experimentelle Implementierung)
@@ -407,6 +428,9 @@ beiden Ausgabe-GeoJSONs** in der Kartensammlung gegen Orthofoto,
 GIP-Achsen und Kreuzungsknoten kontrollieren.
 Insbesondere die drei kleinen Netzkomponenten, breite Kreuzungen,
 parallele Fahrbahnen und Randabschnitte fachlich überprüfen.
-**Erst nach diesem Realtest** die Heuristik verändern oder
-abschnittsweise Begrünung/Kronenüberschirmung messen. Noch keine
-fachlich validierten Abschnittsflächen oder Abschnittskennzahlen.
+**Kreuzungsalgorithmus nicht weiter verändern**; der Nutzer prüft
+zunächst einen eventuell bereits früher entwickelten Ansatz.
+Die V0-Flächen als vorläufige Bezugsräume nutzen und vor
+verbindlichen Abschnittskennzahlen die wesentlichen
+räumlichen Zuordnungen kontrollieren. Noch keine fachlich
+vollständig validierten Abschnittsflächen oder Abschnittskennzahlen.
