@@ -12,6 +12,7 @@ GIP-V0 verwendet **5 m Abtastung, 7 m Knotenradius bei Grad >= 3, 25 m maximalen
 
 | Programm | Aufgabe |
 | --- | --- |
+| scripts/wienwide_aoi.py | Wiener Bezirks-/Landesflächen als echte AOI-Polygone aus MA41-WFS abfragen |
 | scripts/wienwide_grid.py | Festes Raster in EPSG:31256, AOI-/Manifest-Hash, Kachelkontrolle |
 | scripts/wienwide_gip.py | WFS-Abrufe kachelweise mit Halo, Quelldaten-Cache, globale GIP-ID-Deduplizierung, SQLite-Graph und RTree-Index |
 | scripts/wienwide_street.py | Bestehende FMZK-/Kataster-Regeln auf lokale Quellkacheln anwenden und Ergebnis direkt als metrisches WKB/SQLite speichern |
@@ -23,7 +24,7 @@ Der Halo beträgt zunächst **75 m**, die Kernkachel **1000 × 1000 m**. Es sind
 ## Voraussetzungen
 
 1. Bereits vorhandene vollständige FMZK-Originaldatei FMZK_WIEN_GP.gpkg (EPSG:31256).
-2. **Echte** AOI-Polygone als GeoJSON/WGS84. Zunächst ein dicht bebauter Bezirk wie Alsergrund und ein weitläufigerer wie Donaustadt. Diese AOI-Dateien müssen beschafft/validiert werden; im Repository werden keine erfundenen Bezirksgrenzen bereitgestellt.
+2. **Echte** AOI-Polygone als GeoJSON/WGS84: Der neue Adapter ruft die offizielle Wiener WFS-Schicht BEZIRKSGRENZEOGD ab und kontrolliert alle 23 Bezirksnummern. Für den Pilot Alsergrund (9.) und Donaustadt (22.), optional die vollständige Wiener Landesfläche. Keine manuell erfundenen Bezirks-Bounding-Boxes.
 3. GIP-WFS der Stadt Wien und BEV-Kataster-z16 dürfen abrufbar sein; Cache-Daten werden wiederverwendet.
 4. Lokaler Datenträger für rasterweise FMZK, Kataster, GIP und SQLite. Keine belastbare Speicher-/Laufzeitschätzung vor Realtest.
 
@@ -31,12 +32,28 @@ Der Halo beträgt zunächst **75 m**, die Kernkachel **1000 × 1000 m**. Es sind
 
 Die Pfade sind Beispiele und setzen eine echte lokale Bezirks-AOI voraus.
 
+### 0. Verifizierte Bezirksflächen aus Wiener Open Data
+
+~~~bash
+.venv/bin/python -m scripts.wienwide_aoi   --bezirke 9 22 --wien   --out-dir data/raw/bezirke
+~~~
+
+Die AOIs entstehen als bezirk_09.geojson, bezirk_22.geojson
+und optional wien.geojson. Die vollständige Rohantwort und
+deren SHA-256 bleiben zur Reproduktion erhalten.
+Quelle: Stadt Wien / MA41, BEZIRKSGRENZEOGD,
+https://www.data.gv.at/katalog/dataset/2ee6b8bf-6292-413c-bb8b-bd22dbb2ad4b
+(CC BY 4.0). Der WFS-Abruf selbst wurde noch nicht
+in einem echten Bezirkslauf ausgeführt. Ein bereits
+vorhandener Cache kann mittels --source als Eingabe
+dienen. Bestehende AOIs werden nicht überschrieben.
+
 ### 1. Raster erstellen
 
 ~~~bash
 git pull --ff-only
 .venv/bin/python -m scripts.wienwide_grid \
-  --aoi data/raw/bezirke/alsergrund.geojson \
+  --aoi data/raw/bezirke/bezirk_09.geojson \
   --tile-m 1000 --halo-m 75 \
   --out data/processed/wienweit/alsergrund/raster.json
 ~~~
