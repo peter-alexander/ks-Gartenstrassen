@@ -177,14 +177,18 @@ Kreuzungsknoten. **Kreuzungsflächen, Grenzfälle und nicht zuordenbare
 Restflächen müssen ohne Doppelzählung bilanziert werden.** GIP-Achsen
 ersetzen nicht die Straßenraum-Maske aus Modul 2.
 
-**Status:** Der WFS-Abrufadapter `scripts/fetch_gip_sections.py` und der
-lokale Topologieprüfer `scripts/analyze_gip_topology.py` sind implementiert.
+**Status:** Der WFS-Abrufadapter `scripts/fetch_gip_sections.py`, der
+Topologieprüfer `scripts/analyze_gip_topology.py` und der **experimentelle
+Straßenraum-Partitionierer `scripts/assign_gip_section_areas.py`** sind implementiert.
 Der erste reale GIP-Abruf aus dem FMZK-Testgebiet wurde am 14.10.2026
 anhand der hochgeladenen GeoJSONs geprüft: **80 Achsen, 47 Knoten,
 keine ID-Duplikate, 140 exakt übereinstimmende verknüpfte Linienenden,
 20 Linienenden mit 17 außerhalb der WFS-BBOX liegenden Knoten-IDs;
-vier Teilnetze mit 74/3/2/1 Achsen**. Die visuelle Prüfung und die
-flächentreue, doppelfreie Abschnittszuordnung bleiben offen.
+vier Teilnetze mit 74/3/2/1 Achsen**. Ein erster geometrischer Versuch zur exklusiven Flächenaufteilung
+(Voronoi entlang der GIP-Achsen, Knotenzonen, Sonderwege und
+unzugeordnete Restflächen) ist verfügbar. **Sein Lauf mit der realen
+Straßenraummaske, die Flächenbilanz und die visuelle/fachliche
+Prüfung stehen noch aus**.
 D2-Schwelle **0,20** bleibt davon unabhängig Vegetations-Baseline;
 Baumkronentrennung von Methode D bleibt offen.
 

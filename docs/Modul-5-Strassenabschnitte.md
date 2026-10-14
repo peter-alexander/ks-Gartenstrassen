@@ -1,6 +1,6 @@
 # Modul 5 – Straßenabschnitte als Bezugsräume
 
-**Stand 14.10.2026: kleinräumiger GIP-Abruf erfolgreich mit echten Daten geprüft; unabhängiges Topologie-Audit implementiert. Visuelle Kontrolle und Straßenabschnittsflächen noch offen.**
+**Stand 14.10.2026: GIP-Abruf und Topologie-Audit implementiert; erster experimenteller Flächenpartitionierer umgesetzt und synthetisch getestet. Reale Ausgabe und fachliche/visuelle Validierung der Abschnittsflächen stehen noch aus.**
 
 ## Ziel und Abgrenzung
 
@@ -179,12 +179,12 @@ Straßenraum-Polygonabschnitten sind. Eine fehlende Knotenreferenz
 innerhalb der Anfrage-BBOX wäre ein tatsächlicher Hinweis zur
 Nachprüfung. Ohne Flächenzuordnung noch keine Abschnittsquoten.
 
-## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (noch offen)
+## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (erste experimentelle Implementierung)
 
 Die eigentliche neue Aufgabe ist die **flächentreue, überschneidungsfreie
 Zuordnung** von Modul-2-Polygonen zu GIP-Abschnitten.
 
-**Vorgesehene erste Untersuchungsmethode, noch keine festgelegte Lösung:**
+**Erster implementierter geometrischer Versuch** (keine fachlich endgültige Methode):
 
 1. Straßenraumgeometrie vereinigen und sämtliche Rechnungen in
    **EPSG:31256** durchführen.
@@ -203,6 +203,71 @@ Zuordnung** von Modul-2-Polygonen zu GIP-Abschnitten.
    Verteilung auf Abschnitte braucht eine explizite und getestete Regel.
 5. Restflächen ohne zugehörige GIP-Achse getrennt erfassen;
    sie dürfen weder verschwinden noch als „keine Straße“ gelten.
+
+### Experimenteller Lauf `assign_gip_section_areas.py`
+
+Das neue Modul liest **rein lokal** die geprüften GIP-Karten-GeoJSONs,
+`gip_probe_bericht.json`, `fmzk_test.gpkg` und **genau dieselbe**
+`fmzk_strassenraum.geojson` wie die bisherigen Modul-3/4-Messungen.
+Es verändert keine Eingabedateien und ruft keine Webdienste ab.
+
+```bash
+git pull --ff-only
+.venv/bin/python -m scripts.assign_gip_section_areas
+```
+
+Standardausgabe: `data/processed/strassenabschnitte/aufteilung_v0/`
+
+| Datei | Inhalt |
+| --- | --- |
+| `abschnitte_flaechen.geojson` | Experimentell zugeordnete Straßenraum-Teilpolygone mit `gip:<GIP_OBJECTID>`, Name, FOW und m² |
+| `abschnitte_ungeklaert.geojson` | Separate Polygonflächen mit `status=knotenbereich`, `sonderachse` oder `nicht_zugeordnet` |
+| `abschnitte_bericht.json` | Straßenraum-Gesamtfläche, zugeteilt/ungeklärt, Anzahl Abschnitte, Flächenbilanz, Parameter, SHA-256 |
+
+**Methode:** Linien alle **5 m** im metrischen EPSG:31256-Raum
+abstützen, darauf ein geometrisches Voronoi-Zellnetz aufbauen und die
+Zellen **mit der originalen vereinigten Straßenraummaske schneiden**.
+Lücken oder Überlappungen werden nicht durch Pixelzählen geschätzt.
+Die Knoten mit GIP-Grad **≥ 3** werden innerhalb eines vorläufigen
+Radius von **7 m** zuerst als eigene **Kreuzungs-Prüfflächen**
+ausgeschnitten. Jedem übrigen Flächenanteil kann maximal die nächste
+Straßenachse zugeordnet werden, solange die Fläche innerhalb
+**25 m Achsabstand** liegt. **Nur FOW = 3** gilt dabei vorläufig
+als normaler Straßenabschnitt. Flächen, die Voronoi-Zellen anderer
+Wegtypen zugeordnet wären, heißen `sonderachse`; alle übrigen
+`nicht_zugeordnet`.
+
+**Diese Grenzwerte sind technische Erstannahmen und müssen an den
+tatsächlichen Straßenabschnittspolygonen geprüft werden.** Es ist
+noch keine amtliche Breitenmessung, keine exakte Gleichabstandszone
+zu Liniensegmenten und keine korrekte Kreuzungsgrenze.
+Besonders bei parallelen Fahrbahnen, Gehsteigen, Wegen oder
+schrägen Kreuzungen können Voronoi-Grenzen unplausibel sein.
+Aus `DEDICATEDWIDTH=-1` wird ausdrücklich keine Straßenbreite
+geschätzt. Bei Stützpunkt-Duplikaten wird statt einer willkürlichen
+Zuweisung abgebrochen.
+
+**Kontrollen:** Jeder Abschnitt und jede ungeklärte Klasse wird
+geometrisch von den übrigen getrennt. Der verbleibende Rest wird
+**immer als Fläche ausgewiesen**, nicht verworfen. Vor dem Export
+werden Summe, geometrische Vereinigungsfläche, Überlappung, Lücke
+und Außenanteil mit einer Flächentoleranz von
+`max(0,05 m²; 10⁻⁶ × Straßenraumfläche)` geprüft. Bei
+verletzter Invariante scheitert der Lauf **ohne Ausgabe**.
+Ein existierender Ergebnisbericht oder GeoJSON wird nicht
+überschrieben: Für Varianten ein neues `--out-dir` wählen.
+
+Optionale experimentelle Parameter:
+`--sample-spacing-m`, `--node-radius-m`,
+`--max-axis-distance-m`. Eine Variation verlangt getrennte
+Ausgabeverzeichnisse und einen nachfolgenden Flächen- und
+Sichtvergleich. Nicht als automatisch optimierbare Parameter
+interpretieren.
+
+Die Dokumente aus diesem ersten Versuch sind zur Sichtkontrolle in
+Kartensammlung/QGIS vorgesehen. Erst nach dem **echten lokalen Lauf**
+und der Prüfung der 46.630,56-m²-Bilanz sollen wir einzelne
+Zuordnungsregeln (insbesondere die Kreuzungsbehandlung) verbessern.
 
 **Bilanz-Invariante:** Summe der geometrisch vereinigten,
 sich nicht überlappenden Abschnittsflächen **plus** gesonderte
@@ -252,11 +317,12 @@ verschiedene, sich potenziell überlagernde Kennzahlen.
 
 ## Nächste konkrete Arbeit
 
-**Als Nächstes** das neue Topologie-Audit lokal ausführen und die
-Quellachsen samt Knoten in der Kartensammlung überprüfen. Vor allem die
-drei kleinen separaten Netzkomponenten und die Linien im Kreuzungsbereich
-müssen sichtbar beurteilt werden. Danach ein experimentelles Verfahren
-zur **exklusiven Aufteilung der Straßenraum-Maske** implementieren,
-einschließlich separater Knoten-/Restflächen sowie Flächenbilanz.
-Bis dahin gibt es im Projekt **keine fertigen Straßenabschnittsflächen
-und keine abschnittsweisen Begrünungswerte**.
+**Den ersten realen Offline-Lauf von `scripts.assign_gip_section_areas` mit der
+bestehenden Straßenraummaske ausführen**, `abschnitte_bericht.json` auf
+Flächenbilanz und Zuordnungsanteil prüfen und beide GeoJSON-Layer in der
+Kartensammlung gegen Orthofoto, GIP-Achsen und Kreuzungsknoten betrachten.
+Insbesondere die drei kleinen Netzkomponenten, breite Kreuzungen,
+parallele Fahrbahnen und Randabschnitte fachlich überprüfen.
+**Erst nach diesem Realtest** die Heuristik verändern oder
+abschnittsweise Begrünung/Kronenüberschirmung messen. Noch keine
+fachlich validierten Abschnittsflächen oder Abschnittskennzahlen.
