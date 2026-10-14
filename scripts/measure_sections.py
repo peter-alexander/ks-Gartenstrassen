@@ -18,9 +18,12 @@ import math
 from pathlib import Path
 
 from pyproj import Transformer
-from shapely import union_all
+from shapely import make_valid, union_all
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 from shapely.ops import transform
+from shapely.validation import explain_validity
+
+from scripts.analyze_gpkg import polygonal_part
 
 from scripts.fmzk_source import FMZK_GROUND_GREEN_CODES, load_polygons
 from scripts.measure_ground_greening import load_street_mask
@@ -81,7 +84,15 @@ def _close(label, actual, expected, limit):
 			f"{actual-expected:.6f} m² (Toleranz {limit:.4f} m²)")
 
 
-def _geometry(feature, *, label):
+def _geometry(feature, *, label, repaired=None):
+	"""V0-GeoJSON in metrische Polygone umwandeln.
+
+	Der Ausgangslauf ist in EPSG:31256 bereits flächengeprüft.
+	EPSG:31256 → WGS84 → EPSG:31256 kann winzige Ringschnitte
+	und Berührungspunkte erzeugen. Deshalb geometrische Reparatur
+	nur auf der *neu projizierten Kopie*; jede Reparatur protokollieren
+	und nachher gegen Originalfläche sowie Gesamtmaske prüfen.
+	"""
 	if not isinstance(feature, dict) or feature.get("type") != "Feature":
 		raise ValueError(f"{label}: GeoJSON-Feature fehlt")
 	if not isinstance(feature.get("properties"), dict) or not feature.get("geometry"):
@@ -90,20 +101,42 @@ def _geometry(feature, *, label):
 		geo = shape(feature["geometry"])
 	except (TypeError, ValueError, KeyError) as exc:
 		raise ValueError(f"{label}: ungültige Geometrie") from exc
-	if not isinstance(geo, (Polygon, MultiPolygon)) or (
-		geo.is_empty or not geo.is_valid or geo.area <= 0
-	):
-		raise ValueError(f"{label}: gültige Polygonfläche erwartet")
+	if not isinstance(geo, (Polygon, MultiPolygon)) or geo.is_empty:
+		raise ValueError(f"{label}: Polygon/MultiPolygon erwartet")
 	if any(not math.isfinite(v) for v in geo.bounds):
 		raise ValueError(f"{label}: nicht-endliche Koordinaten")
 	minx, miny, maxx, maxy = geo.bounds
 	if not (-180 <= minx <= maxx <= 180 and -90 <= miny <= maxy <= 90):
 		raise ValueError(f"{label}: Koordinaten nicht EPSG:4326")
-	projected = transform(TO_METRIC, geo)
-	if projected.is_empty or not projected.is_valid or projected.area <= 0:
-		raise ValueError(f"{label}: projizierte Polygonfläche ungültig")
+	initial_issue = explain_validity(geo) if not geo.is_valid else None
+	try:
+		projected = transform(TO_METRIC, geo)
+	except (ValueError, TypeError) as exc:
+		raise ValueError(f"{label}: Projektion in EPSG:31256 fehlgeschlagen") from exc
+	if projected.is_empty:
+		raise ValueError(f"{label}: leere projizierte Geometrie")
+	projected_issue = explain_validity(projected) if not projected.is_valid else None
+	if projected_issue:
+		before_area = projected.area
+		polygon = polygonal_part(make_valid(projected))
+		if polygon is None or polygon.is_empty:
+			raise ValueError(f"{label}: make_valid lieferte keine Polygonfläche "
+				f"({projected_issue})")
+		projected = polygon
+		if repaired is not None:
+			repaired.append({
+				"id": label, "grund_wgs84": initial_issue,
+				"grund_epsg31256": projected_issue,
+				"vor_reparatur_m2": before_area,
+				"nach_reparatur_m2": projected.area,
+				"flaechenaenderung_m2": projected.area - before_area,
+			})
+	if not isinstance(projected, (Polygon, MultiPolygon)) or (
+		projected.is_empty or not projected.is_valid or projected.area <= 0
+	):
+		raise ValueError(f"{label}: keine gültige Polygonfläche "
+			f"nach der Projektion bzw. Reparatur")
 	return projected
-
 
 def read_features(path, *, label):
 	path = Path(path)
@@ -139,6 +172,7 @@ def read_partition(directory, street, *, street_sha256):
 		street.area, limit)
 	parts = []
 	numerical_slivers = []
+	repaired_geometries = []
 	ids = set()
 	for group, filename in (
 		("abschnitt", "abschnitte_flaechen.geojson"),
@@ -173,7 +207,7 @@ def read_partition(directory, street, *, street_sha256):
 				and math.isfinite(original_area) and 0 <= original_area < 1e-4):
 				numerical_slivers.append({"id": fid, "quelle_m2": original_area})
 				continue
-			geom = _geometry(feature, label=fid)
+			geom = _geometry(feature, label=fid, repaired=repaired_geometries)
 			_close(f"{fid} Quellenfläche", geom.area,
 				original_area, limit)
 			parts.append({
@@ -215,6 +249,7 @@ def read_partition(directory, street, *, street_sha256):
 		"ausserhalb_strassenraum_m2": outside,
 		"toleranz_m2": limit,
 		"numerische_reststuecke_unter_1e_4_m2": numerical_slivers,
+		"reparierte_geojson_geometrien": repaired_geometries,
 	}, report
 
 
