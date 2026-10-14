@@ -32,6 +32,7 @@ from scripts.measure_canopy_cover import read_crown_polygons
 DEFAULT_STREET = Path("data/processed/street_space/fmzk_strassenraum.geojson")
 DEFAULT_FMZK = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_SECTIONS = Path("data/processed/strassenabschnitte/aufteilung_v0")
+DEFAULT_GIP = Path("data/processed/strassenabschnitte/gip")
 DEFAULT_A = Path("data/processed/baumkronen/baumkronen_kreise.geojson")
 DEFAULT_B = Path("data/processed/baumkronen/variante_b/baumkronen_kombiniert.geojson")
 DEFAULT_C = Path("data/processed/baumkronen/grm2023/processed/baumkronen_grm2023.geojson")
@@ -253,6 +254,159 @@ def read_partition(directory, street, *, street_sha256):
 	}, report
 
 
+def read_partition_metric(directory, street, *, street_sha256,
+	gip=DEFAULT_GIP):
+	"""Exakt dieselbe V0 direkt metrisch aus geprüften Quellachsen aufbauen.
+
+	Der EPSG:31256->WGS84->EPSG:31256-Rundweg der ausgegebenen
+	GeoJSON-Polygone ist NICHT flächentreu. Keine Restflächen
+	hinzuerfinden, keine Toleranz vergrößern: Quellflächen neu in
+	der ursprünglichen Projektion berechnen, Bericht und Feature-
+	Metadaten einzeln abgleichen. V0-Dateien nie überschreiben.
+	"""
+	from scripts.analyze_gip_topology import audit, read_geojson
+	from scripts.assign_gip_section_areas import prepare_graph, partition
+
+	directory = Path(directory)
+	gip = Path(gip)
+	report_path = directory / "abschnitte_bericht.json"
+	report = json.loads(report_path.read_text(encoding="utf-8"))
+	if report.get("schema_version") != 1 or "EXPERIMENTELL" not in report.get("status", ""):
+		raise ValueError("V0-Bericht: ungültiges Schema/Status")
+	params = report.get("parameter") or {}
+	if (params.get("sample_spacing_m") != 5
+		or params.get("knotenradius_m") != 7
+		or params.get("max_axis_distance_m") != 25
+		or params.get("gip_standard_fow") != 3):
+		raise ValueError("V0-Bericht: andere Parameter als 5/7/25/FOW3")
+	sources = report.get("quelle") or {}
+	if sources.get("strassenraum_sha256") != street_sha256:
+		raise ValueError("V0-Straßenraum-SHA-256 stimmt nicht mit aktueller Maske überein")
+	axes_path = gip / "abschnitte_achsen.geojson"
+	nodes_path = gip / "abschnitte_knoten.geojson"
+	for key, filename in (
+		("gip_achsen_sha256", axes_path),
+		("gip_knoten_sha256", nodes_path),
+	):
+		expected_hash = sources.get(key)
+		if not expected_hash or sha256(filename) != expected_hash:
+			raise ValueError(f"V0-Quellhash {key} stimmt nicht: {filename}")
+	axes_json = read_geojson(axes_path, label="GIP-Achsen")
+	nodes_json = read_geojson(nodes_path, label="GIP-Knoten")
+	probe = json.loads((gip / "gip_probe_bericht.json").read_text(encoding="utf-8"))
+	if audit(axes_json, nodes_json, probe)["status"] != "topologie_konsistent":
+		raise ValueError("GIP-Topologie stimmt nicht mehr mit V0 überein")
+	axes, nodes = prepare_graph(axes_json, nodes_json)
+	sections, unresolved, stats = partition(street, axes, nodes,
+		spacing_m=5, node_radius_m=7, max_distance_m=25)
+	# Immer die ursprüngliche metrische Bilanz kontrollieren:
+	# keine Rückprojektion, keine automatisch zugeschlagenen 2,2 m².
+	source_stats = report.get("bilanz") or {}
+	limit = max(0.05, street.area * 1e-6)
+	for key in ("strassenraum_m2", "zugeordnet_m2", "ungeklaert_m2",
+		"gesamt_m2"):
+		_close(f"V0-Neuberechnung {key}", stats[key],
+			source_stats.get(key, float("nan")), limit)
+	if stats["anzahl_zugeordnete_abschnitte"] != source_stats.get(
+		"anzahl_zugeordnete_abschnitte"):
+		raise ValueError("V0-Neuberechnung hat eine andere Anzahl von Abschnitten")
+	for key in ("ueberlappung_m2", "fehlend_m2", "ausserhalb_m2"):
+		if stats[key] > limit:
+			raise ValueError(f"Neuberechnete V0 enthält {key}={stats[key]} m²")
+	metric_parts = {}
+	for axis, geometry in sections:
+		fid = f"gip:{axis['id']}"
+		if fid in metric_parts:
+			raise ValueError(f"Doppelte V0-GIP-ID nach Neuberechnung: {fid}")
+		metric_parts[fid] = {
+			"gruppe": "abschnitt", "id": fid,
+			"gip_objectid": str(axis["id"]), "name": axis["name"],
+			"status": "experimentell_achsennaehe", "geometry": geometry,
+		}
+	for status, geometry in unresolved:
+		fid = f"ungeklaert:{status}"
+		if fid in metric_parts:
+			raise ValueError(f"Doppelte V0-Restflächen-ID: {fid}")
+		metric_parts[fid] = {
+			"gruppe": "ungeklaert", "id": fid,
+			"gip_objectid": None, "name": "",
+			"status": status, "geometry": geometry,
+		}
+	# Die vom Nutzer bereits generierten Dateien sind der verbindliche
+	# Nachweis, *welche IDs* V0 ausgegeben hat. Jeder Abschnitt und seine
+	# vor dem WGS84-Export protokollierte Fläche muss übereinstimmen.
+	parts = []
+	seen = set()
+	ignored_slivers = []
+	for group, filename in (
+		("abschnitt", "abschnitte_flaechen.geojson"),
+		("ungeklaert", "abschnitte_ungeklaert.geojson"),
+	):
+		for idx, feature in enumerate(read_features(directory / filename,
+			label=f"V0 {group}")):
+			if not isinstance(feature, dict) or feature.get("type") != "Feature":
+				raise ValueError(f"V0 {group}[{idx}]: kein Feature")
+			fid = feature.get("id")
+			if not isinstance(fid, str) or not fid or fid in seen:
+				raise ValueError(f"V0 {group}[{idx}]: doppelte/fehlende ID")
+			seen.add(fid)
+			metric = metric_parts.get(fid)
+			if metric is None or metric["gruppe"] != group:
+				raise ValueError(f"V0 {fid}: nicht in metrischer Neuberechnung")
+			properties = feature.get("properties")
+			if not isinstance(properties, dict) or not feature.get("geometry"):
+				raise ValueError(f"V0 {fid}: Properties oder Geometrie fehlen")
+			if properties.get("status") != metric["status"]:
+				raise ValueError(f"V0 {fid}: geänderter Status")
+			if group == "abschnitt":
+				if str(properties.get("gip_objectid")) != metric["gip_objectid"]:
+					raise ValueError(f"V0 {fid}: geänderte GIP-ID")
+				if (properties.get("name") or "") != metric["name"]:
+					raise ValueError(f"V0 {fid}: geänderter Straßenname")
+			_close(f"V0 {fid} Fläche laut Export", float(properties.get(
+				"flaeche_m2", float("nan"))), metric["geometry"].area, limit)
+			if (group == "ungeklaert" and metric["status"] == "nicht_zugeordnet"
+				and metric["geometry"].area < 1e-4):
+				ignored_slivers.append({"id": fid,
+					"quelle_m2": metric["geometry"].area})
+				continue
+			parts.append(metric)
+	if set(metric_parts) != seen:
+		raise ValueError(f"V0-ID-Liste weicht von metrischer Neuberechnung ab: "
+			f"fehlend {sorted(set(metric_parts)-seen)}, "
+			f"zusätzlich {sorted(seen-set(metric_parts))}")
+	# Zusätzlich zur strengen Ursprungsbilanz die wirklich für Modul 6
+	# verwendeten Geometrien kontrollieren (kleinste Reststücke <1e-4
+	# werden explizit beziffert und nicht heimlich verteilt).
+	all_geom = union_all([p["geometry"] for p in parts])
+	sum_area = sum(p["geometry"].area for p in parts)
+	missing = street.difference(all_geom).area
+	outside = all_geom.difference(street).area
+	overlap = max(0, sum_area-all_geom.area)
+	if max(missing, outside, overlap, abs(sum_area-street.area)) > limit:
+		raise ValueError(f"Metrische V0-Bilanz fehlgeschlagen: "
+			f"Lücke {missing:.6f}, außen {outside:.6f}, "
+			f"Überlappung {overlap:.6f} m²")
+	return parts, {
+		"berechnungsgrundlage": "metrische_v0_neuberechnung",
+		"abschnitte": len(sections),
+		"ungeklaerte_klassen": sum(p["gruppe"] == "ungeklaert"
+			for p in parts),
+		"strassenraum_m2": street.area,
+		"zugeordnet_m2": sum(p["geometry"].area for p in parts
+			if p["gruppe"] == "abschnitt"),
+		"ungeklaert_m2": sum(p["geometry"].area for p in parts
+			if p["gruppe"] == "ungeklaert"),
+		"geometrische_ueberlappung_m2": overlap,
+		"fehlende_flaeche_m2": missing,
+		"ausserhalb_strassenraum_m2": outside,
+		"toleranz_m2": limit,
+		"numerische_reststuecke_unter_1e_4_m2": ignored_slivers,
+		"quell_hashes_geprueft": ["strassenraum", "gip_achsen", "gip_knoten"],
+		"quelle_v0_geojson_leseformat": "nur IDs/Quellflächen, nicht rückprojeziert",
+	}, report
+
+
 def compute_rows(parts, street, masks):
 	"""Nur geometrische Schnitte, keine abgeleiteten Fantasie-/Summenquoten."""
 	limit = tolerance(street.area)
@@ -318,7 +472,8 @@ def _geojson(rows, parts, group):
 
 def run(*, sections=DEFAULT_SECTIONS, street=DEFAULT_STREET,
 	fmzk=DEFAULT_FMZK, canopy_a=DEFAULT_A, canopy_b=DEFAULT_B,
-	canopy_c=DEFAULT_C, vegetation_d=None, output=DEFAULT_OUTPUT):
+	canopy_c=DEFAULT_C, vegetation_d=None, output=DEFAULT_OUTPUT,
+	gip=DEFAULT_GIP, partition_source="metric"):
 	"""Ein integrierter Offline-Durchlauf; erst validieren, dann schreiben."""
 	output = Path(output)
 	files = {
@@ -332,8 +487,16 @@ def run(*, sections=DEFAULT_SECTIONS, street=DEFAULT_STREET,
 			"ein neues --out-dir wählen")
 	fmzk_features, manifest, clip, _ = load_polygons(fmzk)
 	street_geom, street_meta = load_street_mask(street, clip)
-	parts, partition_stats, partition_report = read_partition(
-		sections, street_geom, street_sha256=street_meta["masken_sha256"])
+	if partition_source == "metric":
+		parts, partition_stats, partition_report = read_partition_metric(
+			sections, street_geom, street_sha256=street_meta["masken_sha256"],
+			gip=gip)
+	elif partition_source == "geojson":
+		parts, partition_stats, partition_report = read_partition(
+			sections, street_geom, street_sha256=street_meta["masken_sha256"])
+		partition_stats["berechnungsgrundlage"] = "v0_geojson_rueckprojektion"
+	else:
+		raise ValueError("Unbekannte V0-Berechnungsgrundlage")
 	green_parts = [geom.intersection(street_geom)
 		for _fid, code, _text, geom in fmzk_features
 		if code in FMZK_GROUND_GREEN_CODES and geom.intersects(street_geom)]
@@ -409,6 +572,11 @@ def run(*, sections=DEFAULT_SECTIONS, street=DEFAULT_STREET,
 def main():
 	parser = argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--sections-dir", type=Path, default=DEFAULT_SECTIONS)
+	parser.add_argument("--gip-dir", type=Path, default=DEFAULT_GIP)
+	parser.add_argument("--partition-source", choices=("metric", "geojson"),
+		default="metric", help="metric: V0 flächentreu aus Originaldaten "
+		"neu im Arbeitsspeicher berechnen (Standard); "
+		"geojson: alten V0-Export direkt rückprojizieren (Diagnose)")
 	parser.add_argument("--street-geojson", type=Path, default=DEFAULT_STREET)
 	parser.add_argument("--fmzk", type=Path, default=DEFAULT_FMZK)
 	parser.add_argument("--canopy-a", type=Path, default=DEFAULT_A)
@@ -423,7 +591,8 @@ def main():
 		run(sections=args.sections_dir, street=args.street_geojson,
 			fmzk=args.fmzk, canopy_a=args.canopy_a, canopy_b=args.canopy_b,
 			canopy_c=args.canopy_c, vegetation_d=args.vegetation_geojson,
-			output=args.out_dir)
+			output=args.out_dir, gip=args.gip_dir,
+			partition_source=args.partition_source)
 	except (OSError, ValueError, TypeError, KeyError) as exc:
 		parser.exit(1, f"Fehler: {exc}\n")
 
