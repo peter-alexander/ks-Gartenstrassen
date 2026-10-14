@@ -250,6 +250,42 @@ mit `--limit-tiles 1` ausführen und das Ergebnis prüfen.
 
 Vollständige Kacheln mit unveränderten Prüfsummen werden übersprungen. Die Ausgabe enthält pro Kachel und GIP-ID separate metrische Polygonfragmente und die drei Kategorien ungeklärter Flächen. **PARTIELL** ist nicht gleichbedeutend mit einem fertigen Bezirksresultat.
 
+**Realer Alsergrund-V0-Bezirkslauf, 14.10.2026:**
+Mit allen **10 von 10** Straßenraum-Kacheln und dem zentralen
+GIP-SQLite-Index wurde `wienwide_partition` vollständig ausgeführt.
+Eine bereits berechnete Kachel wurde unverändert per SHA geprüft
+und übersprungen.
+
+| Ergebnis | Wert |
+| --- | ---: |
+| Straßenraum | 790.994,0589567656 m² |
+| GIP-Abschnitten zugeordnet | 652.048,846396666 m² (82,43 %) |
+| Knotenbereiche, separat | 50.908,654366879775 m² (6,44 %) |
+| Sonderachsen, separat | 84.741,46299363286 m² (10,71 %) |
+| Nicht zugeordnet | 3.295,0951995779114 m² (0,42 %) |
+| Summe ungeklärte Gruppen | 138.945,21256009053 m² (17,57 %) |
+| Eindeutige GIP-IDs mit Abschnittsfläche | 586 |
+| Kumulierte Partitionierungszeit (10 Kacheln) | 30,627436412978568 s |
+| Summenbilanzdifferenz | −0,00000000908 m² |
+
+Die Summenbilanz stimmt im Rahmen numerischer Rundungsfehler;
+die Kachelroutine prüft außerdem Überlappungen, Lücken und
+außerhalb liegende Fläche je Kachel.
+
+**Fachliche Einordnung:** Die nur 0,42 % wirklich
+`nicht_zugeordnet` sind nicht mit den übrigen 17,15 %
+gleichzusetzen. Die restlichen Flächen werden **bewusst**
+als Knotenbereich (Radius 7 m) und Sonderachse (FOW ≠ 3)
+gesondert geführt. Das ist eine gelungene technische
+V0-Partitionierung, **keine unabhängige Validierung**
+der zugrunde liegenden Straßenraummaske, des amtlichen
+GIP-Graphen oder der fachlichen Abschnittszuordnungen.
+Als nächste Schritte: Benchmarkdatei speichern,
+Sonderachsen nach FOW aufschlüsseln, Knotenradien und
+ungeklärte Restflächen räumlich in QGIS/Kartensammlung
+kontrollieren und erst danach Parameter-/Methodikänderungen
+in Betracht ziehen.
+
 ### 5. Benchmark protokollieren
 
 ~~~bash
