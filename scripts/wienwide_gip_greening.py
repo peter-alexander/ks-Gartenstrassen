@@ -251,9 +251,21 @@ def _write_spatial(qa,output,per_tile,report):
 			if key in existing:
 				raise ValueError(f"Spalte bereits im QA-GeoPackage: {key}")
 			db.execute(f'ALTER TABLE gip_abschnitte ADD COLUMN "{key}" REAL')
+		# GeoPackage-RTree-Trigger erwarten ST_IsEmpty/MinX aus GDAL.
+		# Python-SQLite besitzt diese Funktionen nicht. Da wir NUR
+		# Spaltenwerte, niemals Geometrie oder FID, aktualisieren,
+		# Trigger für die Dauer des Attribut-Joins sicher aussetzen.
+		# Alle originalen SQL-Definitionen unmittelbar wiederherstellen.
+		triggers=db.execute("""SELECT name,sql FROM sqlite_master
+			WHERE type='trigger' AND name LIKE 'rtree_gip_abschnitte_geom_%'
+			ORDER BY name""").fetchall()
+		if len(triggers)!=6:
+			raise ValueError("GeoPackage-RTree-Trigger der Abschnitte unvollständig")
+		for name,_sql in triggers:
+			db.execute('DROP TRIGGER "'+name+'"')
 		count=0
 		for fid,tid,gid,area in db.execute(
-			"SELECT fid,kachel_id,gip_id,flaeche_m2 FROM gip_abschnitte"):
+			"SELECT fid,kachel_id,gip_id,flaeche_m2 FROM gip_abschnitte").fetchall():
 			m=per_tile.get((tid,gid))
 			if m is None or abs(area-m["area"])>.01:
 				raise ValueError(f"{tid}/{gid}: Abschnitt fehlt/abweichende Fläche")
@@ -268,6 +280,11 @@ def _write_spatial(qa,output,per_tile,report):
 			count+=1
 		if count!=len(per_tile):
 			raise ValueError("Geopackage: unvollständige Abschnittsaktualisierung")
+		for _name,sql in triggers:
+			db.execute(sql)
+		if db.execute("SELECT COUNT(*) FROM rtree_gip_abschnitte_geom"
+			).fetchone()[0]!=count:
+			raise ValueError("RTree-Index der Abschnittsgeometrien ist unvollständig")
 		db.execute("INSERT INTO qa_provenienz VALUES (?,?)",
 			("gip_begruenung_v1",json.dumps(report,ensure_ascii=False)))
 		if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
