@@ -64,7 +64,10 @@ def chunks(tile,aoi):
 			out.append((f"x{ix:03d}_y{iy:03d}",geo,get_map_url(geo)))
 	if len(out)>MAX_CHUNKS:
 		raise ValueError("Zu viele GRM-Anfragen je Kachel")
-	if core.symmetric_difference(union_all([
+	# WMS-Anfragekacheln sind rechteckig. Am Bezirksrand decken sie
+	# absichtlich auch den Bereich AUSSERHALB der AOI ab; gefordert
+	# ist vollständige Bedeckung des Kerns, nicht Flächengleichheit.
+	if core.difference(union_all([
 		box(*geo["bbox"]) for _name,geo,_url in out])).area>max(.001,core.area*1e-9):
 		raise ValueError(f"{tile['id']}: WMS-Kacheln decken den Kern nicht")
 	return out
