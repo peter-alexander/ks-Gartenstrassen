@@ -191,6 +191,35 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 			self.assertGreater(
 				result["varianten"]["D2_schwelle_010"]["maskenmetrik"]["bedeckt_m2"],
 				result["varianten"]["D2_schwelle_040"]["maskenmetrik"]["bedeckt_m2"])
+			# Ineinander liegende D2-Schwellen dürfen bei demselben Straßenraum
+			# mit steigender Schwelle niemals mehr Fläche ergeben.
+			d2_areas = [
+				result["varianten"][f"D2_schwelle_{round(threshold*100):03d}"]
+				["maskenmetrik"]["bedeckt_m2"]
+				for threshold in D2_THRESHOLDS
+			]
+			self.assertTrue(all(first >= second - 0.001
+				for first, second in zip(d2_areas, d2_areas[1:])))
+			# Jede Vegetationszelle landet in genau einer D3-Klasse.
+			def covered(name):
+				return result["varianten"][name]["maskenmetrik"]["bedeckt_m2"]
+			classes = (
+				"D3_schwache_vegetation_ohne_kern",
+				"D3_kleine_unklare_objekte",
+				"D3_unklare_vegetation",
+				"D3_strukturreiche_kronenkandidaten",
+				"D3_strukturarme_vegetation",
+			)
+			self.assertAlmostEqual(sum(covered(name) for name in classes),
+				covered("D2_schwelle_010"), delta=0.01)
+			self.assertAlmostEqual(
+				covered("D3_kronenkandidaten_plus_unklar"),
+				covered("D3_unklare_vegetation")
+				+ covered("D3_strukturreiche_kronenkandidaten"), delta=0.01)
+			self.assertAlmostEqual(
+				covered("D3_hysterese_010_mit_020_kern"),
+				covered("D2_schwelle_010")
+				- covered("D3_schwache_vegetation_ohne_kern"), delta=0.01)
 			self.assertTrue((out/"bev_varianten_strassenraum_vergleich.json").exists())
 			self.assertEqual((input_dir/"bev_rgb_test.png").read_bytes(),original)
 			with self.assertRaises(FileExistsError):
