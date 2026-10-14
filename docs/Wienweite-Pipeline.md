@@ -93,8 +93,26 @@ Hüllrechteck werden zusätzlich angenommen. Sie werden
 in den Karten-Features als `wfs_bbox_nur_huelle` markiert,
 sowie im Kachelbericht `wfs_bbox_nur_huelle.achsen` mit
 Anzahl und GIP-IDs protokolliert. Ein Feature, dessen Hüllrechteck
-ebenfalls nicht schneidet, bleibt **ungültig** und wird mit
-GIP_OBJECTID, Abstand und Hüllrechteckstatus gemeldet.
+ebenfalls nicht schneidet, bleibt grundsätzlich **ungültig**
+und wird mit GIP_OBJECTID, Abstand und Hüllrechteckstatus gemeldet.
+
+**Nachprüfung des echten Grenzfalls:** Bei GIP_OBJECTID
+`20028505` lag die zurücktransformierte Achse nur
+**0,059 m (EPSG:3857)** außerhalb der WFS-Anfrage; auch ihr
+Hüllrechteck berührte die Anfrage nicht. Für den Wien-weiten
+Achsenabruf gilt deshalb eine **eng begrenzte numerische
+Randtoleranz von maximal 0,25 m**. Solche Treffer werden
+unter `wfs_bbox_numerische_randtreffer.achsen` mit Anzahl,
+GIP-ID und `abstand_epsg3857_m` protokolliert; im
+GeoJSON-Feature steht
+`wfs_bbox_numerischer_randabstand_m`. Die Achsenkoordinaten
+werden **nicht** verschoben, vereinfacht oder gepuffert.
+Punktknoten, weiter entfernte Features und die unveränderte
+kleine GIP-Diagnose werden weiterhin streng geprüft.
+Die tatsächliche serverseitige Ursache der geringen
+Randabweichung ist ohne Original-WFS-/Serveranalyse
+**nicht bewiesen**; numerische Genauigkeit und
+serverseitige BBOX-Indexierung sind mögliche Gründe.
 
 Die ersten sieben erfolgreich geschriebenen Kacheln verbleiben im
 SHA-geprüften Cache. Zum Fortsetzen einfach **denselben fetch-Befehl**
