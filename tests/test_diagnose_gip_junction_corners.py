@@ -10,7 +10,7 @@ from shapely.geometry import LineString, Point, box, mapping
 from shapely.ops import transform
 
 from scripts.diagnose_gip_junction_corners import (
-	METRIC, LONLAT, _profile, analyze, run,
+	METRIC, LONLAT, _profile, analyze, fahrbahn_mask, run,
 )
 
 
@@ -57,6 +57,57 @@ class JunctionCornerDiagnosticsTests(unittest.TestCase):
 		self.assertIn("kandidat_pruefen", report["arm_status_counts"])
 		self.assertTrue(all(f["properties"]["status"] != "validiert"
 			for f in layers["schnittlinien"]))
+
+	def test_t_junction_one_sided_transition_has_orthogonal_cut(self):
+		street, axes, nodes = synthetic_cross()
+		x, y = METRIC(16.363, 48.223)
+		# Gerade durchgehende Straße und nach Norden einmündender Arm:
+		# südlicher Gehsteig-/Gebäuderand bleibt auf beiden Hauptarmen
+		# unverändert, nur die Nordseite weitet sich auf.
+		street = union_all([
+			box(x-50, y-5, x+50, y+5),
+			box(x-4, y, x+4, y+50),
+		])
+		axes = axes[:3]
+		layers, report = analyze(street, axes, nodes,
+			node_ids=["10"], max_junctions=1)
+		orthogonal = [f for f in layers["schnittlinien"]
+			if f["properties"]["methode"] == "orthogonal_einseitig"]
+		self.assertGreaterEqual(len(orthogonal), 1)
+		for feature in orthogonal:
+			line = transform(METRIC, LineString(feature["geometry"]["coordinates"]))
+			self.assertTrue(line.within(street.buffer(.05)))
+			self.assertEqual(feature["properties"]["left_s_m"],
+				feature["properties"]["right_s_m"])
+		self.assertGreaterEqual(
+			sum(p["properties"]["status"].startswith("orthogonaler")
+				for p in layers["eckpunkte"]), 1)
+		self.assertEqual(report["parameter"]["boundary_mode"], "hauswand")
+
+	def test_fahrbahn_mode_is_explicit_and_does_not_replace_street_mask(self):
+		street, axes, nodes = synthetic_cross()
+		x, y = METRIC(16.363, 48.223)
+		# Fahrbahn ist schmäler als die äußere Straßenraumgrenze.
+		fahrbahn = union_all([
+			box(x-50, y-3, x+50, y+3),
+			box(x-3, y-50, x+3, y+50),
+		])
+		data = [(1, 21, "Fahrbahn", fahrbahn),
+			(2, 23, "Gehsteig", street.difference(fahrbahn))]
+		curb = fahrbahn_mask(data, street)
+		self.assertAlmostEqual(curb.area, fahrbahn.area, places=5)
+		self.assertLess(curb.area, street.area)
+		layers, report = analyze(curb, axes, nodes,
+			node_ids=["10"], max_junctions=1,
+			boundary_mode="gehsteigkante")
+		self.assertEqual(report["parameter"]["boundary_mode"], "gehsteigkante")
+		self.assertTrue(all(f["properties"]["grenzmodus"] == "gehsteigkante"
+			for f in layers["schnittlinien"]))
+		with self.assertRaisesRegex(ValueError, "Fahrbahnklasse"):
+			fahrbahn_mask([(2, 23, "Gehsteig", street)], street)
+		with self.assertRaisesRegex(ValueError, "Grenzmodus"):
+			analyze(street, axes, nodes, node_ids=["10"], max_junctions=1,
+				boundary_mode="unbekannt")
 
 	def test_straight_road_does_not_invent_crossing_corners(self):
 		street, axes, nodes = synthetic_cross()
