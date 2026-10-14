@@ -110,8 +110,11 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 		self.assertAlmostEqual(meta["flaechenaenderung_m2"], 0, delta=1e-9)
 
 	def test_projected_mask_repair_rejects_material_change(self):
+		# Selbstüberschneidung mit großer wirklicher Flächenänderung,
+		# im Gegensatz zur flächenlosen Spitze des zulässigen Beispiels.
 		bow_tie = Polygon([
-			(0, 0), (4, 4), (0, 4), (4, 0),
+			(0, 0), (5, 0), (5, 5), (0, 5),
+			(0, 0), (4, 4), (5, 0),
 		])
 		self.assertFalse(bow_tie.is_valid)
 		with self.assertRaisesRegex(ValueError, "Flächentoleranz"):
