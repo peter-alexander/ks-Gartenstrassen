@@ -1,6 +1,6 @@
 # Modul 5 – Straßenabschnitte als Bezugsräume
 
-**Planungsstand: 14.10.2026. Noch keine produktiven Straßenabschnittspolygone erzeugt.**
+**Stand 14.10.2026: kleinräumiger WFS-Abruf mit Prüf-Layern implementiert; reale Ortsdatenprobe und Straßenabschnittsflächen stehen noch aus.**
 
 ## Ziel und Abgrenzung
 
@@ -51,10 +51,11 @@ Untergliederung. OSM-Straßenachsen werden nicht gleichzeitig mit GIP
 vermengt; sie wären allenfalls ein ausdrücklich eigener späterer
 Alternativprovider.
 
-## 2. Getrennter Datenbeschaffungs-Schritt (noch umzusetzen)
+## 2. Getrennter Datenbeschaffungs-Schritt (implementiert; lokaler Realtest offen)
 
-Für das vorhandene FMZK-Testgebiet plus begrenzten Randbereich zwei
-**BBOX-begrenzte WFS-GeoJSON-Abrufe**, analog zum bestehenden
+Der Adapter `scripts/fetch_gip_sections.py` stellt für das vorhandene
+FMZK-Testgebiet plus standardmäßig **75 m Randbereich** zwei
+**BBOX-begrenzte WFS-GeoJSON-Abrufe** bereit, analog zum bestehenden
 `scripts/fetch_vienna_trees.py`. Dabei:
 
 1. Quellumfang aus dem FMZK-Ausschnitt ableiten, in **EPSG:3857**
@@ -69,11 +70,51 @@ Für das vorhandene FMZK-Testgebiet plus begrenzten Randbereich zwei
 4. Ausgangsdaten lokal unter `data/processed/strassenabschnitte/`
    speichern, ohne die vorhandenen Module oder Rohdaten zu ändern.
 
-**Wichtiger offener Test:** Die Attribute und Topologie an den tatsächlichen
+**Offline/Online-Aufruf (nur vorhandenes Testgebiet):**
+
+```bash
+git pull --ff-only
+.venv/bin/python -m scripts.fetch_gip_sections
+```
+
+Standardausgabe unter `data/processed/strassenabschnitte/gip/`:
+
+| Datei | Inhalt |
+| --- | --- |
+| `gip_strassengraph_wfs.geojson` | Originalantwort Straßenachsen, unverändert |
+| `gip_strassenknoten_wfs.geojson` | Originalantwort Kreuzungsknoten, unverändert |
+| `abschnitte_achsen.geojson` | Karten-Prüflayer: Achsen, IDs, Namen und Netzattribute |
+| `abschnitte_knoten.geojson` | Karten-Prüflayer: Knoten, IDs und ergänzende Attribute |
+| `gip_probe_bericht.json` | Abfrage-URLs, BBOX, GeoJSON- und ID-Prüfung, SHA-256, Duplikate, Objektstatistik |
+
+Für die **Kartensammlung** die beiden `abschnitte_*.geojson` importieren;
+die Rohantworten daneben aufbewahren. Diese Layer besitzen **noch keine
+Straßenraumflächen**.
+
+Der Standard verweigert ab **4.000 Features pro Layer** eine potenziell
+abgeschnittene Antwort, zusätzlich bei WFS-`totalFeatures`/
+`numberMatched` größer als der Antwortzahl, leerer Antwort,
+fremdem CRS, ungültigen Geometrien oder Objekten außerhalb der BBOX.
+Doppelungen von `GIP_OBJECTID` sind ausdrücklich im Bericht,
+werden **nicht** automatisch dedupliziert. Der Abruf ist auf 30 MB
+pro Layer begrenzt.
+
+**Wiederholung:** Der zweite gleiche Aufruf verwendet die SHA-geprüften
+Original-GeoJSONs aus dem Cache ohne Netzwerk. Mit `--offline` lässt
+sich dieser Modus erzwingen. Ein bewusst neuer Abruf erfordert
+`--refresh`; für einen unabhängigen Vergleich besser
+`--out-dir data/processed/strassenabschnitte/gip_test2` setzen.
+Ein geänderter FMZK-Ausschnitt oder geänderte Abrufparameter werden
+beim Cachevergleich abgewiesen. Eine unterbrochene/teilweise Ausgabe
+wird nicht als fertiger Datensatz akzeptiert.
+
+**Wichtiger offener Realtest:** Die Attribute und Topologie an den tatsächlichen
 GIP-Objekten im Testausschnitt prüfen, einschließlich der Fälle mit
 getrennten Richtungsfahrbahnen, Straßenbahnanlagen, Sackgassen und
-mehrarmigen Kreuzungen. Allein aus der Beschreibung darf keine
-lückenlose Abdeckung unterstellt werden.
+mehrarmigen Kreuzungen. Die automatisierten Tests benutzen nur
+synthetische Features; GitHub Actions führt keine WFS-Abrufe aus.
+Allein aus der Beschreibung darf keine lückenlose Abdeckung
+unterstellt werden.
 
 ## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (noch offen)
 
@@ -148,9 +189,9 @@ verschiedene, sich potenziell überlagernde Kennzahlen.
 
 ## Nächste konkrete Arbeit
 
-**Zunächst den kleinräumigen GIP-Datenabruf mit strikter Geometrie-/
-Attributprüfung und eine visualisierbare Achsen-/Knotenprobe umsetzen**.
-Erst nach dieser Sichtkontrolle die flächige Abschnittszuordnung
-programmieren und benchmarken. Bis dahin gibt es im Projekt **keine
-fertigen Straßenabschnittsflächen und keine abschnittsweisen
-Begrünungswerte**.
+**Den ersten kleinräumigen GIP-Probelauf lokal ausführen und die beiden
+erzeugten Karten-Prüflayer auf echte Lage/Topologie sowie fehlende und
+doppelte GIP-IDs prüfen.** Erst nach dieser Sichtkontrolle die flächige
+Abschnittszuordnung programmieren und benchmarken. Bis dahin gibt es
+im Projekt **keine fertigen Straßenabschnittsflächen und keine
+abschnittsweisen Begrünungswerte**.
