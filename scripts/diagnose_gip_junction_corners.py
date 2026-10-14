@@ -34,24 +34,68 @@ CROSS_HALF_M = 45.0
 MIN_BASELINE_M = 4.0
 MAX_JUNCTIONS = 8
 BOUNDARY_MODES = ("hauswand", "gehsteigkante")
+# Wiener FMZK – offizieller Wertebereich F_KLASSE, 06.02.2024.
+# 21 Fahrbahn (inkl. Radweg), 30 Zebrastreifen, 32 Fahrbahnaufwölbung /
+# Schwelle / Rampen, 33 ruhender Verkehr, 39 sonstige Verkehrsfläche.
+# Nicht eingeschlossen: 22 Verkehrsinsel, 23 Gehsteig, 24 Fußgängerzone,
+# 26 Verkehrsfläche auf Privatgrund, 27/28 Gleiskörper usw.
+# Die Maske ist eine Fahrbahn-/Parkraum-Näherung, KEINE echte Bordsteinkante.
+VERKEHRSFLAECHEN_CODES = frozenset((21, 30, 32, 33, 39))
+VERKEHRSFLAECHEN_LABELS = {
+	21: "Fahrbahn inkl. Radwege",
+	30: "Zebrastreifen",
+	32: "Fahrbahnaufwoelbung, Schwelle, Rampe",
+	33: "Ruhender Verkehr (Parkstreifen)",
+	39: "Sonstige Verkehrsfläche",
+}
 
 
-def fahrbahn_mask(fmzk_features, street):
-	"""Nur FMZK-Fahrbahn (21) als Fahrbahnrand-/Bordkanten-Näherung.
+def verkehrsflaechen_mask(fmzk_features, street):
+	"""Vereinigung der fünf fahrbahnbezogenen FMZK-Klassen im Straßenraum.
 
-	Nicht als amtliche oder vollständig vermessene Gehsteigkante ausgeben:
-	Parkbuchten, Zufahrten, Inseln und andere FMZK-Klassen fehlen.
+	Die FMZK klassifiziert Nutzungsflächen, nicht lückenlos echte Bordsteine.
+	Klasse 39 bleibt insbesondere eine fachlich unscharfe Restklasse.
 	"""
-	parts = [geometry.intersection(street)
-		for _fid, code, _label, geometry in fmzk_features if code == 21
-		and geometry.intersects(street)]
-	parts = [part for part in parts if not part.is_empty and part.area > 0]
+	parts = []
+	for _fid, code, _label, geometry in fmzk_features:
+		if code in VERKEHRSFLAECHEN_CODES and geometry.intersects(street):
+			piece = geometry.intersection(street)
+			if not piece.is_empty and piece.area > 0:
+				parts.append(piece)
 	if not parts:
-		raise ValueError("Für Gehsteigkanten-Näherung keine FMZK-Fahrbahnklasse 21 im Straßenraum")
+		raise ValueError("Keine Fahrbahn-/Park-/Schwellenflächen der FMZK-Klassen "
+			"21/30/32/33/39 im Straßenraum")
 	mask = union_all(parts)
 	if mask.is_empty or not mask.is_valid or mask.area <= 0:
-		raise ValueError("FMZK-Fahrbahnmaske leer oder ungültig")
+		raise ValueError("FMZK-Verkehrsflächenmaske leer oder ungültig")
 	return mask
+
+
+# Abwärtskompatible Funktionsbezeichnung für bestehende Modul-5-Tests.
+fahrbahn_mask = verkehrsflaechen_mask
+
+
+def verkehrsflaechen_statistik(fmzk_features, street):
+	"""Klassen transparent ausweisen; keine Summierung statt Union als Flächenmaß."""
+	counts = Counter()
+	groups = defaultdict(list)
+	for _fid, code, _label, geom in fmzk_features:
+		if code in VERKEHRSFLAECHEN_CODES and geom.intersects(street):
+			piece = geom.intersection(street)
+			if not piece.is_empty and piece.area > 0:
+				counts[code] += 1
+				groups[code].append(piece)
+	return {
+		"fmzk_codes": sorted(VERKEHRSFLAECHEN_CODES),
+		"klassen": {
+			str(code): {"name": VERKEHRSFLAECHEN_LABELS[code],
+				"objekte": counts[code],
+				"vereinigte_flaeche_m2": union_all(groups[code]).area
+					if groups[code] else 0.0}
+			for code in sorted(VERKEHRSFLAECHEN_CODES)},
+		"hinweis": "Klassenflächen können überlappen. Die Summe pro Klasse "
+			"ist nicht zwingend die Fläche der geometrischen Gesamtvereinigung.",
+	}
 
 
 
@@ -412,7 +456,7 @@ def run(street_path=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 	fmzk_features, manifest, clip, _ = load_polygons(fmzk)
 	street, meta = load_street_mask(street_path, clip)
 	profile_mask = (street if boundary_mode == "hauswand"
-		else fahrbahn_mask(fmzk_features, street))
+		else verkehrsflaechen_mask(fmzk_features, street))
 	gip = Path(gip)
 	probe = json.loads((gip/"gip_probe_bericht.json").read_text(encoding="utf-8"))
 	if probe.get("fmzk_bbox_lon_lat") != manifest.get("bbox_lon_lat"):
@@ -431,9 +475,13 @@ def run(street_path=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 	report["grenzreferenz"] = (
 		"Modul-2-Straßenraumaußenrand (Gebäude-/Grundstücksgrenze)"
 		if boundary_mode == "hauswand" else
-		"FMZK F_KLASSE=21 Fahrbahnrand als Gehsteigkanten-Näherung; "
-		"keine amtlich vermessene Bordsteinkante")
+		"Vereinigte FMZK-Verkehrsflächen F_KLASSE 21/30/32/33/39 "
+		"(Fahrbahn, Zebrastreifen, Schwellen, Parkspuren, Sonstiges) "
+		"als Gehsteigkanten-Näherung; keine amtlich vermessene Bordsteinkante")
 	report["profilmaske_m2"] = profile_mask.area
+	if boundary_mode == "gehsteigkante":
+		report["verkehrsflaechen"] = verkehrsflaechen_statistik(
+			fmzk_features, street)
 	report["created_utc"] = datetime.now(timezone.utc).isoformat()
 	report["quellen"] = {
 		"strassenraum": str(street_path),
@@ -473,7 +521,7 @@ def main():
 	parser.add_argument("--max-search-m", type=float, default=MAX_SEARCH_M)
 	parser.add_argument("--cross-half-m", type=float, default=CROSS_HALF_M)
 	parser.add_argument("--boundary-mode", choices=BOUNDARY_MODES,
-		default="hauswand", help="Außenrand oder FMZK-Fahrbahnrand als Gehsteigkanten-Näherung")
+		default="hauswand", help="Außenrand oder vereinigte FMZK-Klassen 21/30/32/33/39 als Gehsteigkanten-Näherung")
 	args = parser.parse_args()
 	try:
 		run(street_path=args.street_geojson, fmzk=args.fmzk,
