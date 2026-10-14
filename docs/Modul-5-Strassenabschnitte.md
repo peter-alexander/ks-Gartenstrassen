@@ -419,6 +419,18 @@ werden. Gesamtwerte dürfen nicht aus Prozentanteilen gemittelt werden;
 insbesondere Bodenbegrünung und Baumkronenüberschirmung bleiben
 verschiedene, sich potenziell überlagernde Kennzahlen.
 
+## Modul 6 – integrierte Abschnittskennzahlen
+
+Das Offline-Skript `scripts/measure_sections.py` liest die
+bestehenden V0-Abschnitts- und Kreuzungsflächen und berechnet
+Bodenbegrünung (FMZK 58/69) und Kronenüberschirmung A/B/C
+je Teilpolygon. Seine strikte Gebiets- und Methodenbilanz
+schließt auch sämtliche noch ungeklärten Flächen ein.
+**Die Implementierung ist fertig, der lokale Realtest ausständig.**
+Das Skript ändert keine V0-Geometrie, Kreuzungskreise oder
+FMZK-/Kronen-Quelldaten.
+[Ausführung und Ausgabeformat](Modul-6-Abschnittskennzahlen.md).
+
 ## Nächste konkrete Arbeit
 
 **Der erste reale Offline-Lauf ist abgeschlossen und numerisch geprüft:**

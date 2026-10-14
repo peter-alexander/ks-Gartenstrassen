@@ -199,6 +199,24 @@ Baumkronentrennung von Methode D bleibt offen.
 
 [Vollständiges Modul-5-Konzept](Modul-5-Strassenabschnitte.md).
 
+## 4b. Modul 6 – Abschnittsweise Begrünung und Kronenüberschirmung
+
+`scripts/measure_sections.py` berechnet die bestehenden
+**FMZK-Bodenbegrünungsklassen 58/69** sowie Kronenmethoden
+**A (Wien), B (Wien + OSM), C (GRM 2023)** geometrisch für jeden
+V0-Abschnitt. Die noch ungeklärten Kreuzungs-/Sonderflächen
+werden als eigene Kennzahlensätze bilanziert. Jede
+Gebietssumme wird gegen die ursprüngliche Straßenmaske
+geprüft; A/B/C und Bodenbegrünung bleiben unterschiedliche,
+**nicht addierbare** Indikatoren.
+
+D2 mit **0,20** kann später als Vegetations-Polygonmaske
+optional eingebracht werden, bleibt aber keine bestätigte
+Baumkronenüberschirmung. Der erste reale lokale Modullauf
+mit den vorhandenen Daten steht noch aus;
+[Modul-6-Testanleitung](Modul-6-Abschnittskennzahlen.md).
+**V0 und die Eingabedaten werden nicht verändert.**
+
 ## 5. Weitere Kriterien – offen
 
 Weitere getrennte Module können unter anderem zusätzliche räumliche und nutzungsbezogene Merkmale auswerten. Details und Datenquellen werden erst festgelegt, wenn sie benötigt werden. Auch die spätere Segmentierung, Aggregation und eine Gartenstraßen-Bewertung sind eigene Schritte, **nicht** Teil des jetzigen Bodenbegrünungsmoduls.
