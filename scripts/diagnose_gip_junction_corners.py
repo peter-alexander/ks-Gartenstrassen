@@ -121,18 +121,20 @@ def _profile(street, oriented, distance, *, cross_half_m=CROSS_HALF_M):
 	ends = sorted([Point(chosen.coords[0]), Point(chosen.coords[-1])],
 		key=cross.project)
 	right, left = ends
-	# Wenn die Querlinie die Suchgrenze erreicht, kennen wir die
-	# tatsächliche Straßenrandlage nicht.
-	if (right.distance(Point(right_bound)) < 0.1 or
-		left.distance(Point(left_bound)) < 0.1):
-		return None, "querschnitt_zu_breit"
+	# An großen Kreuzungen kann die quer verlaufende Straße den
+	# gesamten 90-m-Messstrahl füllen. Dieser *abgeschnittene* Wert
+	# dient ausschließlich als Nachweis einer Aufweitung; er darf
+	# niemals als echter Randpunkt / als stabile Normalbreite gelten.
+	clipped_left = left.distance(Point(left_bound)) < 0.1
+	clipped_right = right.distance(Point(right_bound)) < 0.1
 	rr = right.distance(p)
 	ll = left.distance(p)
 	if ll < 0.05 or rr < 0.05:
 		return None, "achse_am_rand"
 	return {"s_m": distance, "axis": p, "left": left, "right": right,
 		"left_m": ll, "right_m": rr, "width_m": ll+rr,
-		"segment": chosen,
+		"segment": chosen, "clipped_left": clipped_left,
+		"clipped_right": clipped_right,
 		"separate_intervals": len(segments)-1}, None
 
 
@@ -147,7 +149,8 @@ def _side_transition(profiles, side, *, step_m=STEP_M):
 	# Mindestens 4 m Messstrecke für stabile äußere Armzone.
 	far_start = valid[-1]["s_m"]-max(MIN_BASELINE_M, .32*(
 		valid[-1]["s_m"]-valid[0]["s_m"]))
-	far = [p for p in valid if p["s_m"] >= far_start]
+	far = [p for p in valid
+		if p["s_m"] >= far_start and not p[f"clipped_{side}"]]
 	if len(far) < 5:
 		return None, "basiszone_zu_kurz"
 	base = median(p[f"{side}_m"] for p in far)
@@ -170,7 +173,8 @@ def _side_transition(profiles, side, *, step_m=STEP_M):
 	last_widened = max(widened)
 	tolerance = max(.65, .07*width_base)
 	for i in range(last_widened+1, len(valid)-2):
-		if all(abs(valid[j][f"{side}_m"]-base) <= tolerance
+		if all(not valid[j][f"clipped_{side}"]
+			and abs(valid[j][f"{side}_m"]-base) <= tolerance
 			for j in range(i, i+3)):
 			return valid[i], None
 	return None, "uebergang_ohne_stabile_folge"
@@ -256,7 +260,11 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 							"left_m": round(p["left_m"], 3),
 							"right_m": round(p["right_m"], 3),
 							"separate_intervals": p["separate_intervals"],
-							"status": "messung"}))
+							"clipped_left": p["clipped_left"],
+							"clipped_right": p["clipped_right"],
+							"status": ("querschnitt_am_suchlimit"
+								if p["clipped_left"] or p["clipped_right"]
+								else "messung")}))
 				profiles.append(p)
 				distance += step_m
 			arm["profile_count"] = len(profiles)
