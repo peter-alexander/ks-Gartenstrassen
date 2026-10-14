@@ -32,6 +32,9 @@ AXES = "abschnitte_achsen.geojson"
 NODES = "abschnitte_knoten.geojson"
 REPORT = "wien_gip_bericht.json"
 SCHEMA = 1
+# EPSG:3857: 0,059 m Abstand im realen Alsergrund-WFS-BBOX-Abruf.
+# Eng begrenzter Randabgleich, ohne Verschieben/Clippen von GIP-Achsen.
+WFS_BBOX_NUMERIC_TOLERANCE_M = 0.25
 
 
 def urls_for_tile(tile, halo, max_features):
@@ -59,7 +62,8 @@ def validated_wfs(raw, kind, bounds, *, max_features):
 	"""
 	try:
 		return validate_layer(raw,kind,bounds,max_features=max_features,
-			allow_bbox_envelope_match=True)
+			allow_bbox_envelope_match=True,
+			bbox_numeric_tolerance_m=WFS_BBOX_NUMERIC_TOLERANCE_M)
 	except ValueError as exc:
 		if "keine GIP-Features" not in str(exc):
 			raise
@@ -148,6 +152,14 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 				}
 				for kind in LAYERS
 			},
+			"wfs_bbox_numerische_randtreffer": {
+				kind:{
+					"anzahl":summary[kind].get("wfs_bbox_numerische_randtreffer_anzahl",0),
+					"gip_ids_mit_abstand":summary[kind].get("wfs_bbox_numerische_randtreffer",[]),
+					"max_toleranz_epsg3857_m": WFS_BBOX_NUMERIC_TOLERANCE_M,
+				}
+				for kind in LAYERS
+			},
 		}
 		tmp=meta.with_suffix(".json.tmp")
 		tmp.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
@@ -155,7 +167,8 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 		results.append({"tile":tile["id"],"cache":False})
 		print(f"GIP {i}/{len(tiles)} {tile['id']}: "
 			f"{report['anzahl']['achsen']} Achsen, {report['anzahl']['knoten']} Knoten"
-			f"{', Hüllrechteck-Treffer: '+str(report['wfs_bbox_nur_huelle']['achsen']['anzahl']) if report['wfs_bbox_nur_huelle']['achsen']['anzahl'] else ''}")
+			f"{', Hüllrechteck-Treffer: '+str(report['wfs_bbox_nur_huelle']['achsen']['anzahl']) if report['wfs_bbox_nur_huelle']['achsen']['anzahl'] else ''}"
+			f"{', numerische Randtreffer: '+str(report['wfs_bbox_numerische_randtreffer']['achsen']['anzahl']) if report['wfs_bbox_numerische_randtreffer']['achsen']['anzahl'] else ''}")
 	return results
 
 
