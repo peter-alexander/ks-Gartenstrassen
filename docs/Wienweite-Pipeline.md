@@ -569,10 +569,62 @@ wenn das Anfragegitter 0,5 m/px verwendet.
 Sie ist kein originaler GRM-Quellpixel-Export,
 keine direkte Messung von Kronenindividuen und
 keine unabhängig validierte Baumartenerkennung.
-Die realen Alsergrund-Kennzahlen sind erst
-nach Durchführung dieser lokalen Befehle bekannt.
-Spätere methodische Varianten A/B können mit
-derselben GIP-Abschnittsgeometrie verglichen werden.
+Die realen Alsergrund-Kennzahlen wurden am
+14.10.2026 erfolgreich berechnet; siehe den
+nachfolgenden Pilotbericht. Spätere methodische
+Varianten A/B können mit derselben
+GIP-Abschnittsgeometrie verglichen werden.
+
+**Realer Bezirkslauf Alsergrund – Bodenbegrünung und GRM2023 (14.10.2026):**
+
+Der Nutzer hat alle drei Schritte erfolgreich ausgeführt:
+
+1. **Bodenbegrünung allein:** 10/10 Kacheln, 662 Kachelfragmente,
+   586 eindeutige GIP-IDs. `boden_m2=27547.856920467868`,
+   `boden_pct=4.224814915738607`; Kronenwerte **NULL**, weil
+   in diesem Lauf noch keine vollständigen Bezirkskronen eingebunden waren.
+2. **GRM-WMS:** Alle **24 tatsächlich benötigten GetMap-Bilder**
+   für die zehn Bezirkskerne erstmals geladen (`neu_geladen=24`),
+   danach **10/10** metrische Baumschichtmasken erfolgreich gebaut.
+   Die Quellbild-Pixelstatistik bezieht sich auf das **rechteckige
+   WMS-Anfragegitter** einschließlich Teile außerhalb der Bezirksgrenze.
+   `GRM <Kachel>: ... m²` nennt dagegen bereits die **auf den
+   AOI-Kachelkern beschnittene Maske**. Daher darf man die
+   ausgegebenen Roh-Baumpixel nicht direkt mit der fertigen
+   Kernfläche vergleichen.
+3. **Abschnittsauswertung mit GRM:** Erneut 10/10 Kacheln,
+   662 Fragmente und **586** eindeutige GIP-IDs. Die
+   Bodenbegrünung war **identisch zum ersten Lauf**;
+   dazu wurde die GRM-Baumschicht vollständig gemessen.
+
+| Tatsächlich gemessene Pilotkennzahl | Fläche | Anteil an zugeordneten Abschnitten |
+| --- | ---: | ---: |
+| Ausgewertete GIP-FOW=3-Abschnittsfläche (Nenner) | 652.048,846396666 m² | 100,00 % |
+| FMZK-Bodenbegrünung (Klassen 58/69 geometrisch vereinigt) | 27.547,856920467868 m² | **4,224814915738607 %** |
+| GRM2023-WMS-Baumschicht innerhalb der GIP-Abschnitte | 57.761,51602832235 m² | **8,858464568647337 %** |
+| Vom gesamten Straßenraum **nicht** abschnittsweise ausgewertet | 138.945,21256009053 m² | 17,5659 % des gesamten Straßenraums |
+
+Die Werte sind ein **reproduzierbarer technischer Pilot** für
+Alsergrund und beziehen sich ausschließlich auf die
+**652.048,85 m²** GIP-Abschnittsfläche, nicht auf die gesamten
+790.994,06 m² Straßenraum. Die GRM2023-Kronenquote ist
+eine Auswertung des **gerenderten WMS-Bildes**;
+Quelle und Genauigkeit sind noch nicht unabhängig
+durch Luftbild-Stichproben validiert. Boden- und Kronenprozente
+können überlagern und dürfen **nicht addiert** werden.
+Die beiden erfolgreichen Ausgabeverzeichnisse sind:
+
+- `data/processed/wienweit/alsergrund/begruenung_boden/`
+- `data/processed/wienweit/alsergrund/begruenung_grm/`
+
+**Nächste Qualitätsprüfung:** Die CSV
+`begruenung_grm/gip_abschnitte_begruenung.csv` und das
+`gip_abschnitte_begruenung.gpkg` räumlich gemeinsam sichten,
+insbesondere Abschnitte mit extremen Anteilen oder sehr kleinen
+Nennerflächen und die Grenzen zwischen GRM-WMS-Anfragekacheln.
+Die tatsächlichen **Abschnittsverteilungen** (Median, Quantile,
+Extremwerte) sind aus der Konsolenausgabe nicht ableitbar
+und werden vor einer fachlichen Interpretation gesondert ermittelt.
 
 ### 5. Benchmark protokollieren
 
