@@ -140,7 +140,7 @@ class WienwideKatasterTests(unittest.TestCase):
 		self.assertEqual(check_existing_tile(tile,aoi,input_root=input_root,
 			output_root=output,halo=75,cache_dir=self.cache)["area_m2"],100)
 		with self.assertRaisesRegex(ValueError,"anderer AOI"):
-			check_existing_tile(tile,box(0,0,101,100),input_root=input_root,
+			check_existing_tile(tile,box(0,0,99,100),input_root=input_root,
 				output_root=output,halo=75,cache_dir=self.cache)
 		with self.assertRaisesRegex(ValueError,"anderem Halo"):
 			check_existing_tile(tile,aoi,input_root=input_root,
