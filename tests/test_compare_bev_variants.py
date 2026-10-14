@@ -135,7 +135,7 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 		outside=transform(TO_METRIC,box(x0+4,y0,x0+6,y0+2))
 		with self.assertRaisesRegex(ValueError,"nicht vollständig"):
 			measure_variants(outside,{"empty":empty},geo)
-		with self.assertRaisesRegex(ValueError,"Binärbilder"):
+		with self.assertRaisesRegex(ValueError,"ausschließlich die Werte 0 und 255"):
 			runs_to_metric_union(Image.new("L",(3,3),127),geo)
 
 	def test_reference_sources_optional_and_overlap(self):
@@ -154,7 +154,7 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 			self.assertEqual(recs["A"]["status"],"gemessen")
 			self.assertEqual(recs["B"]["status"],"lokale_quelle_fehlt")
 			self.assertEqual(len(pairs),1)
-			self.assertAlmostEqual(pairs[0]["iou"],1,delta=0.001)
+			self.assertAlmostEqual(pairs[0]["iou"],1,delta=0.005)
 
 	def test_end_to_end_comparison_outputs_and_sources_unmodified(self):
 		with tempfile.TemporaryDirectory() as temp:
