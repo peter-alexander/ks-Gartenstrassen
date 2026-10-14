@@ -126,6 +126,67 @@ def build_tile(tile, aoi, *, root, out, halo, cache_dir=Path("data/cache/kataste
 	return statistics
 
 
+def check_existing_tile(tile, aoi, *, input_root, output_root, halo, cache_dir):
+	"""Existierendes metrisches Ergebnis nur mit passender Herkunft übernehmen.
+
+	Dieser Weg dekodiert weder das 14k-Feature-FMZK noch 36 BEV-MVTs
+	erneut; er prüft die gespeicherten Quell-Hashes und die Polygonfläche.
+	Abweichung bedeutet ABBRUCH, niemals stillschweigendes Überschreiben.
+	"""
+	from urllib.parse import quote
+
+	input_root=Path(input_root)
+	output_root=Path(output_root)
+	cache_dir=Path(cache_dir)
+	path=output_root/tile["id"]/"street.sqlite"
+	if not path.is_file():
+		raise FileNotFoundError(f"Straßenraum-Kachel fehlt: {path}")
+	core=box(*tile["bounds_31256"]).intersection(aoi)
+	uri="file:"+quote(str(path.resolve()),safe="/")+"?mode=ro"
+	with sqlite3.connect(uri,uri=True) as conn:
+		meta=dict(conn.execute("SELECT key,value FROM metadata"))
+	if (meta.get("schema_version")!="1"
+		or meta.get("crs")!="EPSG:31256"
+		or meta.get("tile_id")!=tile["id"]):
+		raise ValueError(f"{tile['id']}: bestehende Straßenkachel "
+			"hat falsche ID, CRS oder Schema")
+	try:
+		area=float(json.loads(meta["aoi_area_m2"]))
+		street_area=float(json.loads(meta["strassenraum_m2"]))
+		old_halo=int(json.loads(meta["halo_m"]))
+		masks=json.loads(meta["kataster_status"])
+	except (KeyError,ValueError,TypeError,OverflowError) as exc:
+		raise ValueError(f"{tile['id']}: alte Straßenkachel hat "
+			"unvollständige Metadaten") from exc
+	if old_halo!=halo or abs(area-core.area)>.01:
+		raise ValueError(f"{tile['id']}: bestehende Straßenkachel "
+			"gehört zu anderer AOI oder anderem Halo")
+	fmzk=input_root/tile["id"]/"fmzk.gpkg"
+	report=input_root/tile["id"]/"kataster"/"kataster_bericht.json"
+	if (checksum(fmzk)!=meta.get("fmzk_sha256")
+		or checksum(report)!=meta.get("kataster_bericht_sha256")):
+		raise ValueError(f"{tile['id']}: FMZK-/Katasterquelle "
+			"seit der Berechnung verändert")
+	bev_hashes=masks.get("bev_cache_sha256") if isinstance(masks,dict) else None
+	if not isinstance(bev_hashes,dict) or not bev_hashes:
+		raise ValueError(f"{tile['id']}: ursprüngliche BEV-Cache-Hashes fehlen")
+	for key,expected in bev_hashes.items():
+		tokens=key.split("/")
+		if len(tokens)!=3 or not all(token.isdigit() for token in tokens):
+			raise ValueError(f"{tile['id']}: ungültige BEV-Kachel-ID {key!r}")
+		z,x,y=tokens
+		src=cache_dir/"tiles"/z/x/(y+".pbf")
+		if checksum(src)!=expected:
+			raise ValueError(f"{tile['id']}: BEV-Rohkachel {key} "
+				"seit der Berechnung verändert")
+	geom=load_street_tile(path,core)
+	if abs(street_area-geom.area)>max(.01,geom.area*1e-8):
+		raise ValueError(f"{tile['id']}: gespeicherte Straßenfläche "
+			"stimmt nicht mit der SQLite-Geometrie überein")
+	return {"tile":tile["id"],"file":str(path),
+		"area_m2":geom.area,"cache":True}
+
+
 def prefetch_tile(tile, *, manifest, aoi, root, source, cache, offline=False,
 	max_tiles=120, max_parcels=600):
 	"""Bereits vorhandenen Original-GPKG-Zuschnitt und BEV-Tiles holen.
@@ -170,6 +231,15 @@ def run(manifest_path, input_root, output_root, *, only=None,
 		raise ValueError("Unbekannte Tile-ID")
 	for i,tile in enumerate(selected,1):
 		start=perf_counter()
+		existing=Path(output_root)/tile["id"]/"street.sqlite"
+		if existing.exists():
+			cached=check_existing_tile(tile,aoi,input_root=input_root,
+				output_root=output_root,halo=manifest["halo_m"],
+				cache_dir=cache_dir)
+			report.append(cached)
+			print(f"Straßenraum {i}/{len(selected)} {tile['id']}: "
+				f"{cached['area_m2']:.1f} m² (geprüfter Cache)")
+			continue
 		stats=build_tile(tile,aoi,root=input_root,out=output_root,
 			halo=manifest["halo_m"],cache_dir=cache_dir,report=report)
 		print(f"Straßenraum {i}/{len(selected)} {tile['id']}: "
