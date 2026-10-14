@@ -280,11 +280,11 @@ gesondert geführt. Das ist eine gelungene technische
 V0-Partitionierung, **keine unabhängige Validierung**
 der zugrunde liegenden Straßenraummaske, des amtlichen
 GIP-Graphen oder der fachlichen Abschnittszuordnungen.
-Als nächste Schritte: Benchmarkdatei speichern,
-Sonderachsen nach FOW aufschlüsseln, Knotenradien und
-ungeklärte Restflächen räumlich in QGIS/Kartensammlung
-kontrollieren und erst danach Parameter-/Methodikänderungen
-in Betracht ziehen.
+Als nächster fachlicher Schritt folgt die Auswertung
+der zuverlässig zugeordneten FOW=3-GIP-Abschnitte.
+Die bewusst separat geführten Flächen bleiben für die
+Flächenbilanz erhalten; siehe die Pilot-Entscheidung
+zur vorläufigen Auswertung unter Abschnitt 4a.
 
 ### 4a. QA-GeoPackage für QGIS und Kartensammlung
 
@@ -337,14 +337,14 @@ Eine echte FOW-Statistik pro Achse würde Änderungen an
 Auch die Knotenbereiche sind im V0-Ergebnis nicht einzelnen
 GIP-Knoten-IDs zugeordnet.
 
-**Sichtung:** Alle vier GeoPackage-Ebenen in QGIS oder
-Kartensammlung öffnen, ein aktuelles Orthofoto darunterlegen,
-`nicht_zugeordnet` zuerst auf mögliche systematische Restlücken
-kontrollieren, danach die großen `sonderachsen` und
-`knotenbereiche`. Die Polygonattribute mit `kachel_id` und
-`gip_id` erlauben eine gezielte Rücksuche in den Rohdaten.
-Ein erfolgreicher Export beweist die **technische** Flächenkonsistenz,
-nicht die fachliche Richtigkeit jeder Straßenzuordnung.
+**Sichtung:** Für die vorläufige fachliche Abschnittsauswertung
+zunächst `gip_abschnitte` über Orthofoto und GIP-Achsen
+kontrollieren. Die anderen drei Ebenen bleiben zu QA-Zwecken
+im GeoPackage, fließen aber **nicht** in die derzeitige
+Abschnittsbewertung ein. `kachel_id` und `gip_id` erlauben
+die gezielte Rücksuche in den Rohdaten. Ein erfolgreicher Export
+beweist technische Flächenkonsistenz, nicht die fachliche
+Richtigkeit jeder Straßenzuordnung.
 
 **Erster realer QA-GeoPackage-Export (14.10.2026):**
 `data/processed/wienweit/alsergrund/alsergrund_qa.gpkg` wurde
@@ -378,6 +378,72 @@ ist eine separate Weiterentwicklung des Partitionsmoduls nötig.
 `knotenbereiche` und `nicht_zugeordnet` sind ebenfalls
 je Kachel gesammelte Multipolygone, die viele disjunkte
 Kleinflächen enthalten können.
+
+### Vorläufige Auswertungsentscheidung nach Sichtung von Alsergrund (14.10.2026)
+
+Die Sichtung des ersten realen QA-Exports ergab nach Einschätzung
+des Anwenders: **`gip_abschnitte` ist für die weitere
+Abschnittsanalyse brauchbar**. Das ist eine qualitative
+Pilotbeobachtung, keine statistisch validierte Genauigkeitsangabe.
+**Vorerst keine Änderung am Voronoi-Verfahren, den FOW-Regeln,
+der Knotenpufferung oder der bereits berechneten Daten.**
+
+| V0-Kategorie | Fläche Alsergrund | Status für vorläufige Abschnittsstatistik |
+| --- | ---: | --- |
+| `gip_abschnitte` (FOW=3) | 652.048,8464 m² (82,43 %) | **Einbeziehen**: ausschließlich diese einem GIP-Abschnitt zugewiesenen Flächen werden abschnittsweise ausgewertet |
+| `knotenbereiche` | 50.908,6544 m² (6,44 %) | **Separat/ausgeschlossen**: derzeit nicht eindeutig je GIP-Abschnitt zugewiesen |
+| `sonderachsen` | 84.741,4630 m² (10,71 %) | **Vorerst ausschließen und als methodische Lücke festhalten**; später explizit abschnitts-/FOW-genau behandeln |
+| `nicht_zugeordnet` | 3.295,0952 m² (0,42 %) | **Vorerst ausschließen**; in Alsergrund laut Sichtung überwiegend irrelevante Mikroflächen, oft auf privaten Flächen, aber nicht grundsätzlich so einstufen |
+
+**Bilanz und Nenner strikt getrennt halten:** Die vorläufige
+Abschnittsauswertung deckt **652.048,85 m² = 82,43 %** des
+gesamten ermittelten Straßenraums (**790.994,06 m²**) ab.
+**138.945,21 m² = 17,57 %** bleiben als getrennte
+Kategorien dokumentiert. Beim Vergleich von Begrünungs- oder
+Kronenquoten je GIP-Abschnitt wird nur die tatsächlich diesem
+Abschnitt zugeordnete Fläche als Nenner verwendet. Das Ergebnis
+darf **nicht** unkommentiert als Quote für den gesamten
+Alsergrunder Straßenraum oder für alle Wiener Straßen gelten.
+In der Gesamtflächen- und Vollständigkeitsbilanz werden alle
+vier Kategorien **weitergeführt**, nicht gelöscht,
+umklassifiziert oder nachträglich als GIP-Abschnitt gerechnet.
+
+**Weitere Bezirke / Gesamt-Wien:** Die Beobachtung,
+`nicht_zugeordnet` bestehe nur aus unbedeutenden,
+häufig privaten Mikroflächen, ist **bisher ausschließlich
+eine qualitative Alsergrund-Beobachtung**. In den nächsten
+Bezirks-Piloten und vor einer Wien-weiten Freigabe erneut
+prüfen: Flächenanteil, Größe und Lage der Teilpolygone,
+größte zusammenhängende Restflächen, Zusammenhang mit
+GIP-Lücken und öffentlich genutztem Straßenraum. Bei
+signifikanten oder systematischen Restflächen die
+Ausschlussentscheidung überdenken. Die pro Kachel
+aggregierten MultiPolygone können viele getrennte
+Teilflächen enthalten; ihre Feature-Anzahl allein ist
+kein Maß für Mikroflächen.
+
+**Sonderachsen / Methodik:** V0 sammelt sämtliche innerhalb
+des jeweiligen Kachelkerns für FOW ungleich 3 gehaltenen
+Abschnittsflächen in einem gemeinsamen `sonderachsen`-Polygon;
+der separate Knotenpuffer hat **7 m Radius**. Die
+Sonderachsen sind also nicht notwendigerweise bloß ein
+Artefakt zu kleiner Knotenradien. Eine Vergrößerung
+der Radien könnte zwar Teile davon den `knotenbereiche`
+zuschlagen, **würde sie jedoch nicht korrekt einem
+GIP-Abschnitt zuordnen** und zudem die regulären
+Abschnittsflächen verkleinern. Daher vorerst **keine
+Radiusänderung**. Bei einer späteren Verbesserung der
+Knoten-/Abschnittsaufteilung sollten die Sonderachsen
+gezielt berücksichtigt, idealerweise **GIP-ID und FOW
+während der Partitionierung erhalten** und die
+Auswirkungen auf alle Flächenanteile erneut bilanziert
+und räumlich kontrolliert werden. Kein rückwirkendes
+Schätzen von FOW oder GIP-ID aus den aggregierten V0-Polygonen.
+
+Die bereits erzeugte `aufteilung.sqlite` und
+`alsergrund_qa.gpkg` bleiben **unverändert**; die
+Entscheidung betrifft lediglich die **vorläufige fachliche
+Auswertung** und ihre dokumentierte Abdeckung.
 
 ### 5. Benchmark protokollieren
 
