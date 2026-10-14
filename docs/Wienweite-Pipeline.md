@@ -212,6 +212,25 @@ git pull --ff-only
 ~~~
 
 
+**Realer Alsergrund-Straßenraum, erster Gesamtlauf (14.10.2026):**
+Alle **10/10** Kacheln wurden fertig berechnet, die bereits
+vorhandene Kachel `x+000001_y+000342` wurde als **geprüfter Cache**
+wiederverwendet. Die **aus auf 0,1 m² gerundeten Konsolenausgaben**
+summierte Straßenraumfläche beträgt **790.994,1 m²**
+(ca. **26,6 %** der rund 2,97 km² Bezirks-AOI). Für die **neun
+neu berechneten** Kacheln wurden zusammen **71,19 s**
+lokale Rechenzeit protokolliert; die 20,76 s der zuvor
+fertiggestellten Pilotkachel sind darin nicht enthalten.
+Diese Zeiten umfassen **nicht** die vorherigen FMZK-/BEV-Downloads
+oder GIP-Indexierung. Die genauen, ungerundeten Flächen stehen
+in den zehn lokalen `street.sqlite`.
+
+Damit sind die echten Straßenraum-Eingaben für den ersten
+Bezirks-Voronoi-Test vorbereitet. Die GIP-V0-Flächenzuordnung
+und ihre strenge Flächenbilanz sind **noch nicht real
+durchgelaufen**. Zunächst nur eine Partitionierungskachel
+mit `--limit-tiles 1` ausführen und das Ergebnis prüfen.
+
 ### 4. V0 kachelweise rechnen und wiederaufnehmen
 
 ~~~bash
