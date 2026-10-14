@@ -286,7 +286,8 @@ class WienPipelineTests(unittest.TestCase):
 			0.059,delta=.0001)
 		# Das ursprüngliche Quell-GIS-Polygon/LineString
 		# darf NICHT gepuffert oder in die BBOX hinein verschoben werden.
-		self.assertEqual(view["features"][0]["geometry"],
+		self.assertEqual(
+			json.loads(json.dumps(view["features"][0]["geometry"])),
 			json.loads(near)["features"][0]["geometry"])
 		for distance in (.251,1.,10.,100.):
 			with self.subTest(distance=distance):
