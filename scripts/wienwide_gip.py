@@ -155,7 +155,7 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 				}
 				for kind in LAYERS
 			},
-				}
+		}
 		tmp=meta.with_suffix(".json.tmp")
 		tmp.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
 		tmp.replace(meta)
