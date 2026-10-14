@@ -416,7 +416,15 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 							and not p["clipped_left"] and not p["clipped_right"]),
 							key=lambda p: abs(p["s_m"]-aux["s_m"]), default=None)
 						if match and abs(match["s_m"]-aux["s_m"]) <= step_m*1.01:
-							if outer is None or match["s_m"] <= outer["s_m"]:
+							# Eine Messung quer durch die noch offene
+							# Kreuzungsmitte darf keine innere Ecke
+							# vortäuschen: gegen die normale Armweite
+							# plausibilisieren, nicht nur den Abstand.
+							width_ok = (outer is None or match["width_m"]
+								<= max(outer["width_m"]*1.8,
+									outer["width_m"]+8))
+							if width_ok and (outer is None
+								or match["s_m"] <= outer["s_m"]):
 								choices.append((match, "verkehr_und_aussenrand"))
 				if not choices:
 					source_by_side[side] = "kein_nachweis"
@@ -436,6 +444,10 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 			arm["innenstationen_m"] = {
 				"left": round(left["s_m"], 3) if left else None,
 				"right": round(right["s_m"], 3) if right else None}
+			arm["verschiebung_zum_knoten_m"] = {
+				side: round(outer_by_side[side]["s_m"]-p["s_m"], 3)
+					if outer_by_side[side] is not None and p is not None
+					else None for side, p in (("left", left), ("right", right))}
 			# Bei dreiarmigen Kreuzungen liegt auf einer Seite oft eine
 			# unveränderte Gerade ohne Aufweitung. Im Zweifelsfall:
 			# Schnitt senkrecht zur lokalen GIP-Achse bei der gefundenen
