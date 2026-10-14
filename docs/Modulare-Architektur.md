@@ -217,6 +217,26 @@ mit den vorhandenen Daten steht noch aus;
 [Modul-6-Testanleitung](Modul-6-Abschnittskennzahlen.md).
 **V0 und die Eingabedaten werden nicht verändert.**
 
+## 4c. Wienweite, gekachelte Verarbeitung – Infrastruktur
+
+Die neue [Wienweite Pipeline](Wienweite-Pipeline.md) nutzt
+statische **EPSG:31256-Rasterkerne** mit Halo, eine **globale
+GIP-ID-/Stützpunktdatenbank** in SQLite samt RTree sowie
+rein metrische **WKB-Straßenraumflächen und -Abschnittsfragmente**.
+
+Die bisherige 5/7/25/FOW3-V0-Methodik bleibt gleich; die
+Quellprogramme liefern FMZK+BEV und GIP-Kacheln mit
+nachgeprüften Hashes und dokumentierten Fehlerfällen.
+Eine kachelübergreifende globale GIP-ID bleibt in jeder
+Teilkachel gleich, ohne ihre Fläche zu duplizieren.
+Synthetische Tests vergleichen die lokalen Kachelzellen
+gegen einen durchgängigen V0-Voronoi-Lauf.
+
+**Kein realer Bezirkslauf oder Wien-Gesamtlauf ist damit
+schon ausgeführt.** Die gekachelte Erstellung von A/B/C-
+Baumkronen und der eigentliche wienweite Modul-6-Lauf
+sind getrennte nächste Schritte.
+
 ## 5. Weitere Kriterien – offen
 
 Weitere getrennte Module können unter anderem zusätzliche räumliche und nutzungsbezogene Merkmale auswerten. Details und Datenquellen werden erst festgelegt, wenn sie benötigt werden. Auch die spätere Segmentierung, Aggregation und eine Gartenstraßen-Bewertung sind eigene Schritte, **nicht** Teil des jetzigen Bodenbegrünungsmoduls.

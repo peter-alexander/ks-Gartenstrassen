@@ -1,8 +1,13 @@
 # Modul 6 – Kennzahlen je GIP-Straßenabschnitt
 
 **Implementiert am 14.10.2026.** Eigenständiges Offline-Modul
-**scripts/measure_sections.py**. Die erste Ausführung mit den echten
-lokalen Datensätzen und die Kartenkontrolle stehen noch aus.
+**scripts/measure_sections.py**. Der erste reale lokale Lauf
+mit 45 V0-Abschnitten ist rechnerisch erfolgreich:
+Originalgebiet 46.630,56 m², 0 m² fehlende Fläche,
+Bodenbegrünung 889,18 m² und Kronen A/B/C
+3.647,05 / 3.678,65 / 4.358,69 m².
+**Die visuelle/kartografische Prüfung der 45
+Einzelgeometrien bleibt ausständig.**
 
 ## Was berechnet wird
 
@@ -139,7 +144,8 @@ Der Testfall mit einem selbstschneidenden Polygon und
 die Zurückweisung einer inkonsistenten Quellfläche
 sind durch separate Unit-Tests abgedeckt.
 **Die erneute Ausführung mit den echten lokalen Daten
-steht noch aus.**
+hat inzwischen erfolgreich stattgefunden. Die rein
+metrische V0-Neuberechnung wird separat weiter verwendet.**
 
 ## Realtest-Fix: Flächenverlust bei WGS84-GeoJSON (14.10.2026)
 
@@ -204,8 +210,8 @@ unverändert. Die neue **metrische** Methode
 wurde durch Offline-Tests mit einer absichtlich
 in den Exportpolygonen erzeugten Lücke,
 unveränderten V0-IDs und geprüften SHA-256
-abgesichert; **eine reale Ausführung auf dem
-lokalen Original-GIP/GeoPackage steht aus**.
+abgesichert; **die reale Ausführung mit dem lokalen Original-GIP/GeoPackage
+hat 45 Abschnitte mit vollständiger Flächenbilanz ergeben.**
 
 ## Nächster fachlicher Schritt
 
