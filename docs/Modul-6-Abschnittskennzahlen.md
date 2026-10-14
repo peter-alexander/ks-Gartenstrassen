@@ -110,6 +110,32 @@ B 3.678,65 m², C 4.358,69 m². Diese Zahlen sind keine
 hartcodierten Zielwerte, denn spätere konsistente neue
 Datenstände müssen ebenfalls geprüft werden können.
 
+## Korrektur des ersten lokalen Startfehlers (14.10.2026)
+
+Ein reales V0-Abschnittspolygon (`gip:10042121`) wurde beim
+Wiedereinlesen aus GeoJSON zunächst mit `gültige Polygonfläche
+erwartet` abgelehnt. Die tatsächliche Ursache des einzelnen
+ungültigen Rings lässt sich ohne das betreffende Original-GeoJSON
+nicht abschließend zuordnen; in Betracht kommen auch
+Gültigkeitsprobleme aus dem EPSG:31256/WGS84-Rundweg.
+
+**Modul 6 prüft nun die neu projizierten Abschnittsgeometrien
+und setzt nur bei Bedarf `shapely.make_valid` mit Extraktion
+polygonaler Anteile ein.** Die V0-Quellgeometrie wird **nicht**
+verändert. Jede tatsächlich reparierte Geometrie wird im
+Feld `partition_pruefung.reparierte_geojson_geometrien`
+mit GIP-ID, Fehlergrund und Flächendifferenz protokolliert.
+Die anschließenden Kontrollen von Fläche je Feature,
+V0-Gesamtbilanz, Lücken und Überlappungen bleiben aktiv.
+Ändert eine Reparatur die Geometrie unzulässig stark oder
+bleibt die Fläche leer, wird weiterhin abgebrochen.
+
+Der Testfall mit einem selbstschneidenden Polygon und
+die Zurückweisung einer inkonsistenten Quellfläche
+sind durch separate Unit-Tests abgedeckt.
+**Die erneute Ausführung mit den echten lokalen Daten
+steht noch aus.**
+
 ## Nächster fachlicher Schritt
 
 Nach dem echten Lauf die einzelnen 45 Abschnitte in der
