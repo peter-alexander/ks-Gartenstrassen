@@ -167,6 +167,23 @@ Der Überschirmungsgrad bleibt **unabhängig von der Bodenbegrünung** und darf 
 
 **[Modul-4-Methodik, Vergleichsvarianten und Prüfschritte](Modul-4-Baumkronen-Vergleich.md).**
 
+## 4a. Modul 5 – Straßenabschnitte (Planung 14.10.2026)
+
+Als nächster eigenständiger Verarbeitungsschritt werden die bestehenden
+Straßenraum-Polygone **anhand des Wiener GIP-Straßengraphen** in
+Abschnitts-Bezugsräume unterteilt. `STRASSENGRAPHOGD` liefert bereits
+Netzabschnitte zwischen Kreuzungen; `STRASSENKNOTENOGD` liefert
+Kreuzungsknoten. **Kreuzungsflächen, Grenzfälle und nicht zuordenbare
+Restflächen müssen ohne Doppelzählung bilanziert werden.** GIP-Achsen
+ersetzen nicht die Straßenraum-Maske aus Modul 2.
+
+**Status:** Konzept, noch keine Implementierung und kein lokaler GIP-Datenlauf
+im Rahmen dieses Moduls. Die nächste konkrete Arbeit ist ein kleiner
+WFS-Probeabruf und eine Sichtprüfung. D2-Schwelle 0,20 bleibt unabhängig
+davon als Vegetations-Baseline; Baumkronentrennung von Methode D bleibt offen.
+
+[Vollständiges Modul-5-Konzept](Modul-5-Strassenabschnitte.md).
+
 ## 5. Weitere Kriterien – offen
 
 Weitere getrennte Module können unter anderem zusätzliche räumliche und nutzungsbezogene Merkmale auswerten. Details und Datenquellen werden erst festgelegt, wenn sie benötigt werden. Auch die spätere Segmentierung, Aggregation und eine Gartenstraßen-Bewertung sind eigene Schritte, **nicht** Teil des jetzigen Bodenbegrünungsmoduls.

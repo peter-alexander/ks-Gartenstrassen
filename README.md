@@ -529,10 +529,10 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 
 ## Nächste Schritte (modular)
 
-1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Methode D – zuerst alle vorhandenen Varianten messen:** Mit `python -m scripts.compare_bev_variants` die D2-Schwellen (0,10–0,40) sowie die D3-Klassen/Hysterese auf **denselben Straßenraum wie A/B/C** schneiden und die resultierenden m²-/Prozentwerte gegenüberstellen. Der erste D3-Bildtest zeigte, dass 83,36 % der Vegetationspixel als Kronenkandidaten markiert werden; dies darf nicht ohne Mess- und Qualitätsvorbehalt als echte Überschirmung gelten. **Erst aus den Vergleichswerten und Prüfbeispielen** die nächsten methodischen Schritte auswählen.
-3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
-4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
+1. **Modul 5 – Straßenabschnitte als Bezugsräume vorbereiten:** Den amtlichen Wiener GIP-Straßengraph (`STRASSENGRAPHOGD`, `STRASSENKNOTENOGD`) kleinräumig abrufen und visuell prüfen. Danach die bestehende Straßenraumfläche flächentreu, überschneidungsfrei auf Abschnitte sowie explizite Kreuzungs-/Restflächen aufteilen. **Konzept und offene Entscheidungen:** [Modul 5 – Straßenabschnitte](docs/Modul-5-Strassenabschnitte.md). Noch keine Abschnittspolygone erzeugt.
+2. **Bodenbegrünung und Baumkronenüberschirmung je Abschnitt messen**, nachdem die Geometriebilanz überprüft wurde. Die bestehenden Gesamtwerte A/B/C und Bodenbegrünung nicht verändern und Quoten nicht addieren.
+3. **Methode D als abgeschlossenes Zwischenergebnis belassen:** D2 **0,20 als Baseline** für Vegetation. Die **Trennung von Baumkronen und sonstiger Vegetation bleibt offen**; derzeit keine weitere D-Optimierung.
+4. **Später fachlich prüfen:** FMZK-Klasse 58 in Modul 3, unsichere Randbereiche und mögliche Fehlzuordnungen von Modul 2. Die Module nur auf Grundlage konkreter Prüffälle verändern.
 
 Die vollständige Beschreibung der derzeitigen Zuordnungsregeln und Grenzen steht in [docs/Methodik-Strassenraum-FMZK-Kataster.md](docs/Methodik-Strassenraum-FMZK-Kataster.md).
 
