@@ -276,6 +276,50 @@ Die Summe der Einzelflächen darf nicht wegen gemeinsamer Kreuzungsflächen
 größer werden. Ein `status` je Fläche zeigt an, ob die Zuordnung
 verlässlich, randbedingt oder ungeklärt ist.
 
+### Reales Ergebnis der Flächenpartition (14.10.2026, 11:31 UTC)
+
+Der erste **lokale** Bericht `abschnitte_bericht.json` zur
+`aufteilung_v0` ist eingegangen. Als Quelldokumente sind
+`fmzk_strassenraum.geojson` mit SHA-256
+`dc53cd78d0bcd5cb242529e126a969f1be6ca5d27487ff1e85ee684654d7fc11`
+sowie die zuvor abgefragten GIP-Achsen/-Knoten ausgewiesen.
+Parameter unverändert: 5 m Stützpunktabstand, 7 m Knotenradius,
+25 m maximale Achsdistanz, FOW 3.
+
+| Kategorie | Fläche | Anteil an 46.630,56 m² |
+| --- | ---: | ---: |
+| 45 experimentell zugeordnete Abschnitte | **43.217,91 m²** | **92,68 %** |
+| Ungeklärte Kreuzungsflächen | **3.368,09 m²** | **7,22 %** |
+| Ungeklärte Sonderachsen | **44,56 m²** | **0,10 %** |
+| Nicht zugeordneter Rest | **~0,000000002 m²** | **~0 %** |
+| **Gesamt** | **46.630,56 m²** | **100 %** |
+
+Der Bericht enthält 80 Quellachsen, **38 Knotengrad-≥3-Kreuzungen**
+und **1.592 Voronoi-Stützpunkte**. Unter den verbleibenden
+3.412,65 m² ungeklärter Flächen sind **98,69 % Kreuzungsbereiche**.
+Die technische Flächenbilanz ist konsistent:
+`bilanzdifferenz_m2 = 7,64e-10`,
+`ueberlappung_m2 = 2,69e-10`, `fehlend_m2 = 0`,
+`ausserhalb_m2 = 0`. Damit ist die Bilanzinvariante numerisch erfüllt
+– **nicht** bereits die Lage- und Zuordnungsqualität.
+
+**Fachliche Interpretation:** Der gesamte Straßenraum konnte
+rechnerisch abgedeckt werden, weil nicht zuweisbare Flächen
+gesondert erhalten bleiben. Dass `nicht_zugeordnet` fast null ist,
+beweist **keine** korrekte Zuordnung: Das Ergebnis hängt auch vom
+25-m-Achsabstand und der Voronoi-Konstruktion ab. Insbesondere die
+**3.368 m² pauschal ausgeschnittenen Knotenzonen** dominieren die
+noch ungeklärte Fläche. Der Knotenradius 7 m darf daher nicht nur
+wegen eines hohen Zuordnungsprozents reduziert werden.
+
+**Nächster Prüfpunkt:** Die beiden tatsächlichen Ausgabe-GeoJSONs
+`abschnitte_flaechen.geojson` und `abschnitte_ungeklaert.geojson`
+gegen GIP-Achsen und Orthofoto überprüfen, zuerst die
+Kreuzungszonen, danach breite Straßen, parallele Achsen, Promenaden,
+Steg und abgeschnittene Randbereiche. **Keine Schwellenveränderung,
+keine Übernahme als validierte Abschnitte und keine abschnittsweisen
+Begrünungs-/Überschirmungsquoten vor dieser Geometrieprüfung.**
+
 ## 4. Vorgesehene Ausgabe-Schnittstelle
 
 - `abschnitte_achsen.geojson` – amtliche Quelllinien zur visuellen
@@ -317,10 +361,11 @@ verschiedene, sich potenziell überlagernde Kennzahlen.
 
 ## Nächste konkrete Arbeit
 
-**Den ersten realen Offline-Lauf von `scripts.assign_gip_section_areas` mit der
-bestehenden Straßenraummaske ausführen**, `abschnitte_bericht.json` auf
-Flächenbilanz und Zuordnungsanteil prüfen und beide GeoJSON-Layer in der
-Kartensammlung gegen Orthofoto, GIP-Achsen und Kreuzungsknoten betrachten.
+**Der erste reale Offline-Lauf ist abgeschlossen und numerisch geprüft:**
+92,68 % zugeordnete Straßenraumfläche in 45 Abschnitten;
+7,32 % ungeklärt, fast vollständig Kreuzungszonen. **Jetzt die
+beiden Ausgabe-GeoJSONs** in der Kartensammlung gegen Orthofoto,
+GIP-Achsen und Kreuzungsknoten kontrollieren.
 Insbesondere die drei kleinen Netzkomponenten, breite Kreuzungen,
 parallele Fahrbahnen und Randabschnitte fachlich überprüfen.
 **Erst nach diesem Realtest** die Heuristik verändern oder
