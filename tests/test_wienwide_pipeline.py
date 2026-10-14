@@ -23,6 +23,7 @@ from scripts.wienwide_street import save_street_tile, load_street_tile
 from scripts.wienwide_partition import (
 	graph_context, split_tile, run as partition_run, report_results,
 )
+from scripts.wienwide_benchmark import benchmark
 
 
 def fc(features):
@@ -264,6 +265,15 @@ class WienPipelineTests(unittest.TestCase):
 		self.assertGreater(report["geometrisch_eindeutige_gip_ids"],0)
 		resumed=partition_run(self.plan_file,gip,street_root,output)
 		self.assertEqual(report["abschnitte_m2"],resumed["abschnitte_m2"])
+		bench=benchmark(self.plan_file,inputs=self.root/"unused",
+			fragments=self.gip_root,street_root=street_root,
+			gip_index=gip,partition_db=output)
+		self.assertEqual(bench["anzahl_kacheln"],len(self.manifest["tiles"]))
+		self.assertEqual(bench["quellabdeckung"]["gip_bericht_vorhanden"],
+			len(self.manifest["tiles"]))
+		self.assertEqual(bench["partition"]["status"],"vollständig")
+		self.assertAlmostEqual(bench["partition"]["gesamtbilanz"]["strassenraum_m2"],
+			report["strassenraum_m2"],delta=.01)
 
 
 if __name__=="__main__":
