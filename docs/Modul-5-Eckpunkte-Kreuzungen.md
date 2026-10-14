@@ -450,16 +450,46 @@ markiert statt großzügig toleriert.
 | Wert | Geometrische Bedeutung |
 | --- | --- |
 | **`hauswand`** (Standard) | Äußere **Modul-2-Straßenraummaske**, oft entlang Hauswand/Grundstücksgrenze, nicht zwingend realer Fassadenverlauf. Gleiche Grundlage wie zuvor. |
-| **`gehsteigkante`** | **FMZK F_KLASSE=21, Fahrbahnfläche**; ihr Rand dient als **experimentelle Gehsteigkanten-/Bordkanten-Näherung**. **Nicht** gleichzusetzen mit amtlich vermessener Bordsteinkante! Parkbuchten (Klasse 33), Inseln, Zufahrten und weitere Fälle können die Näherung verfälschen. |
+| **`gehsteigkante`** | **Geometrische Vereinigung der FMZK-Klassen 21/30/32/33/39** (Fahrbahn, Zebrastreifen, Schwellen und Rampen, Parkspuren, sonstige Verkehrsfläche). Ihr äußerer Rand dient als **experimentelle Gehsteig-/Fahrbahnkanten-Näherung**, nicht als amtlich vermessene Bordsteinkante. |
 
-Der alternative Modus liest Klasse 21 **aus dem vorhandenen lokalen
-FMZK-Test-GeoPackage**, schneidet sie mit dem vorhandenen
-Straßenraum und lädt keine weiteren Daten. Es wird **nur der
-Referenzrand für die Diagnose** gewechselt, nicht die Maske
-für Modul 2 oder die V0-Flächenaufteilung. Liegt eine
-GIP-Achse nicht innerhalb dieser Fahrbahnflächen, bleibt
-sie explizit ungeklärt; es wird nicht heimlich auf
-`hauswand` zurückgefallen.
+**Erweiterung vom 14.10.2026:** Die erste reale Diagnose zeigte
+bei der nur aus **F_KLASSE=21** gebildeten Alternativmaske
+**15.792,00 m²**, lediglich **14 plausible von 28 möglichen
+Schnittlinien** und 10 unklare Straßenarme. Mit dem äußeren
+Straßenraumrand entstanden dagegen 22 plausible Schnittlinien
+und 3 unklare Arme (bei jeweils 2 zu kurzen Armen und
+zusätzlich 1 bzw. 2 geometrisch abgelehnten Linien).
+Dieser Vergleich ist eine technische Diagnose, kein Genauigkeitsmaß.
+
+Die alternative Maske umfasst nun **fünf offizielle FMZK-Klassen**:
+
+| Klasse | Nutzung | Rolle |
+| --- | --- | --- |
+| 21 | Fahrbahn einschließlich Radwege | Basis |
+| 30 | Zebrastreifen | Querschnitt nicht künstlich unterbrechen |
+| 32 | Fahrbahnaufwölbung, Tempo-Schwelle, Einfahrts-/Auffahrtsrampe | Querschnitt nicht künstlich unterbrechen |
+| 33 | Ruhender Verkehr im öffentlichen Gut | Park- und Abstellspuren mit einbeziehen |
+| 39 | Sonstige Verkehrsfläche | Unbestimmte verkehrliche Randflächen mit einbeziehen; fachlich besonders prüfen |
+
+**Explizit nicht einbezogen:** 22 (Verkehrsinsel,
+damit echte Inseln als Aussparung erhalten bleiben), 23 (Gehsteig),
+24 (Fußgängerzone), 25/26 (Verkehr auf Privatgrund) sowie
+27–29 (Gleisbereiche). Diese Abgrenzung ist zunächst
+ein experimenteller Querschnittsprovider, keine endgültige
+Definition aller befahrbaren Flächen.
+
+Die fünf FMZK-Flächenklassen werden geometrisch **vereinigt**
+und auf die schon vorhandene Modul-2-Straßenmaske zugeschnitten.
+Die Klassenflächen werden nicht einfach addiert;
+der Bericht dokumentiert je Klasse **Objektzahl und
+vereinigte Fläche**, zusätzlich die Fläche der Gesamtmaske.
+Es gibt weder einen erneuten Datendownload noch einen
+stillschweigenden Rückfall auf `hauswand`, falls eine
+GIP-Achse außerhalb der vereinigten Flächen liegt.
+**Modul 2 und V0 bleiben unverändert.**
+
+Quelle zur offiziellen Klasseneinteilung:
+https://www.wien.gv.at/stadtentwicklung/stadtvermessung/pdf/fmzk-attribute-wertebereiche.pdf
 
 ### Beide Varianten lokal vergleichen
 
@@ -471,10 +501,10 @@ git pull --ff-only
   --boundary-mode hauswand \
   --out-dir data/processed/strassenabschnitte/eckpunkte_diagnose_v1_t90
 
-# Fahrbahnrand als Näherung für die Gehsteigkante
+# Erweiterte Verkehrsflächenmaske (Parkspuren, Schwellen etc.), neue Ausgabe
 .venv/bin/python -m scripts.diagnose_gip_junction_corners \
   --boundary-mode gehsteigkante \
-  --out-dir data/processed/strassenabschnitte/eckpunkte_diagnose_v1_gehsteigkante
+  --out-dir data/processed/strassenabschnitte/eckpunkte_diagnose_v1_verkehrsflaechen
 ```
 
 Beide Ausgaben haben getrennte
@@ -492,11 +522,12 @@ Hahngasse/Seegasse/Rotenlöwengasse.
 zur **lokalen** GIP-Achse, jedoch noch keine bestätigten
 Kreuzungsgrenzen. Eine gerundete Gehsteigkante und eine
 Fahrbahnkante können deutlich verschieden sein. Die
-zugrunde liegenden FMZK-21-Polygone ersetzen keine
-separat vermessene Bordstein-Geometrie. Sobald eine solche
-Quelle vorhanden und geprüft ist, soll sie als **separater
-Provider** angebunden werden, statt Klasse 21 als
-vermessene Gehsteigkante auszugeben.
+zugrunde liegenden FMZK-Verkehrsflächen (21/30/32/33/39)
+ersetzen keine separat vermessene Bordstein-Geometrie.
+Insbesondere `39` ist eine breite Sammelklasse und kann
+räumlich zu unerwünschten Nebenflächen führen.
+Sobald eine tatsächlich erfasste Gehsteigkante verfügbar
+und geprüft ist, soll sie als eigener Provider angebunden werden.
 
 ## Empfohlene Implementierungsreihenfolge
 

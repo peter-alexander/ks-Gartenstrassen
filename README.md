@@ -540,7 +540,9 @@ der Querprofile, vorläufige Eckpunkte und Schnittlinien
 für acht GIP-Kreuzungen erzeugt. Für dreiarmige Kreuzungen
 verwendet er nun bei einseitigen Übergängen eine **90°-Querlinie**;
 mit `--boundary-mode gehsteigkante` ist alternativ die
-**FMZK-Fahrbahnklasse 21 als Näherung** für den Gehsteigrand
+**vereinigten FMZK-Klassen 21/30/32/33/39** (Fahrbahn,
+Zebrastreifen, Tempo-Schwellen/Rampen, Parkspuren und
+sonstige Verkehrsfläche) als Näherung für den Gehsteigrand
 wählbar. Standard bleibt `hauswand` (äußerer Straßenraum). Der echte lokale V1-Lauf
 und die Sichtprüfung stehen noch aus;
 [Methodik und Aufruf](docs/Modul-5-Eckpunkte-Kreuzungen.md).

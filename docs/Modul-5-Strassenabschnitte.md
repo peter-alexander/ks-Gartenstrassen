@@ -201,8 +201,9 @@ des v0-Codes**.
 **V1.1-Diagnose:** Für T-Kreuzungen ist die **rechtwinklige
 Schnittlinie** mit einem einseitigen Übergang als Fallback
 implementiert. Der Referenzrand ist zwischen äußerem
-Straßenraum (`hauswand`, Standard) und einer **FMZK-21-
-Fahrbahnkanten-Näherung** (`gehsteigkante`) umschaltbar.
+Straßenraum (`hauswand`, Standard) und einer **vereinigten FMZK-Verkehrsflächen 21/30/32/33/39**
+(`gehsteigkante`, einschließlich Zebrastreifen, Schwellen,
+Parkspuren und sonstiger Verkehrsflächen) umschaltbar.
 Ergebnisse sind weiterhin nur **unvalidierte Kandidaten**,
 keine abgegrenzten neuen Kreuzungspolygone oder geänderten
 Abschnittsflächen. [Varianten und Aufruf](Modul-5-Eckpunkte-Kreuzungen.md#v11-t-kreuzungen-und-alternative-gehsteigkante-14102026).
