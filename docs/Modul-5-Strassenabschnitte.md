@@ -179,6 +179,21 @@ Straßenraum-Polygonabschnitten sind. Eine fehlende Knotenreferenz
 innerhalb der Anfrage-BBOX wäre ein tatsächlicher Hinweis zur
 Nachprüfung. Ohne Flächenzuordnung noch keine Abschnittsquoten.
 
+## Entwurf für präzisere Kreuzungsgrenzen (v1)
+
+Auf Basis der Nutzer-Skizze wird eine **eck-/übergangspunktbasierte
+Kreuzungsabgrenzung** untersucht: an jedem Kreuzungsarm die beiden
+Übergänge von der Aufweitung zum normalen Straßenquerschnitt bestimmen,
+daraus eine **Querlinie** bilden und erst danach die mittlere
+Kreuzungsfläche trennen. Anders als v0 basiert dies nicht pauschal
+auf einem 7-m-Radius. Die 7-m-Methode bleibt als explizit
+gekennzeichneter Fallback und Vergleich erhalten.
+
+**Konkreter Algorithmus, Randfälle, Geometrieprüfung,
+Abnahmekriterien und Umsetzungsschritte:**
+[Modul 5 – Eckpunkt-Erkennung an Kreuzungen](Modul-5-Eckpunkte-Kreuzungen.md).
+**Status: nur Entwurf; kein Austausch des v0-Codes.**
+
 ## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (erste experimentelle Implementierung)
 
 Die eigentliche neue Aufgabe ist die **flächentreue, überschneidungsfreie
