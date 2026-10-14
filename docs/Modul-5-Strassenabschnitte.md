@@ -147,8 +147,11 @@ muss anhand von Verkehrsart, Geometrie und Lage geprüft werden.
 Die Quellattribute enthalten verschiedene `FOW`-Werte (3/15/14/2/18)
 und `EDGECATEGORY`-Werte (G/L/B); **noch kein automatischer Filter**
 für Straßen, Fußwege, Brücken oder Promenaden. Der numerische
-`DEDICATEDWIDTH` ist keine vermessene Polygonbreite; negative
-bzw. fehlende Werte müssen ausdrücklich kenntlich bleiben.
+`DEDICATEDWIDTH` ist keine vermessene Polygonbreite: **63 von 80 Achsen**
+tragen im ersten GIP-Abruf den Wert **−1**. Deshalb ist eine
+Flächenaufteilung durch einfaches Puffern der GIP-Achsen mit diesem
+Breitenattribut nicht tragfähig. Negative bzw. fehlende Werte müssen
+ausdrücklich kenntlich bleiben.
 
 ### Wiederholbare lokale Topologieprüfung
 
