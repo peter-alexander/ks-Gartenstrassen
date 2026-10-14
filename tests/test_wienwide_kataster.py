@@ -8,7 +8,11 @@ from unittest.mock import patch
 from shapely import union_all
 from shapely.geometry import box
 from scripts.wienwide_kataster import read_native_kataster_masks
-from scripts.wienwide_street import build_tile,load_street_tile
+from scripts.wienwide_street import (
+	build_tile,load_street_tile,check_existing_tile,
+	save_street_tile,run as street_run,
+)
+from scripts.wienwide_grid import checksum
 
 
 class WienwideKatasterTests(unittest.TestCase):
@@ -98,6 +102,59 @@ class WienwideKatasterTests(unittest.TestCase):
 			with self.assertRaisesRegex(ValueError,"Unbekannter nfl-Code"):
 				read_native_kataster_masks(self.kat,self.clip,self.fmzk,
 					self.manifest,self.cache)
+
+	def test_resume_verifies_aoi_and_every_cached_bev_source(self):
+		aoi=box(0,0,100,100)
+		tile={"id":"first","bounds_31256":[0,0,100,100]}
+		input_root=self.root/"inputs"
+		folder=input_root/"first"
+		folder.mkdir(parents=True)
+		fmzk=folder/"fmzk.gpkg"
+		fmzk.write_bytes(b"fmzk source")
+		kat=folder/"kataster"
+		kat.mkdir()
+		report=kat/"kataster_bericht.json"
+		report.write_text(json.dumps(self.report),encoding="utf-8")
+		source=self.cache/"tiles"/"16"/"35000"/"23000.pbf"
+		meta={
+			"schema_version":"1","crs":"EPSG:31256",
+			"tile_id":"first","aoi_area_m2":10000,
+			"strassenraum_m2":100,
+			"halo_m":75,"fmzk_sha256":checksum(fmzk),
+			"kataster_bericht_sha256":checksum(report),
+			"kataster_status":{"bev_cache_sha256":{
+				"16/35000/23000":checksum(source)}},
+		}
+		output=self.root/"out"
+		street=output/"first"/"street.sqlite"
+		save_street_tile(street,box(10,10,20,20),meta)
+		with patch("scripts.wienwide_street.read_manifest",
+			return_value=({"tiles":[tile],"halo_m":75},aoi)), patch(
+			"scripts.wienwide_street.build_tile",
+			side_effect=AssertionError("Darf Cache nicht neu berechnen")):
+			res=street_run(self.root/"raster.json",input_root,output,
+				cache_dir=self.cache)
+		self.assertEqual(len(res),1)
+		self.assertTrue(res[0]["cache"])
+		self.assertEqual(res[0]["area_m2"],100)
+		self.assertEqual(check_existing_tile(tile,aoi,input_root=input_root,
+			output_root=output,halo=75,cache_dir=self.cache)["area_m2"],100)
+		with self.assertRaisesRegex(ValueError,"anderer AOI"):
+			check_existing_tile(tile,box(0,0,101,100),input_root=input_root,
+				output_root=output,halo=75,cache_dir=self.cache)
+		with self.assertRaisesRegex(ValueError,"anderem Halo"):
+			check_existing_tile(tile,aoi,input_root=input_root,
+				output_root=output,halo=80,cache_dir=self.cache)
+		fmzk.write_bytes(b"changed fmzk")
+		with self.assertRaisesRegex(ValueError,"verändert"):
+			check_existing_tile(tile,aoi,input_root=input_root,
+				output_root=output,halo=75,cache_dir=self.cache)
+		fmzk.write_bytes(b"fmzk source")
+		source.write_bytes(b"changed BEV")
+		with self.assertRaisesRegex(ValueError,"BEV-Rohkachel"):
+			check_existing_tile(tile,aoi,input_root=input_root,
+				output_root=output,halo=75,cache_dir=self.cache)
+		self.assertTrue(street.exists())
 
 	def test_wienwide_street_build_uses_only_metric_cache(self):
 		inputs=self.root/"inputs"
