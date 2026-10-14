@@ -83,15 +83,20 @@ als Gartenstraße findet noch nicht statt.
 2. Die Straßenraummaske über **SHA-256** mit dem ursprünglichen
    V0-Bericht abgleichen; keine Variante mischen.
 3. Eindeutige GIP-IDs, Flächen-Eigenschaften und gültige
-   Polygongeometrien voraussetzen.
+   **metrische** Polygongeometrien voraussetzen. Die V0-Quellen
+   und ihre SHA-256 müssen bei der Neuberechnung identisch sein.
 4. **Vollständigkeit der Partition:** Vereinigung aller Abschnitte
    und ungeklärten Flächen muss dem Originalstraßenraum
    entsprechen, ohne relevante Überlappungen oder Außenanteile.
-   Für die WGS84-GeoJSON-Rückprojektion gilt
-   **max(0,5 m²; 0,001 % des Gesamtgebiets)** als
-   offen ausgewiesene numerische Toleranz. Ein winziges
-   Restpolygon unter 0,0001 m² wird ausdrücklich
-   als numerischer Rest erfasst.
+   **Standard: direkt metrische Neuberechnung mit maximal
+   0,05 m² beziehungsweise 1 ppm** statt des fehleranfälligen
+   WGS84-Importwegs. Für den optionalen Diagnosemodus
+   `--partition-source geojson` galt eine deutlich gröbere
+   Importtoleranz von **max(0,5 m²; 0,001 % des
+   Gesamtgebiets)** – gerade die hat beim Realtest
+   eine **2,201588-m²-Lücke** aufgedeckt.
+   Ein numerisches Restpolygon unter 0,0001 m² wird
+   gesondert nachgewiesen, nicht beliebig zugeteilt.
 5. Flächenschnitte für **alle Methoden** auf jedem
    Teilpolygon ermitteln. Ein Kennzahlen-m²-Wert darf
    die Teilpolygonfläche nicht überschreiten.
@@ -135,6 +140,72 @@ die Zurückweisung einer inkonsistenten Quellfläche
 sind durch separate Unit-Tests abgedeckt.
 **Die erneute Ausführung mit den echten lokalen Daten
 steht noch aus.**
+
+## Realtest-Fix: Flächenverlust bei WGS84-GeoJSON (14.10.2026)
+
+Im ersten echten V0/Modul-6-Durchlauf waren durch den
+GeoJSON-Rundweg einzelne Ringe ungültig; nach Reparatur meldete
+die bisherige Flächenprüfung noch **2,201588 m² fehlenden
+Straßenraum**. Dieser Wert ist eine **tatsächlich gemessene
+Diskrepanz beim Import** und darf weder ignoriert noch
+durch Ausweiten der Toleranz als gültig erklärt werden.
+Ob ausschließlich Rundungs-/Projektionsartefakte dafür
+verantwortlich sind, ist ohne Geometrievergleich nicht
+abschließend bewiesen.
+
+**Neuer Standard in Modul 6:** `--partition-source metric`.
+Die bereits implementierte V0-Aufteilung wird aus der
+**originalen Straßenraummaske und den ursprünglichen
+lokalen GIP-Achsen/-Knoten direkt in EPSG:31256**
+erneut **im Arbeitsspeicher** ausgeführt. Es werden
+weiterhin exakt die **5 m / 7 m / 25 m / FOW=3**
+Parameter verwendet. Das ist **keine neue V0-Variante**
+und es werden keine Kreuzungsgrenzen angepasst.
+
+Vor der Freigabe müssen die SHA-256 der Straßenraummaske
+sowie der GIP-Achsen und -Knoten exakt mit dem
+**bestehenden V0-Bericht** übereinstimmen. Danach werden
+die gebildeten GIP-IDs, Status, Straßenname,
+metrische Quellfläche jedes Abschnitts und die
+V0-Gebietssummen verglichen. V0 muss erneut ohne
+relevante Lücken/Überlappungen und mit derselben
+Abschnittsanzahl partitionieren. Unbekannte oder
+abweichende Quell-IDs, Parameter, einzelne Quellflächen
+oder Hashes führen zum **Abbruch**, nicht zu einer
+stillen Neuzuteilung.
+
+Die GeoJSONs aus `aufteilung_v0` werden dabei
+**nur für Quell-ID und Quellflächenverifizierung**
+gelesen. Die Berechnungsgeometrie kommt aus dem
+identischen metrischen V0-Algorithmus. Sie wird
+**nicht aus den gerundeten GeoJSON-Koordinaten
+rückprojiziert**, wodurch der bisherige
+Importverlust vermieden wird.
+
+Der Modul-6-Bericht dokumentiert im Feld
+`partition_pruefung.berechnungsgrundlage` den Wert
+`metrische_v0_neuberechnung` sowie die geprüften
+Quellhashes und die strenge metrische Bilanz.
+Die Option `--partition-source geojson` bleibt
+für den alten Fehlerpfad als **Diagnose** erhalten;
+sie ist nicht der Standard. Für abweichende
+lokale Verzeichnisse `--gip-dir` verwenden.
+
+**Erster neuer lokaler Testaufruf:**
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m scripts.measure_sections
+~~~
+
+Die V0-Quelldateien, der GIP-Graph und die
+bisherigen Berechnungsberichte bleiben
+unverändert. Die neue **metrische** Methode
+wurde durch Offline-Tests mit einer absichtlich
+in den Exportpolygonen erzeugten Lücke,
+unveränderten V0-IDs und geprüften SHA-256
+abgesichert; **eine reale Ausführung auf dem
+lokalen Original-GIP/GeoPackage steht aus**.
 
 ## Nächster fachlicher Schritt
 
