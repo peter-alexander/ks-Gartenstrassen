@@ -1,10 +1,12 @@
 # Modul 5 – Kreuzungsgrenzen aus Eck-/Übergangspunkten (Entwurf v1)
 
-**Stand: 14.10.2026. Algorithmischer Entwurf, noch nicht implementiert.**
-Der bisherige experimentelle Stand `aufteilung_v0` wird unverändert als
-Vergleich bewahrt. Eine Umsetzung erhält einen **eigenen Ausgabestand**,
-beispielsweise `aufteilung_v1_eckpunkte/`. Dies ist kein amtliches
-Straßenbegrenzungs- oder Kreuzungsmodell.
+**Stand: 14.10.2026. Diagnose-Prototyp implementiert; noch keine
+Kreuzungspolygone und keine neue Abschnittsaufteilung.** Der bestehende
+Stand `aufteilung_v0` bleibt unverändert. Der diagnostische Ansatz
+aus dieser Spezifikation ist als `scripts/diagnose_gip_junction_corners.py`
+implementiert und besitzt synthetische Tests. Weitere Schritte der
+Spezifikation (geschlossene Kreuzungspolygone, robuste Behandlung
+sämtlicher Sonderfälle und v1-Gesamtpartition) sind **noch offen**.
 
 ## Ziel: die grünen Linien der Skizze
 
@@ -256,11 +258,84 @@ ist die **fachliche Lage der Querlinien**.
    im Bericht; niemals schlechte Ersatzpunkte
    als bestätigte Übergänge bezeichnen.
 
+## Erste ausführbare Diagnose (14.10.2026)
+
+Der eigenständige Prototyp `scripts/diagnose_gip_junction_corners.py`
+liest die **originale** Straßenmaske aus Modul 2 und die bereits
+lokal geprüften GIP-Achsen und -Knoten. Er nutzt den vorhandenen
+Topologie-Audit, prüft den Testgebietsbezug und ruft keine Webdienste ab.
+
+```bash
+git pull --ff-only
+.venv/bin/python -m scripts.diagnose_gip_junction_corners
+```
+
+Standardmäßig werden **acht Kreuzungsknoten** als Stichprobe ausgewählt:
+bis zu vier vierarmige und vier dreiarmige Knoten, mit Priorität
+für Knoten mit vollständig aus `FOW=3` bestehenden Armen und
+kurzen angrenzenden GIP-Segmenten. Alle verwendeten Knoten-IDs,
+Straßennamen und Gründe stehen im Bericht. Für den direkten
+Vergleich einer bestimmten Kreuzung:
+
+```bash
+.venv/bin/python -m scripts.diagnose_gip_junction_corners \
+  --node-id 10346273 --node-id 10346272 \
+  --out-dir data/processed/strassenabschnitte/eckpunkte_diagnose_gezielt
+```
+
+Die Standardeinstellungen messen ungefähr alle **0,75 m** einen
+Querquerschnitt, suchen höchstens **28 m** vom Knoten und
+höchstens bis zur halben Länge des betreffenden GIP-Abschnitts,
+und verwenden höchstens **45 m Quer-Halblänge**. Sie sind
+explorative Testparameter, noch keine fachlich geprüften Grenzwerte.
+
+| Ausgabe unter `data/processed/strassenabschnitte/eckpunkte_diagnose_v1/` | Inhalt |
+| --- | --- |
+| `kreuzungen_querprofile.geojson` | Alle auswertbaren Querprofile pro Straßenarm: Breite, linker/rechter Abstand, Lage, Zahl zusätzlicher Teilintervalle und Kennzeichnung einer abgeschnittenen Messung |
+| `kreuzungen_eckpunkte.geojson` | Vorschläge für linke/rechte Übergangspunkte, **nur Kandidaten**, mit Knoten- und Achsen-ID |
+| `kreuzungen_schnittlinien.geojson` | Mögliche Verbindungsgeraden zwischen beiden Eckpunkten, mit Status `kandidat_pruefen` oder `schnittlinie_geometrisch_abgelehnt` |
+| `kreuzungen_diagnose_bericht.json` | Je Knoten/Arm: Anzahl Profile, fehlende/uneindeutige Messungen, getrennter Punktstatus links/rechts, geometrischer Status der Schnittlinie, Eingabe-SHA-256 und Parameter |
+
+**Erkennung:** Die äußerste ausreichend lange Querschnittsserie
+gibt eine robuste normale Seitenbreite (Median) vor. Von der
+Kreuzungsmitte weg wird eine **deutliche verbreiterte Seite**
+und anschließend eine Folge von mindestens drei wieder
+normalen Profilen gesucht. Nur so entstehen Kandidatenpunkte.
+Ein Querprofil, das mitten in der querenden Straße die
+45-m-Suchgrenze erreicht, liefert eine **abgeschnittene
+Messung** und darf nicht als tatsächlicher Straßenrand
+oder stabile Normalbreite missverstanden werden.
+
+Bei einer zu kurzen Achse, unstabiler äußerer Breite,
+fehlendem Aufweitungsnachweis, uneindeutigen Polygonintervallen
+oder einer durch Löcher bzw. Fremdbereiche laufenden Schnittlinie
+meldet die Diagnose ihre Unsicherheit. Insbesondere eine nicht
+vorgeschlagene Linie bedeutet **nicht**, dass keine Kreuzung
+existiert.
+
+Die Reihenfolge bei der Kartenkontrolle: erst Querprofile
+(durch Messwerte prüfen, ob überhaupt eine stabile Breite
+erkennbar ist), dann Kandidatenpunkte, dann Schnittlinien
+über das Orthofoto legen. Auch `kandidat_pruefen` bedeutet
+**nicht validiert**.
+
+**Es entstehen keine Kreuzungspolygone und die v0-Aufteilung
+wird weder geändert noch überschrieben.** Es wird absichtlich
+keine neue Zuordnungsquote ausgewiesen. Bei einer erneuten
+Variante ein neues `--out-dir` verwenden.
+
+**GitHub Actions:** Offline-Unit-Tests mit geometrisch
+synthetischen Kreuzungen, einer nur gerade verlaufenden
+Straßenmaske ohne Kreuzung, kurzen/Sonderachsen und der
+vollständigen Nichtüberschreibung. Noch **kein** lokaler
+Realtest mit der vollständigen, originalen Modul-2-Maske
+bestätigt und noch keine visuelle Prüfung in Kartensammlung.
+
 ## Empfohlene Implementierungsreihenfolge
 
-1. **Diagnose-only**: Für 5–10 ausgewählte echte
-   Kreuzungen Querschnitte, Breitenprofile, linke/
-   rechte Kandidatenpunkte und Schnittlinien
+1. **Diagnose-only (Code vorhanden, lokaler Realtest offen):**
+   Für acht ausgewählte echte Kreuzungen Querprofile,
+   linke/rechte Kandidatenpunkte und Schnittlinien
    exportieren, **ohne** Aufteilung zu ändern.
 2. **Kontrolle in Kartensammlung**: Punkte und
    Linien mit Orthofoto und Straßenraummaske
@@ -277,6 +352,7 @@ ist die **fachliche Lage der Querlinien**.
    abschnittsweise Bodenbegrünung und
    Kronenüberschirmung ermitteln.
 
-**Aktuelle Festlegung:** Nur diese Methode dokumentieren und
-als nächsten Versuch vorsehen; kein Code von `aufteilung_v0`
-und keine bestehenden Daten verändern.
+**Aktuelle Festlegung:** Den implementierten Diagnose-Prototyp
+an den realen lokalen Straßenraum-/GIP-Daten ausführen und
+seine vier Ausgabedateien prüfen. Kein Code von `aufteilung_v0`
+oder bestehende Daten werden verändert.

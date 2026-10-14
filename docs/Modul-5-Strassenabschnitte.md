@@ -192,7 +192,11 @@ gekennzeichneter Fallback und Vergleich erhalten.
 **Konkreter Algorithmus, Randfälle, Geometrieprüfung,
 Abnahmekriterien und Umsetzungsschritte:**
 [Modul 5 – Eckpunkt-Erkennung an Kreuzungen](Modul-5-Eckpunkte-Kreuzungen.md).
-**Status: nur Entwurf; kein Austausch des v0-Codes.**
+**Status:** Diagnose-Prototyp `scripts/diagnose_gip_junction_corners.py`
+ist implementiert (GeoJSON mit Querschnitten, Eckpunkt- und
+Schnittlinienkandidaten und Diagnosebericht);
+**noch kein realer lokaler Diagnose-Lauf und kein Austausch
+des v0-Codes**.
 
 ## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (erste experimentelle Implementierung)
 

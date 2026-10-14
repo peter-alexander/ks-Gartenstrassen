@@ -533,9 +533,15 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 Abschnitte zugeordnet und 3.412,65 m² (7,32 %) ungeklärt**, davon
 3.368,09 m² Kreuzungszonen. Die Flächenbilanz hat keine messbaren
 Lücken oder Überlappungen; die räumliche Zuordnung ist jedoch
-**noch nicht visuell/fachlich validiert**. Als Nächstes die beiden
-Ausgabe-GeoJSONs prüfen, **ohne** bereits Quoten je Abschnitt
-als gesicherte Kennzahlen auszugeben. **Ausführung und Prüfkriterien:** [Modul 5 – Straßenabschnitte](docs/Modul-5-Strassenabschnitte.md). Noch keine mit realer Straßenmaske validierten Abschnittspolygone erzeugt.
+**noch nicht visuell/fachlich validiert**. Für die Kreuzungsgrenzen ist zusätzlich
+ein **V1-Diagnose-Prototyp**
+`scripts/diagnose_gip_junction_corners.py` implementiert,
+der Querprofile, vorläufige Eckpunkte und Schnittlinien
+für acht GIP-Kreuzungen erzeugt. Der echte lokale V1-Lauf
+und die Sichtprüfung stehen noch aus;
+[Methodik und Aufruf](docs/Modul-5-Eckpunkte-Kreuzungen.md).
+**Keine** der bisherigen Abschnittsflächen wird damit geändert
+und es werden keine abschnittsweisen Quoten als gesichert ausgegeben. **Ausführung und Prüfkriterien:** [Modul 5 – Straßenabschnitte](docs/Modul-5-Strassenabschnitte.md). Noch keine mit realer Straßenmaske validierten Abschnittspolygone erzeugt.
 2. **Bodenbegrünung und Baumkronenüberschirmung je Abschnitt messen**, nachdem die Geometriebilanz überprüft wurde. Die bestehenden Gesamtwerte A/B/C und Bodenbegrünung nicht verändern und Quoten nicht addieren.
 3. **Methode D als abgeschlossenes Zwischenergebnis belassen:** D2 **0,20 als Baseline** für Vegetation. Die **Trennung von Baumkronen und sonstiger Vegetation bleibt offen**; derzeit keine weitere D-Optimierung.
 4. **Später fachlich prüfen:** FMZK-Klasse 58 in Modul 3, unsichere Randbereiche und mögliche Fehlzuordnungen von Modul 2. Die Module nur auf Grundlage konkreter Prüffälle verändern.
