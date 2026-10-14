@@ -56,11 +56,22 @@ METRICS = (
 
 
 def sha256(path):
-	return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+	"""Auch größere lokale GeoPackages ohne vollständiges Einlesen hashen."""
+	digest = hashlib.sha256()
+	with Path(path).open("rb") as handle:
+		for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+			digest.update(chunk)
+	return digest.hexdigest()
 
 
 def tolerance(area):
-	return max(0.05, area * 1e-6)
+	"""GeoJSON-Rückprojektion kann Grenzen um Millimeter verschieben.
+
+	Die echte V0-Flächenbilanz stammt aus der metrischen Ursprungs-
+	geometrie. Für den NEUEN Exportimport gelten max. 0,5 m²
+	oder 0,001 % der Gesamtfläche; jede Abweichung wird ausgewiesen.
+	"""
+	return max(0.5, area * 1e-5)
 
 
 def _close(label, actual, expected, limit):
@@ -127,6 +138,7 @@ def read_partition(directory, street, *, street_sha256):
 	_close("V0 Straßenraumfläche", area_info.get("strassenraum_m2", float("nan")),
 		street.area, limit)
 	parts = []
+	numerical_slivers = []
 	ids = set()
 	for group, filename in (
 		("abschnitt", "abschnitte_flaechen.geojson"),
@@ -151,9 +163,19 @@ def read_partition(directory, street, *, street_sha256):
 						"knotenbereich", "sonderachse", "nicht_zugeordnet"
 					)):
 					raise ValueError(f"{fid}: keine V0-Restflächenklasse")
+			original_area = float(properties.get("flaeche_m2", float("nan")))
+			# V0 kann nahezu flächenlose Restfetzen (etwa 2e-9 m²)
+			# explizit exportieren. Die Rundreise durch WGS84
+			# kollabiert manche davon: unter 1e-4 m² als separat
+			# dokumentiertes numerisches Reststück behandeln.
+			if (group == "ungeklaert"
+				and properties.get("status") == "nicht_zugeordnet"
+				and math.isfinite(original_area) and 0 <= original_area < 1e-4):
+				numerical_slivers.append({"id": fid, "quelle_m2": original_area})
+				continue
 			geom = _geometry(feature, label=fid)
 			_close(f"{fid} Quellenfläche", geom.area,
-				float(properties.get("flaeche_m2", float("nan"))), limit)
+				original_area, limit)
 			parts.append({
 				"gruppe": group, "id": fid, "gip_objectid": gip_id,
 				"name": properties.get("name") or "",
@@ -192,6 +214,7 @@ def read_partition(directory, street, *, street_sha256):
 		"fehlende_flaeche_m2": missing,
 		"ausserhalb_strassenraum_m2": outside,
 		"toleranz_m2": limit,
+		"numerische_reststuecke_unter_1e_4_m2": numerical_slivers,
 	}, report
 
 
