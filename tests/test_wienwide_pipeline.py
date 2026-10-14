@@ -239,6 +239,70 @@ class WienPipelineTests(unittest.TestCase):
 			"GIP_OBJECTID=777.*Hüllrechteck-Treffer=False"):
 			validated_wfs(far,"achsen",bounds,max_features=4000)
 
+	def test_wfs_numeric_bbox_rounding_is_bounded_logged_and_no_geometry_edit(self):
+		# Alsergrund-WFS: real gemessener Randabstand 0,059 m
+		# in EPSG:3857 bei GIP_OBJECTID=20028505.
+		# Die Hülle des zweipunktigen Linienobjekts berührt
+		# die Anfrage genauso wenig wie die Linie selbst.
+		tile=self.manifest["tiles"][0]
+		_,bounds=urls_for_tile(tile,75,4000)
+		x0,y0,x1,y1=bounds
+		from pyproj import Transformer
+		to_geo=Transformer.from_crs("EPSG:3857","EPSG:4326",
+			always_xy=True)
+		def sample(kind,distance):
+			if kind=="achsen":
+				geom={"type":"LineString","coordinates":[
+					list(to_geo.transform(x0-distance,y0+50)),
+					list(to_geo.transform(x0-distance,y0+80))]}
+			else:
+				geom={"type":"Point","coordinates":
+					list(to_geo.transform(x0-distance,y0+50))}
+			return json.dumps(fc([{
+				"type":"Feature","id":"WFS.20028505",
+				"geometry":geom,
+				"properties":{
+					"GIP_OBJECTID":20028505,
+					"NODEFROM_OBJECTID":11,
+					"NODETO_OBJECTID":12,
+					"FOW":3,
+				},
+			}])).encode("utf-8")
+		near=sample("achsen",0.059)
+		with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
+			validate_layer(near,"achsen",bounds,max_features=4000)
+		_,view,summary=validated_wfs(near,"achsen",bounds,
+			max_features=4000)
+		self.assertEqual(summary["wfs_bbox_numerische_randtreffer_anzahl"],1)
+		self.assertEqual(
+			summary["wfs_bbox_numerische_randtreffer"][0]["gip_id"],
+			"20028505")
+		self.assertAlmostEqual(
+			summary["wfs_bbox_numerische_randtreffer"][0]
+				["abstand_epsg3857_m"],0.059,delta=.0001)
+		self.assertFalse(view["features"][0]["properties"]["wfs_bbox_nur_huelle"])
+		self.assertAlmostEqual(
+			view["features"][0]["properties"]["wfs_bbox_numerischer_randabstand_m"],
+			0.059,delta=.0001)
+		# Das ursprüngliche Quell-GIS-Polygon/LineString
+		# darf NICHT gepuffert oder in die BBOX hinein verschoben werden.
+		self.assertEqual(view["features"][0]["geometry"],
+			json.loads(near)["features"][0]["geometry"])
+		for distance in (.251,1.,10.,100.):
+			with self.subTest(distance=distance):
+				with self.assertRaisesRegex(ValueError,"Toleranz=0.250"):
+					validated_wfs(sample("achsen",distance),
+						"achsen",bounds,max_features=4000)
+		# Punktknoten bekommen keine Achsen-Toleranz.
+		with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
+			validated_wfs(sample("knoten",0.059),"knoten",bounds,
+				max_features=4000)
+		# Auch im Legacy-Validator kann niemals eine ungeprüfte
+		# größere Toleranz eingeschaltet werden.
+		with self.assertRaisesRegex(ValueError,"0,25 m"):
+			validate_layer(near,"achsen",bounds,max_features=4000,
+				bbox_numeric_tolerance_m=1.)
+
 	def test_verified_empty_wfs_and_incorrect_counts(self):
 		tile=self.manifest["tiles"][0]
 		_,bounds=urls_for_tile(tile,75,4000)
