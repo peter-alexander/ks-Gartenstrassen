@@ -598,6 +598,35 @@ Die stärkere 0,20-Maske umfasst **100.521 Pixel**. Die Hysterese behält **123.
 
 ---
 
+### D4-Vergleichsrechnung: alle D-Varianten auf identischem Straßenraum (14.10.2026)
+
+**Motivation:** Vor weiteren Versuchen mit Texturschwellen und lokaler Segmentierung wollen wir erstmals wissen, welche **Flächenanteile im tatsächlichen Straßenraum** die bereits vorhandenen D-Varianten ergeben. Die bisherigen 12–15 % aus D2 bezogen sich **auf das gesamte Orthofoto einschließlich privater Innenhöfe und Dächer** und sind nicht mit A/B/C vergleichbar.
+
+**Neues Skript:** `scripts/compare_bev_variants.py`. Verwendet nur lokal vorhandene Dateien; **kein zusätzlicher WMS-Download, keine Anpassung an den D-Algorithmen**:
+
+- Quellbilder `data/processed/baumkronen/bev_wms/bev_rgb_test.png` / `bev_ir_test.png`, anhand der WMS-Diagnose (SHA-256, `.pgw/.prj`) geprüft.
+- Vorläufiger Straßenraum `data/processed/street_space/fmzk_strassenraum.geojson` und `data/processed/fmzk_test.gpkg` über **denselben Modul-2-Adapter** wie A/B/C.
+- Die **sieben bisher tatsächlich geprüften D2-Schwellen** `0,10`, `0,15`, `0,17`, `0,18`, `0,20`, `0,30`, `0,40`.
+- Die bisherige unveränderte D3-Objektklassifikation: `Hysterese (0,10 mit 0,20-Kern)`, `strukturreiche Kronenkandidaten`, `Kronenkandidaten + unklare Vegetation` und die fünf Einzelklassen. Ein vorhandener `bev_segmentation_bericht.json` wird gegen die neu berechneten Klassenhäufigkeiten, Parameter und Quellbild-Prüfsummen kontrolliert, damit tatsächlich **derselbe D3-Lauf** verglichen wird.
+- Die bestehenden Kronengeometrien A/B/C werden zur direkten Gegenüberstellung eingelesen, **wenn sie lokal vorhanden sind**; fehlende Referenzen werden ausdrücklich als fehlend dokumentiert. Zusätzlich wird für besonders interessante D-Varianten die Überlappung mit A/B/C (IoU) gemessen. **IoU ist keine Qualitätsbewertung**.
+
+**Metrische Berechnung:** Die Binärmasken werden **im originalen georeferenzierten WMS-Raster EPSG:3857** als Rasterzell-Rechtecke bzw. zusammenhängende horizontale Streifen polygonisiert, geometrisch vereinigt und nach EPSG:31256 transformiert. Der Schnitt erfolgt **geometrisch** mit der bestehenden Straßenraum-Polygonmaske. Damit werden teilweise bedeckte **Randpixel anteilig** berücksichtigt, statt einen Pixel allein aufgrund seines Mittelpunkts vollständig hinzuzuzählen. Die Straßenraumfläche bleibt der gemeinsame, aus Modul 2 übernommene Nenner; die Ausgabe wird verweigert, wenn der WMS-Ausschnitt den Straßenraum nicht vollständig umfasst. Reprojektion und Abtastraster bleiben trotzdem eigene Auflösungs-/Rasterisierungsunsicherheiten.
+
+**Ein einziger Offline-Aufruf:**
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.compare_bev_variants
+```
+
+Ergebnis: `data/processed/baumkronen/bev_variantenvergleich/bev_varianten_strassenraum_vergleich.json` sowie eine **Konsolentabelle** mit m² und Prozentwerten für sämtliche D2/D3-Varianten und – sofern die Quell-GeoJSONs vorhanden sind – A/B/C.
+
+**Wichtig für die Interpretation:** Die neue Vergleichsrechnung erzeugt **deskriptive Flächenanteile von D-Masken im Straßenraum**. Die D2-Masken enthalten auch Rasen und Sträucher, die D3-Kronenkandidaten können große Innenhof-Mischflächen umfassen beziehungsweise Straßenbaumreihen übersehen. Der Zahlenwert einer solchen Maske **ist noch keine gültige Messung des Wien-Plan-Überschirmungsgrads**. Erst die gemessenen D-Quoten betrachten, danach entscheiden, ob eine verfeinerte Segmentierung überhaupt nötig oder sinnvoll ist. A/B/C werden nicht verändert oder überschrieben.
+
+**Stand:** Implementierung und Offline-Regressionstests; tatsächliche WMS-/FMZK-Originaldateien liegen lokal beim Nutzer und wurden noch nicht gemeinsam in dieser neuen Vergleichsrechnung ausgeführt. Deshalb hier **keine erfundenen D-Straßenraumwerte**. Für den nächsten Arbeitsschritt bitte die lokale Konsolenausgabe bzw. `bev_varianten_strassenraum_vergleich.json` vorlegen.
+
+---
+
 **Wenn die WMS-Qualität unzureichend ist**, bleibt der eigenständige Roh-RGBI-Adapter `scripts/probe_bev_rgbir.py` als zweite Quelle erhalten. Ein großer TIFF-Download ist erst gerechtfertigt, wenn die WMS-Ergebnisse keine ausreichend verlässliche Spektraldiagnose zulassen.
 
 ---
