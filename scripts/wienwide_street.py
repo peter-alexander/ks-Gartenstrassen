@@ -127,7 +127,7 @@ def prefetch_tile(tile, *, manifest, aoi, root, source, cache, offline=False,
 	fehlende BEV-Daten/zu große Ausschnitte führen zum Abbruch.
 	"""
 	from shapely.ops import transform
-	from scripts.extract_fmzk import extract, parse_bbox
+	from scripts.extract_fmzk import extract
 	from scripts.analyze_kataster import run as analyze_kataster
 	root=Path(root)
 	dest=root/tile["id"]
@@ -135,11 +135,15 @@ def prefetch_tile(tile, *, manifest, aoi, root, source, cache, offline=False,
 	kataster=dest/"kataster"
 	core=box(*tile["bounds_31256"]).intersection(aoi)
 	bounds=transform(TO_LONLAT,core.buffer(manifest["halo_m"]).segmentize(5)).bounds
-	try:
-		bbox=parse_bbox(",".join(str(x) for x in bounds))
-	except ValueError as exc:
-		raise ValueError(f"{tile['id']}: AOI mit Halo übersteigt Test-"
-			"Extraktionslimit. Kleinere Rasterkacheln (z.B. 500 m) wählen") from exc
+	bbox=tuple(float(v) for v in bounds)
+	# Neues Wien-Raster: hier gilt nicht das kleine bbox-Limit
+	# des Testgebiets-Parsers. Sicherheitsgrenze kommt aus der
+	# metrischen Kachelgröße und dem Halo des geprüften Manifests.
+	w,s,ea,n=bbox
+	if not (15.5<w<ea<17.5 and 47.5<s<n<49.0):
+		raise ValueError(f"{tile['id']}: ungültige Wien-BBOX")
+	if core.buffer(manifest["halo_m"]).area > 30_000_000:
+		raise ValueError(f"{tile['id']}: FMZK-Kachel zu groß")
 	if not fmzk.exists():
 		extract(source,fmzk,bbox)
 	# Mit Cache und ausdrücklich gesetzten Kachel-/Grundstückslimits
