@@ -16,7 +16,7 @@ from time import perf_counter
 
 from pyproj import Transformer
 from shapely import union_all
-from shapely.geometry import box
+from shapely.geometry import box, Polygon
 from shapely.wkb import dumps,loads
 
 from scripts.export_fmzk_strassenraum import (
@@ -50,12 +50,14 @@ def load_street_tile(path, core):
 		return geom
 
 
-def save_street_tile(path, street, metadata):
+def save_street_tile(path, street, metadata, *, allow_empty=False):
 	path=Path(path)
 	if path.exists():
 		raise FileExistsError(f"Straßenraum-Kachel existiert: {path}")
-	if street.is_empty or not street.is_valid or street.area<=0:
-		raise ValueError("Leere/ungültige Straßenmaske – keine scheinbar komplette Kachel")
+	if not street.is_valid or (street.is_empty and not allow_empty):
+		raise ValueError("Leere/ungültige Straßenmaske ohne nachgewiesene Leer-Kachel")
+	if not street.is_empty and street.area<=0:
+		raise ValueError("Ungültiger Straßenraum ohne Fläche")
 	path.parent.mkdir(parents=True,exist_ok=True)
 	temp=path.with_suffix(".sqlite.tmp")
 	if temp.exists():
@@ -95,10 +97,10 @@ def build_tile(tile, aoi, *, root, out, halo, report=None):
 	classified=classify_fmzk(features,street,other,minimum_share=.95)
 	selected=[geom for target,_props,geom in classified
 		if target=="strassenraum" and geom.intersects(core)]
-	if not selected:
-		raise ValueError(f"{tile['id']}: keine FMZK-Straßenraumflächen im Kern")
-	geometry=union_all(selected).intersection(core)
-	if geometry.is_empty or not geometry.is_valid or geometry.area<=0:
+	# Alle FMZK/BEV-Quellen müssen zuvor erfolgreich gelesen sein.
+	# Danach ist eine tatsächlich leere Straßenraumkachel erlaubt.
+	geometry=union_all(selected).intersection(core) if selected else Polygon()
+	if not geometry.is_empty and (not geometry.is_valid or geometry.area<=0):
 		raise ValueError(f"{tile['id']}: Straßenraum-Geometrie ungültig")
 	path=out/tile["id"]/"street.sqlite"
 	statistics={
@@ -106,6 +108,7 @@ def build_tile(tile, aoi, *, root, out, halo, report=None):
 		"tile_id":tile["id"],"aoi_area_m2":core.area,
 		"strassenraum_m2":geometry.area,
 		"halo_m":halo,"fmzk_sha256":checksum(fmzk),
+		"nachweislich_ohne_strassenraum":geometry.is_empty,
 		"kataster_bericht_sha256":checksum(kataster/"kataster_bericht.json"),
 		"flaechen_fmzk":len(features),"reparaturen_fmzk":len(repairs),
 		"zuordnung_anzahl":dict(Counter(x[0] for x in classified)),
@@ -113,7 +116,7 @@ def build_tile(tile, aoi, *, root, out, halo, report=None):
 		"beschreibung":"Metrische V0-Basis: FMZK-Kern + nfl 95/65; "
 			"95%-Regel unverändert; ohne amtliche Widmungsprüfung",
 	}
-	save_street_tile(path,geometry,statistics)
+	save_street_tile(path,geometry,statistics,allow_empty=geometry.is_empty)
 	if report is not None:
 		report.append({"tile":tile["id"],"file":str(path),"area_m2":geometry.area})
 	return statistics
