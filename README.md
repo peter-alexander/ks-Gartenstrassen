@@ -437,6 +437,27 @@ Er fordert **einen** gepufferten Testausschnitt im selben WMS-Pixelgitter (EPSG:
 
 [Ausführliche Methodik D2, Dateiformate und Validierung](docs/Modul-4-Baumkronen-Vergleich.md#d2--experimentelle-vegetationserkennung-ohne-dsmdtm-14102026-implementiert).
 
+### D3: 0,10-Vegetationsmaske + 0,20-Signalstärke zur Kronenkandidatenprüfung
+
+**Implementiert als separater Versuch**, ohne Höhenmodell und ohne Änderung an A/B/C oder D2: `scripts/segment_bev_vegetation.py`. Jede zusammenhängende 0,10-Vegetationsregion wird geprüft, ob sie einen 0,20-Kern enthält (*Hysterese*). Zusätzlich werden Größe, Form sowie die **RGB-Textur zwischen benachbarten Pixeln innerhalb der Vegetationsfläche** ausgewertet. Daraus entstehen **nur unvalidierte Kronenkandidaten** und getrennte Kategorien für strukturarme, kleine, unklare oder kernlose Vegetationsflächen.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.segment_bev_vegetation
+```
+
+Ergebnisse unter `data/processed/baumkronen/bev_segmentierung/`:
+
+- `bev_segmentation_kandidaten.png`: Orthofoto mit grün markierten strukturreichen Kronenkandidaten, blau markierter strukturarmer Vegetation, gelben unklaren und grauen kernlosen Bereichen.
+- `bev_segmentation_klassen.png`: transparente Klassenvisualisierung ohne Orthofoto.
+- `bev_segmentation_hysterese.png`: reine Maske aller Regionen, die wenigstens einen 0,20-Pixel enthalten.
+- `bev_segmentation_kronenkandidaten.png`: **nur** die RGB-texturreichen Kandidaten als Prüfraster, **kein** bestätigtes Kronenpolygon.
+- `bev_segmentation_bericht.json` und `bev_segmentation_objekte.json`: Mengenbilanz sowie Größe, Form, Textur und Kernanteil jedes Objekts.
+
+Alle vier PNGs erhalten eigene `PGW/PRJ`-Georeferenzierung (EPSG:3857). Die Texturschwellen sind bewusst **noch nicht kalibriert** (zunächst 8 DN als strukturreich, 4 DN als strukturarm). Kronen können homogen und Rasenflächen strukturiert sein, außerdem können Baumkronen an Vegetationsflächen angrenzen. Deshalb **keine Kronenquote und kein Überschirmungsgrad**; zunächst die Bildklassifikation überprüfen. Die 0,10-Maske bleibt auch dort als ursprüngliche, großzügige Vegetationsdetektion erhalten, wo ein Objekt mangels 0,20-Kern nicht in die Hysterese-Maske aufgenommen wurde.
+
+[Modul-4-Dokumentation einschließlich des lokalen Schwellen-Feinvergleichs und der Grenzen von D3](docs/Modul-4-Baumkronen-Vergleich.md#d2-feinvergleich-und-d3-vorsichtige-kronenkandidaten-ohne-höhenmodelle-14102026).
+
 **Die TIFF-/RGBI-Diagnose bleibt als Fallback**, falls die Kanäle des gerenderten BEV-WMS nicht geeignet sind. Sie ist im folgenden Abschnitt beschrieben.
 
 ### Optionale Originaldaten: BEV Orthofoto RGBI – Rasterdiagnose
@@ -492,7 +513,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Methode D – Vegetationsindikator verifizieren:** Der erste echte D2-Lauf wurde geprüft, Kandidatenanteile liegen zwischen **15,14 % (0,10)** und **4,58 % (0,40)** am gesamten Bild. Nun getrennte Referenzflächen für Baumkronen, Wiese/Beete, Sträucher, Schatten und versiegelte Flächen definieren und den Index je Klasse beurteilen; danach erst gegebenenfalls Masken innerhalb der Straßenraum-Geometrie messen. A/B/C (**7,82 / 7,89 / 9,35 %**) bleiben unverändert.
+2. **Methode D – erste Kronenkandidaten aus D3 prüfen:** Die 0,10-Kandidatenschwelle mit 0,20 als stärkerem Kern ist umgesetzt. Nun `python -m scripts.segment_bev_vegetation` lokal ausführen und vor allem `bev_segmentation_kandidaten.png` sowie `bev_segmentation_bericht.json` visuell überprüfen; danach unabhängig Beispiele von Baumkronen, Rasen, Sträuchern und Schatten bewerten. A/B/C (**7,82 / 7,89 / 9,35 %**) bleiben unverändert.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
