@@ -281,7 +281,10 @@ def _side_transition(profiles, side, *, step_m=STEP_M, position="innen"):
 		and not p[f"clipped_{side}"]
 		and p[f"{side}_m"]-base > deviation_limit]
 	if len(band) < 2:
-		return None, "innerer_uebergang_nicht_messbar"
+		# In einem kreuzenden Straßengraphen kann die innere Schulter
+		# durch die andere Straße abgeschnitten sein. Niemals den
+		# bekannten äußeren Referenzschnitt ohne Kennzeichnung verlieren.
+		return outer, "innere_schulter_nicht_sichtbar_aussenfallback"
 	peak_i, _, peak = max(band, key=lambda row: row[2])
 	candidates = [p for i, p, excess in band if i >= peak_i
 		and excess <= peak*.65 and excess >= deviation_limit
@@ -290,7 +293,7 @@ def _side_transition(profiles, side, *, step_m=STEP_M, position="innen"):
 		candidates = [p for _i, p, _excess in band
 			if not p["clipped_left"] and not p["clipped_right"]]
 	if not candidates:
-		return None, "innerer_uebergang_abgeschnitten"
+		return outer, "innere_schulter_abgeschnitten_aussenfallback"
 	return min(candidates, key=lambda p: p["s_m"]), None
 
 
@@ -420,7 +423,8 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 					return None, error or "keine_innenkante"
 				pick, source = min(choices, key=lambda row: row[0]["s_m"])
 				source_by_side[side] = source
-				return pick, None
+				return pick, (error if source == "aktive_grenze"
+					and pick is outer else None)
 			left, left_error = select_side("left")
 			right, right_error = select_side("right")
 			arm["left_status"] = left_error or "innenkandidat"
