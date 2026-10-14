@@ -331,6 +331,75 @@ vollständigen Nichtüberschreibung. Noch **kein** lokaler
 Realtest mit der vollständigen, originalen Modul-2-Maske
 bestätigt und noch keine visuelle Prüfung in Kartensammlung.
 
+## Erster lokaler V1-Diagnoselauf (14.10.2026, 13:07 UTC)
+
+Der Nutzer hat `kreuzungen_diagnose_bericht.json` des ersten
+realen Laufs mit der originalen Modul-2-Straßenmaske vorgelegt.
+Die Testparameter betragen **0,75 m Profilabstand, 28 m maximale
+Suchlänge und 45 m Querschnitts-Halblänge**. Der
+Straßenraum-SHA-256 ist `dc53cd78d0bcd5cb242529e126a969f1be6ca5d27487ff1e85ee684654d7fc11`;
+er stimmt mit den vorherigen Modul-5-Läufen überein.
+
+**Gesamtergebnis:** 8 Kreuzungen (4 vierarmig, 4 dreiarmig),
+28 Straßenarme, **828 angeforderte Querprofile, 745 gültige**
+und 83 Fehler, 42 einzelne Eckpunktkandidaten sowie
+**19 Schnittlinienkandidaten**. Status je Arm:
+`kandidat_pruefen` 19, `uebergang_unklar` 7,
+`arm_zu_kurz` 2. Es gibt **noch keine validierten Schnittlinien**
+und weiterhin keine neuen Kreuzungspolygone.
+
+| GIP-Knoten-ID | Kreuzung | Kandidaten / Arme | Fachlicher Hinweis |
+| --- | --- | ---: | --- |
+| `10346273` | Hahngasse / Pramergasse | 4 / 4 | alle Schnittlinien im Straßenraum |
+| `10346245` | Glasergasse / Rotenlöwengasse | 4 / 4 | alle Schnittlinien im Straßenraum |
+| `10346278` | Hahngasse / Seegasse / Rotenlöwengasse | 4 / 4 | Schnittlinie Achse `10040706` liegt 0,138 m außerhalb der Maske, trotzdem bisher `kandidat_pruefen` |
+| `10346269` | Pramergasse / Müllnergasse | 4 / 4 | alle Schnittlinien im Straßenraum |
+| `10346267` | Porzellangasse / Seegasse | 1 / 3 | ein 17,008-m-Arm zu kurz; ein Arm nur einseitig erkannt |
+| `20069820` | Porzellangasse | 1 / 3 | derselbe 17,008-m-Arm zu kurz; ein Arm nur einseitig erkannt |
+| `10346243` | Rotenlöwengasse / Clusiusgasse | 0 / 3 | sämtliche **83** Querprofile verworfen; zusammengefasster Fehler `mehrdeutiger_oder_ausserhalb_liegender_querschnitt` |
+| `10346272` | Pramergasse / Servitengasse | 1 / 3 | zwei Arme mit nur einseitigem Übergang |
+
+**Interpretation:**
+- 16/16 mögliche Linien der vierarmigen Knoten werden als
+  Kandidaten ausgegeben. Das ist ein Diagnoseergebnis und
+  keine belegte Lagegenauigkeit.
+- Lediglich 3/12 mögliche Linien der dreiarmigen Knoten
+  werden vorgeschlagen. Die aktuelle Heuristik verlangt
+  **an beiden Seiten eine nachweisbare Aufweitung**. Bei
+  T-Einmündungen kann auf der durchgehenden Straßenseite
+  aber ein gerader/konstanter Straßenrand existieren.
+  Hier eher die unveränderte Randseite geometrisch
+  nachführen und mit dem einseitig gefundenen Punkt eine
+  geprüfte Querlinie bilden, **nicht** einfach eine zweite
+  Aufweitung erfinden.
+- Für kurze Arme zwischen nahe benachbarten Kreuzungen
+  keine künstliche stabile Breitenzone erwarten. Die
+  beiden Knoten **gemeinsam** prüfen und Kandidaten
+  konfliktfrei auswerten.
+- Bei Clusiusgasse sind `0/83` Profile gültig.
+  **Nicht nachgewiesen**, ob Ursache eine außerhalb
+  der Straßenraummaske liegende Achse, mehrfach geschnittene
+  Querschnitte oder ein anderes Geometrieproblem ist.
+  Zunächst die drei GeoJSON-Ausgaben mit der originalen
+  Straßenraummaske und den Achsen überlagern und Fehler
+  technisch auftrennen.
+- Die 0,138 m außerhalb liegende Schnittlinie wird vom
+  heutigen `outside <= 0.2`-Kriterium toleriert. In
+  künftigen Versionen diesen Grenzfall **explizit
+  markieren/ablehnen oder geometrisch zulässig korrigieren**;
+  nicht als einwandfreie Kreuzungsgrenze verwenden.
+
+**Nächster Schritt vor einer V1-Flächenpartition:**
+Die tatsächlichen `kreuzungen_querprofile.geojson`,
+`kreuzungen_eckpunkte.geojson` und
+`kreuzungen_schnittlinien.geojson` räumlich prüfen.
+Die eingereichte JSON-Zusammenfassung allein enthält
+keine Punkt- oder Linienkoordinaten und erlaubt daher
+**keine Aussage zur visuellen Lagequalität**. Danach
+gezielt einseitige T-Übergänge und die Klassifizierung
+ungültiger Profile nachbearbeiten. Die vorhandene
+`aufteilung_v0` unverändert lassen.
+
 ## Empfohlene Implementierungsreihenfolge
 
 1. **Diagnose-only (Code vorhanden, lokaler Realtest offen):**
