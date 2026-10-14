@@ -12,6 +12,7 @@ from shapely.ops import transform
 
 from scripts.compare_bev_variants import (
 	D2_THRESHOLDS, D3_CLASSES, SELECTED_IOU,
+	repair_projected_mask,
 	check_d3_report, measure_variants, nonempty_measure,
 	raster_extent_in_metric, reference_comparison, runs_to_metric_union, run,
 )
@@ -90,6 +91,32 @@ def fake_sources(path):
 
 
 class BEVVariantsMeasurementTests(unittest.TestCase):
+	def test_projected_mask_repair_preserves_polygon_area(self):
+		valid = box(0, 0, 4, 4)
+		unchanged, metadata = repair_projected_mask(valid)
+		self.assertEqual(metadata["status"], "valide")
+		self.assertEqual(unchanged.area, 16)
+		# Eine rücklaufende, flächenlose Linie ist ungültig, darf aber beim
+		# Reparieren die Polygonfläche nicht verändern.
+		with_spur = Polygon([
+			(0, 0), (4, 0), (4, 4), (0, 4),
+			(0, 0), (1, 1), (0, 0),
+		])
+		self.assertFalse(with_spur.is_valid)
+		repaired, meta = repair_projected_mask(with_spur)
+		self.assertTrue(repaired.is_valid)
+		self.assertEqual(meta["status"], "repariert")
+		self.assertAlmostEqual(repaired.area, valid.area, delta=1e-9)
+		self.assertAlmostEqual(meta["flaechenaenderung_m2"], 0, delta=1e-9)
+
+	def test_projected_mask_repair_rejects_material_change(self):
+		bow_tie = Polygon([
+			(0, 0), (4, 4), (0, 4), (4, 0),
+		])
+		self.assertFalse(bow_tie.is_valid)
+		with self.assertRaisesRegex(ValueError, "Flächentoleranz"):
+			repair_projected_mask(bow_tie)
+
 	def test_rle_polygonization_and_metric_area_are_exact_for_grid(self):
 		geo = grid(width=6,height=4)
 		x0,y0,x1,y1 = geo["bbox"]
@@ -99,6 +126,7 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 		shape, debug = runs_to_metric_union(raster, geo)
 		self.assertEqual(debug["pixel_in_bbox"], 12)
 		self.assertEqual(debug["horizontal_runs"], 4)
+		self.assertEqual(debug["projektions_topologie"]["status"], "valide")
 		self.assertAlmostEqual(shape.area, half.area, delta=0.001)
 		metric, clipped = nonempty_measure(full, shape)
 		self.assertAlmostEqual(metric["bedeckung_pct"], 50, delta=0.001)

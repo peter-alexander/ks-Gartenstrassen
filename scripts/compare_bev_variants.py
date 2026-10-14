@@ -20,14 +20,16 @@ from pathlib import Path
 from time import perf_counter
 
 from pyproj import Transformer
-from shapely import union_all
+from shapely import make_valid, union_all
 from shapely.geometry import box
 from shapely.ops import transform
+from shapely.validation import explain_validity
 
 from scripts.analyze_bev_vegetation import (
 	DEFAULT_INPUT, DEFAULT_MIN_SIGNAL, index_and_masks,
 	read_verified_image, validate_manifest,
 )
+from scripts.analyze_gpkg import polygonal_part
 from scripts.fmzk_source import load_polygons
 from scripts.measure_ground_greening import load_street_mask
 from scripts.measure_canopy_cover import measure_coverage, read_crown_polygons
@@ -82,6 +84,40 @@ def raster_extent_in_metric(geometry):
 	return transform(project, box(x0, y0, x1, y1).segmentize(5))
 
 
+def repair_projected_mask(geometry):
+	"""Topologische Artefakte der Projektion nur bei minimalem Flächenfehler korrigieren.
+
+	Die Pixelunion wird vor der Projektion in EPSG:3857 gebildet. Nach der
+	nichtlinearen Koordinatentransformation können gerade lange, eng benachbarte
+	Rasterkanten winzige Selbstüberschneidungen bilden. make_valid() ist hier
+	ausdrücklich nur als kontrollierter Reparaturschritt zulässig; eine größere
+	Flächenänderung wird nicht stillschweigend akzeptiert.
+	"""
+	if geometry.is_empty or not math.isfinite(geometry.area) or geometry.area <= 0:
+		raise ValueError("Projizierte Rastermaske ist leer oder flächenlos")
+	if geometry.is_valid:
+		return geometry, {
+			"status": "valide",
+			"flaechenaenderung_m2": 0.0,
+		}
+	reason = explain_validity(geometry)
+	repaired = polygonal_part(make_valid(geometry))
+	if repaired is None or repaired.is_empty or not repaired.is_valid:
+		raise ValueError(f"Projizierte Rastermaske nicht reparierbar: {reason}")
+	delta = abs(repaired.area - geometry.area)
+	limit = max(0.05, geometry.area * 0.00005)
+	if not math.isfinite(delta) or delta > limit:
+		raise ValueError(
+			f"Projizierte Rastermaske: Reparatur überschreitet Flächentoleranz "
+			f"({delta:.6f} m² > {limit:.6f} m²): {reason}")
+	return repaired, {
+		"status": "repariert",
+		"urspruenglicher_fehler": reason,
+		"flaechenaenderung_m2": delta,
+		"max_flaechenaenderung_m2": limit,
+	}
+
+
 def runs_to_metric_union(mask, geometry, *, street_bounds_metric=None):
 	"""Pixelgenaue Flächen: jede zusammenhängende horizontale 255-Run ist Rechteck.
 
@@ -130,12 +166,12 @@ def runs_to_metric_union(mask, geometry, *, street_bounds_metric=None):
 	merged = union_all(rectangles)
 	to_metric = Transformer.from_crs("EPSG:3857", "EPSG:31256", always_xy=True).transform
 	metric = transform(to_metric, merged)
-	if metric.is_empty or not metric.is_valid:
-		raise ValueError("Masken-Polygonisierung hat eine ungültige Fläche erzeugt")
+	metric, projection_check = repair_projected_mask(metric)
 	return metric, {
 		"pixel_in_bbox": pixel_count,
 		"horizontal_runs": len(rectangles),
 		"raster_polygon_union_m2": metric.area,
+		"projektions_topologie": projection_check,
 	}
 
 
@@ -200,8 +236,11 @@ def measure_variants(street, mask_dict, geometry):
 	clipped = {}
 	for name, mask in mask_dict.items():
 		variant_started = perf_counter()
-		shape_metric, debug = runs_to_metric_union(mask, geometry,
-			street_bounds_metric=street.bounds)
+		try:
+			shape_metric, debug = runs_to_metric_union(mask, geometry,
+				street_bounds_metric=street.bounds)
+		except ValueError as exc:
+			raise ValueError(f"{name}: {exc}") from exc
 		metrics, inside = nonempty_measure(street, shape_metric)
 		results[name] = {
 			"pixel_positiv_gesamtbild": mask.histogram()[255],
