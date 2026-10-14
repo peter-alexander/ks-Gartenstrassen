@@ -27,7 +27,9 @@ class WienwideKatasterTests(unittest.TestCase):
 		self.manifest={"bbox_lon_lat":self.bbox}
 		self.clip=box(0,0,100,100)
 		self.fmzk=[(1,21,"Straßenkern",box(10,10,20,20)),
-			(2,69,"Zusatzfläche",box(30,10,35,20))]
+			(2,69,"Zusatzfläche",box(30,10,35,20)),
+			(3,69,"Sehr schmaler Straßenrand",
+				box(11,20,11.008,21))]
 		self.parcels={("01002","1"):box(0,0,60,60)}
 		# Fragile schmale Fläche 0,08 m² (>0,05 m²):
 		# muss im METRISCHEN ORIGINAL erhalten bleiben.
@@ -120,11 +122,11 @@ class WienwideKatasterTests(unittest.TestCase):
 		native.assert_called_once()
 		self.assertEqual(native.call_args.args[0],kat)
 		self.assertEqual(native.call_args.args[-1],self.cache)
-		self.assertAlmostEqual(result["strassenraum_m2"],100+.08,
-			delta=.001)  # Kern 100 m² + schmaler BEV-nfl-Rand
+		self.assertAlmostEqual(result["strassenraum_m2"],150+.008,
+			delta=.001)  # 100 m² Kern + 50 m² Zusatz + 0,008 m² Rand
 		stored=load_street_tile(
 			self.root/"out"/"first"/"street.sqlite",aoi)
-		self.assertAlmostEqual(stored.area,100+.08,delta=.001)
+		self.assertAlmostEqual(stored.area,150+.008,delta=.001)
 
 
 if __name__=="__main__":
