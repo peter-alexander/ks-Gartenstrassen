@@ -107,11 +107,18 @@ def _count_reported_features(data, count):
 			raise ValueError(f"WFS enthält widersprüchliches {key}: {total} < {count}")
 
 
-def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES):
+def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
+	allow_bbox_envelope_match=False):
 	"""Original-GeoJSON fachlich/technisch prüfen und Karten-Layer erstellen.
 
-	WFS-Geometrien dürfen die BBOX überschreiten, weil WFS vollständige
-	Linienobjekte zurückgibt. Sie müssen die angefragte BBOX aber treffen.
+	WFS-Geometrien dürfen die BBOX überschreiten. GeoServer kann bei
+	BBOX-Anfragen auch Features zurückliefern, deren *Hüllrechteck* die
+	Anfrage schneidet, aber deren tatsächliche gekrümmte Liniengeometrie
+	die Anfrage nicht berührt (räumlicher Index / BBOX-Vorfilter).
+	Im kleinen Diagnose-Ausschnitt gilt weiterhin der strenge
+	Geometrieschnitt. Die Wienweite Pipeline darf Hüllrechteck-Treffer
+	mit expliziter Diagnose annehmen – niemals beliebig entfernte
+	Objekte verwerfen oder automatisch akzeptieren.
 	GIP_OBJECTID-Duplikate werden *dokumentiert*, nicht zusammengelegt.
 	"""
 	if kind not in LAYERS:
@@ -137,6 +144,7 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES):
 	source_ids = Counter()
 	names = Counter()
 	formats = Counter()
+	envelope_only_ids = []
 	view_features = []
 	for index, feature in enumerate(features):
 		label = f"{kind} Feature {index}"
@@ -167,8 +175,21 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES):
 		if not (15.8 <= lon0 <= lon1 <= 17.1
 			and 47.8 <= lat0 <= lat1 <= 48.6):
 			raise ValueError(f"{label}: GeoJSON-Koordinaten nicht plausibel für Wien")
-		if not transform(TO_3857, geometry).intersects(query_area):
-			raise ValueError(f"{label}: Feature liegt außerhalb der WFS-BBOX")
+		mercator_geometry = transform(TO_3857, geometry)
+		envelope_only = False
+		if not mercator_geometry.intersects(query_area):
+			# Eine WFS-BBOX ist ein Bounding-Box-Filter und keine
+			# zwingend exakte GEOS-intersects-Abfrage. Die Hülle
+			# kann die Kachel überdecken, obwohl die Linie sie
+			# umrundet. Nur diesen nachvollziehbaren Fall zulassen.
+			envelope_only = box(*mercator_geometry.bounds).intersects(query_area)
+			if not (allow_bbox_envelope_match and envelope_only and kind == "achsen"):
+				raise ValueError(
+					f"{label}, GIP_OBJECTID={identifier}: Feature liegt "
+					f"außerhalb der WFS-BBOX (Abstand "
+					f"{mercator_geometry.distance(query_area):.3f} m, "
+					f"Hüllrechteck-Treffer={envelope_only})")
+			envelope_only_ids.append(identifier)
 		name = properties.get("FEATURENAME") or properties.get("REG_STRNAME") or ""
 		if not isinstance(name, str):
 			name = str(name)
@@ -190,6 +211,7 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES):
 				"frc": properties.get("FRC"),
 				"edgecategory": properties.get("EDGECATEGORY"),
 				"dedicatedwidth": properties.get("DEDICATEDWIDTH"),
+				"wfs_bbox_nur_huelle": envelope_only,
 				"status": "nur_quellgeometrie_ungepruefte_abschnittsflaeche",
 			},
 		})
@@ -201,6 +223,8 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES):
 		"verschiedene_gip_ids": len(ids),
 		"doppelte_gip_ids": duplicate_ids,
 		"doppelte_wfs_feature_ids": duplicate_source_ids,
+		"wfs_bbox_nur_huelle_anzahl": len(envelope_only_ids),
+		"wfs_bbox_nur_huelle_gip_ids": envelope_only_ids,
 		"namen_top_15": names.most_common(15),
 		"quelle_sha256": hashlib.sha256(raw).hexdigest(),
 	}
