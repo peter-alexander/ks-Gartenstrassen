@@ -198,52 +198,55 @@ class WienPipelineTests(unittest.TestCase):
 		for group,geom in unknown:
 			self.assertAlmostEqual(all_unknown[group],geom.area,delta=.05)
 
-	def test_wfs_bbox_envelope_only_axis_is_valid_but_audited(self):
-		# Eine U-förmige vollständige WFS-Achse UM die BBOX,
-		# ohne die BBOX selbst zu schneiden. WFS-BBOX liefert
-		# mit räumlichem Index auch solche Hüllen-Treffer.
-		# Unser wienweiter Abruf darf sie nicht wegwerfen.
+	def test_wfs_bbox_superset_filters_outside_hulls_without_losing_counts(self):
+		# WFS BBOX liefert ein Kandidatensuperset. Auch ein um
+		# die BBOX verlaufendes Objekt mit Hüllrechteck-Treffer
+		# darf NICHT als benachbarte Achse in den GIP-Index.
 		tile=self.manifest["tiles"][0]
 		_,bounds=urls_for_tile(tile,75,4000)
 		x0,y0,x1,y1=bounds
-		u_shape=[(x0-100,y0-100),(x0-100,y1+100),
-			(x1+100,y1+100),(x1+100,y0-100)]
 		from pyproj import Transformer
 		to_geo=Transformer.from_crs("EPSG:3857","EPSG:4326",
 			always_xy=True)
-		def payload(points):
-			coords=[list(to_geo.transform(x,y)) for x,y in points]
-			return json.dumps(fc([{
-				"type":"Feature","id":"WFS.axis.777",
-				"geometry":{"type":"LineString","coordinates":coords},
-				"properties":{
-					"GIP_OBJECTID":777,"FEATURENAME":"Umweg",
-					"NODEFROM_OBJECTID":11,"NODETO_OBJECTID":12,
-					"FOW":3
-				},
-			}])).encode("utf-8")
-		raw=payload(u_shape)
+		def line(gid,points):
+			return {"type":"Feature","id":f"WFS.axis.{gid}",
+				"geometry":{"type":"LineString","coordinates":[
+					list(to_geo.transform(x,y)) for x,y in points]},
+				"properties":{"GIP_OBJECTID":gid,
+					"FEATURENAME":"Gasse","NODEFROM_OBJECTID":11,
+					"NODETO_OBJECTID":12,"FOW":3}}
+		u_shape=[(x0-100,y0-100),(x0-100,y1+100),
+			(x1+100,y1+100),(x1+100,y0-100)]
+		inside=line(111,[(x0+40,y0+40),(x0+80,y0+40)])
+		outside=line(777,u_shape)
+		doc=fc([outside,inside])
+		doc["totalFeatures"]=2
+		raw=json.dumps(doc).encode("utf-8")
 		with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
 			validate_layer(raw,"achsen",bounds,max_features=4000)
 		_,view,summary=validated_wfs(raw,"achsen",bounds,
 			max_features=4000)
+		self.assertEqual(summary["antwort_features"],2)
 		self.assertEqual(summary["anzahl"],1)
-		self.assertEqual(summary["wfs_bbox_nur_huelle_anzahl"],1)
-		self.assertEqual(summary["wfs_bbox_nur_huelle_gip_ids"],["777"])
-		self.assertTrue(view["features"][0]["properties"]["wfs_bbox_nur_huelle"])
-		self.assertEqual(view["features"][0]["properties"]["gip_objectid"],"777")
-		# Nur eine entfernte Linie mit nicht überlappender Hülle
-		# MUSS weiterhin als fehlerhafte WFS-Antwort gelten.
-		far=payload([(x+10000,y) for x,y in u_shape])
-		with self.assertRaisesRegex(ValueError,
-			"GIP_OBJECTID=777.*Hüllrechteck-Treffer=False"):
-			validated_wfs(far,"achsen",bounds,max_features=4000)
+		self.assertEqual(summary["wfs_bbox_ausgeschlossen_anzahl"],1)
+		self.assertEqual(summary["wfs_bbox_ausgeschlossen"][0]["gip_id"],"777")
+		self.assertTrue(
+			summary["wfs_bbox_ausgeschlossen"][0]["huellrechteck_schneidet"])
+		self.assertEqual(
+			[x["properties"]["gip_objectid"] for x in view["features"]],["111"])
+		self.assertEqual(
+			json.loads(json.dumps(view["features"][0]["geometry"])),
+			inside["geometry"])
+		# Unvollständige WFS-Antworten müssen trotz Filterung
+		# unverändert und VOR dem Filtern abgelehnt werden.
+		doc["totalFeatures"]=3
+		with self.assertRaisesRegex(ValueError,"unvollständige Antwort"):
+			validated_wfs(json.dumps(doc).encode(),"achsen",bounds,
+				max_features=4000)
 
-	def test_wfs_numeric_bbox_rounding_is_bounded_logged_and_no_geometry_edit(self):
-		# Alsergrund-WFS: real gemessener Randabstand 0,059 m
-		# in EPSG:3857 bei GIP_OBJECTID=20028505.
-		# Die Hülle des zweipunktigen Linienobjekts berührt
-		# die Anfrage genauso wenig wie die Linie selbst.
+	def test_wfs_distance_outside_bbox_is_audited_not_tolerance_escalated(self):
+		# Beide beim Realabruf beobachteten Fälle: 0,059 m und
+		# 1,309 m Abstand in EPSG:3857, ohne Hüllentreffer.
 		tile=self.manifest["tiles"][0]
 		_,bounds=urls_for_tile(tile,75,4000)
 		x0,y0,x1,y1=bounds
@@ -259,50 +262,88 @@ class WienPipelineTests(unittest.TestCase):
 				geom={"type":"Point","coordinates":
 					list(to_geo.transform(x0-distance,y0+50))}
 			return json.dumps(fc([{
-				"type":"Feature","id":"WFS.20028505",
-				"geometry":geom,
-				"properties":{
-					"GIP_OBJECTID":20028505,
-					"NODEFROM_OBJECTID":11,
-					"NODETO_OBJECTID":12,
-					"FOW":3,
-				},
+				"type":"Feature","id":"WFS.10023340","geometry":geom,
+				"properties":{"GIP_OBJECTID":10023340,
+					"NODEFROM_OBJECTID":11,"NODETO_OBJECTID":12,"FOW":3},
 			}])).encode("utf-8")
-		near=sample("achsen",0.059)
-		with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
-			validate_layer(near,"achsen",bounds,max_features=4000)
-		_,view,summary=validated_wfs(near,"achsen",bounds,
-			max_features=4000)
-		self.assertEqual(summary["wfs_bbox_numerische_randtreffer_anzahl"],1)
-		self.assertEqual(
-			summary["wfs_bbox_numerische_randtreffer"][0]["gip_id"],
-			"20028505")
-		self.assertAlmostEqual(
-			summary["wfs_bbox_numerische_randtreffer"][0]
-				["abstand_epsg3857_m"],0.059,delta=.0001)
-		self.assertFalse(view["features"][0]["properties"]["wfs_bbox_nur_huelle"])
-		self.assertAlmostEqual(
-			view["features"][0]["properties"]["wfs_bbox_numerischer_randabstand_m"],
-			0.059,delta=.0001)
-		# Das ursprüngliche Quell-GIS-Polygon/LineString
-		# darf NICHT gepuffert oder in die BBOX hinein verschoben werden.
-		self.assertEqual(
-			json.loads(json.dumps(view["features"][0]["geometry"])),
-			json.loads(near)["features"][0]["geometry"])
-		for distance in (.251,1.,10.,100.):
+		for distance in (.059,1.309,30.,100.):
 			with self.subTest(distance=distance):
-				with self.assertRaisesRegex(ValueError,"Toleranz=0.250"):
-					validated_wfs(sample("achsen",distance),
-						"achsen",bounds,max_features=4000)
-		# Punktknoten bekommen keine Achsen-Toleranz.
-		with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
-			validated_wfs(sample("knoten",0.059),"knoten",bounds,
-				max_features=4000)
-		# Auch im Legacy-Validator kann niemals eine ungeprüfte
-		# größere Toleranz eingeschaltet werden.
+				raw=sample("achsen",distance)
+				with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
+					validate_layer(raw,"achsen",bounds,max_features=4000)
+				_,view,summary=validated_wfs(raw,"achsen",bounds,
+					max_features=4000)
+				self.assertEqual(view["features"],[])
+				self.assertEqual(summary["antwort_features"],1)
+				self.assertEqual(summary["anzahl"],0)
+				self.assertEqual(
+					summary["wfs_bbox_ausgeschlossen"][0]["gip_id"],
+					"10023340")
+				self.assertAlmostEqual(
+					summary["wfs_bbox_ausgeschlossen"][0]
+						["abstand_epsg3857_m"],
+					distance,delta=.0001)
+				self.assertFalse(
+					summary["wfs_bbox_ausgeschlossen"][0]
+						["huellrechteck_schneidet"])
+		# Knoten außerhalb des Halos werden ebenso aussortiert,
+		# NICHT ohne räumliche Prüfung in den Graph aufgenommen.
+		_,view,summary=validated_wfs(sample("knoten",.059),
+			"knoten",bounds,max_features=4000)
+		self.assertEqual(view["features"],[])
+		self.assertEqual(summary["wfs_bbox_ausgeschlossen_anzahl"],1)
+		# Die alte optionale numerische Toleranz lässt sich
+		# weiterhin nicht unbegrenzt erweitern.
 		with self.assertRaisesRegex(ValueError,"0,25 m"):
-			validate_layer(near,"achsen",bounds,max_features=4000,
+			validate_layer(sample("achsen",1.309),"achsen",bounds,
 				bbox_numeric_tolerance_m=1.)
+
+	def test_wfs_excluded_candidates_persist_in_report_and_cache(self):
+		from scripts.wienwide_gip import fetch_all
+		from urllib.parse import parse_qs,urlparse
+		from pyproj import Transformer
+		tile=self.manifest["tiles"][0]
+		_,bounds=urls_for_tile(tile,75,4000)
+		x0,y0,x1,y1=bounds
+		to_geo=Transformer.from_crs("EPSG:3857","EPSG:4326",
+			always_xy=True)
+		def feat(gid,xoff,kind="achsen"):
+			p1=list(to_geo.transform(x0+xoff,y0+50))
+			p2=list(to_geo.transform(x0+xoff,y0+80))
+			return {"type":"Feature","id":f"WFS.{gid}",
+				"geometry":{"type":"LineString","coordinates":[p1,p2]}
+					if kind=="achsen" else
+					{"type":"Point","coordinates":p1},
+				"properties":{"GIP_OBJECTID":gid,"FEATURENAME":"Test",
+					"NODEFROM_OBJECTID":11,"NODETO_OBJECTID":12,"FOW":3}}
+		def downloader(url):
+			is_axis="STRASSENGRAPHOGD" in url
+			features=[feat(10,25)]+[feat(10023340,-1.309)] if is_axis else [
+				feat(11,25,"knoten")]
+			doc=fc(features)
+			doc["totalFeatures"]=len(features)
+			return json.dumps(doc).encode()
+		root=self.root/"gip_cache"
+		records=fetch_all(self.plan_file,root,limit_tiles=1,
+			downloader=downloader)
+		self.assertEqual(records,[{"tile":tile["id"],"cache":False}])
+		folder=root/tile["id"]
+		report=json.loads((folder/REPORT).read_text())
+		self.assertEqual(report["wfs_antwort_features"]["achsen"],2)
+		self.assertEqual(report["anzahl"]["achsen"],1)
+		excluded=report["wfs_bbox_ausgeschlossen"]["achsen"]
+		self.assertEqual(excluded["anzahl"],1)
+		self.assertEqual(excluded["gip_ids_mit_abstand"][0]["gip_id"],"10023340")
+		self.assertAlmostEqual(
+			excluded["gip_ids_mit_abstand"][0]["abstand_epsg3857_m"],
+			1.309,delta=.0001)
+		kept=json.loads((folder/AXES).read_text())["features"]
+		self.assertEqual([x["properties"]["gip_objectid"] for x in kept],["10"])
+		def no_network(_):
+			raise AssertionError("Bestehenden gültigen Cache nicht neu laden")
+		reused=fetch_all(self.plan_file,root,limit_tiles=1,
+			downloader=no_network)
+		self.assertEqual(reused,[{"tile":tile["id"],"cache":True}])
 
 	def test_verified_empty_wfs_and_incorrect_counts(self):
 		tile=self.manifest["tiles"][0]
