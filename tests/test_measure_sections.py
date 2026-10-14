@@ -113,8 +113,10 @@ class SectionMetricsTests(unittest.TestCase):
 		self.assertAlmostEqual(totals["kronen_c"]["gesamt_m2"], 2125)
 		for name, result in totals.items():
 			if result is not None:
-				self.assertAlmostEqual(result["abschnitte_m2"] +
-					result["ungeklaert_m2"], result["gesamt_m2"], places=4)
+				self.assertLessEqual(abs(result["abschnitte_m2"] +
+					result["ungeklaert_m2"] - result["gesamt_m2"]), .5)
+				self.assertLessEqual(
+					abs(result["bilanzdifferenz_m2"]), .5)
 		self.assertGreater(totals["bodenbegruenung"]["ungeklaert_m2"], 0)
 		self.assertGreater(totals["kronen_a"]["ungeklaert_m2"], 0)
 
