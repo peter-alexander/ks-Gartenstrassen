@@ -24,6 +24,7 @@ from scripts.wienwide_partition import (
 	graph_context, split_tile, run as partition_run, report_results,
 )
 from scripts.wienwide_benchmark import benchmark
+from scripts.fetch_gip_sections import validate_layer
 
 
 def fc(features):
@@ -196,6 +197,47 @@ class WienPipelineTests(unittest.TestCase):
 				f"Naht oder Zuordnung bei GIP {gid}")
 		for group,geom in unknown:
 			self.assertAlmostEqual(all_unknown[group],geom.area,delta=.05)
+
+	def test_wfs_bbox_envelope_only_axis_is_valid_but_audited(self):
+		# Eine U-förmige vollständige WFS-Achse UM die BBOX,
+		# ohne die BBOX selbst zu schneiden. WFS-BBOX liefert
+		# mit räumlichem Index auch solche Hüllen-Treffer.
+		# Unser wienweiter Abruf darf sie nicht wegwerfen.
+		tile=self.manifest["tiles"][0]
+		_,bounds=urls_for_tile(tile,75,4000)
+		x0,y0,x1,y1=bounds
+		u_shape=[(x0-100,y0-100),(x0-100,y1+100),
+			(x1+100,y1+100),(x1+100,y0-100)]
+		from pyproj import Transformer
+		to_geo=Transformer.from_crs("EPSG:3857","EPSG:4326",
+			always_xy=True)
+		def payload(points):
+			coords=[list(to_geo.transform(x,y)) for x,y in points]
+			return json.dumps(fc([{
+				"type":"Feature","id":"WFS.axis.777",
+				"geometry":{"type":"LineString","coordinates":coords},
+				"properties":{
+					"GIP_OBJECTID":777,"FEATURENAME":"Umweg",
+					"NODEFROM_OBJECTID":11,"NODETO_OBJECTID":12,
+					"FOW":3
+				},
+			}])).encode("utf-8")
+		raw=payload(u_shape)
+		with self.assertRaisesRegex(ValueError,"außerhalb der WFS-BBOX"):
+			validate_layer(raw,"achsen",bounds,max_features=4000)
+		_,view,summary=validated_wfs(raw,"achsen",bounds,
+			max_features=4000)
+		self.assertEqual(summary["anzahl"],1)
+		self.assertEqual(summary["wfs_bbox_nur_huelle_anzahl"],1)
+		self.assertEqual(summary["wfs_bbox_nur_huelle_gip_ids"],["777"])
+		self.assertTrue(view["features"][0]["properties"]["wfs_bbox_nur_huelle"])
+		self.assertEqual(view["features"][0]["properties"]["gip_objectid"],"777")
+		# Nur eine entfernte Linie mit nicht überlappender Hülle
+		# MUSS weiterhin als fehlerhafte WFS-Antwort gelten.
+		far=payload([(x+10000,y) for x,y in u_shape])
+		with self.assertRaisesRegex(ValueError,
+			"GIP_OBJECTID=777.*Hüllrechteck-Treffer=False"):
+			validated_wfs(far,"achsen",bounds,max_features=4000)
 
 	def test_verified_empty_wfs_and_incorrect_counts(self):
 		tile=self.manifest["tiles"][0]
