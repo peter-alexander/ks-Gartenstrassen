@@ -200,10 +200,13 @@ class WienPipelineTests(unittest.TestCase):
 		gip=self.root/"gip.sqlite"
 		build_index(self.plan_file,self.gip_root,gip)
 		street_root=self.root/"street"
-		# Pro Kachel exakt die CORE-Geometrie; kein Masken-GeoJSON.
+		# Benutze dieselbe georeferenzierte AOI-Geometrie wie die
+		# Produktionsroutine nach GeoJSON-Einlesen; ein künstlich
+		# zweiter Referenzumweg erzeugt sonst Versatz am Außenrand.
+		_,actual_aoi=read_manifest(self.plan_file)
 		for tile in self.manifest["tiles"]:
 			core=box(*tile["bounds_31256"])
-			street=core.intersection(self.aoi)
+			street=core.intersection(actual_aoi)
 			if street.area<=0:continue
 			path=street_root/tile["id"]/"street.sqlite"
 			save_street_tile(path,street,{"schema_version":"1",
