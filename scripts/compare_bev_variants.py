@@ -142,8 +142,12 @@ def runs_to_metric_union(mask, geometry, *, street_bounds_metric=None):
 	rectangles = []
 	pixel_count = 0
 	for row in range(height):
+		# Beide Grenzen aus denselben globalen Rasterlinien berechnen.
+		# top-dy weicht durch Rundung von der Oberkante der Folgezeile ab:
+		# winzige Lücken zerlegen die Pixelunion und können bei der
+		# Projektion nach EPSG:31256 Selbstüberschneidungen verursachen.
 		top = y1-row*dy
-		bottom = top-dy
+		bottom = y1-(row+1)*dy
 		if window is not None and (bottom > window[3] or top < window[1]):
 			continue
 		start = row*width

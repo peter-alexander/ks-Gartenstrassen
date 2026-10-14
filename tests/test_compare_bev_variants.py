@@ -138,6 +138,27 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 		self.assertAlmostEqual(raster_extent_in_metric(geo).area,
 			full.area, delta=0.01)
 
+	def test_fractional_wms_pixel_spacing_preserves_row_topology(self):
+		# Originalraster (943 × 878): die y-Abstände sind nicht exakt
+		# binär darstellbar. bottom=top-dy erzeugte 221 minimale Lücken
+		# und zerlegte eine vollständig gefüllte Maske in 222 Polygone.
+		geo = {
+			"crs": "EPSG:3857",
+			"bbox": [
+				1821276.8482049643, 6143715.40187442,
+				1821983.0461732666, 6144375.194205614,
+			],
+			"width": 943,
+			"height": 878,
+		}
+		mask = Image.new("L", (943, 878), 255)
+		metric, diagnostic = runs_to_metric_union(mask, geo)
+		self.assertEqual(diagnostic["horizontal_runs"], 878)
+		self.assertEqual(diagnostic["pixel_in_bbox"], 943 * 878)
+		self.assertEqual(metric.geom_type, "Polygon")
+		self.assertTrue(metric.is_valid)
+		self.assertEqual(diagnostic["projektions_topologie"]["status"], "valide")
+
 	def test_polygon_clip_respects_fractional_edge_cells(self):
 		geo = grid(width=3, height=3)
 		x0,y0,x1,y1 = geo["bbox"]
