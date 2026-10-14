@@ -523,6 +523,53 @@ Die WMS-Quelldaten und die Programme A/B/C wurden bei dieser Dokumentation nicht
 
 ---
 
+### D2-Feinvergleich und D3: Vorsichtige Kronenkandidaten ohne Höhenmodelle (14.10.2026)
+
+**Entscheidung nach visuellem Feinvergleich D2:** Für die erste Erkennung bleibt **0,10** die vorläufige, möglichst vollständige Vegetations-Kandidatenschwelle. Der Wert **0,20** bleibt separat als Signal stärkerer Vegetation erhalten. Weder 0,17 noch 0,18 wird als scheinbar optimaler Trennwert festgelegt. Die Feinstudie mit identischen BEV-WMS-Quellbildern lieferte:
+
+| WMS-Indexschwelle | Pixel über Schwelle | Bildanteil – ohne Straßenraumzuschnitt |
+| --- | ---: | ---: |
+| 0,10 | 125.345 | 15,14 % |
+| 0,15 | 112.107 | 13,54 % |
+| 0,17 | 107.448 | 12,98 % |
+| 0,18 | 105.124 | 12,70 % |
+| 0,20 | 100.521 | 12,14 % |
+
+Bei 0,10 sind damit gegenüber 0,20 **24.824 zusätzliche Rasterpixel** erfasst (24,7 % mehr Kandidatenpixel relativ zur 0,20-Ausgabe). Das sind ausdrücklich **keine** zusätzlich bestätigten Baumkronen oder Vegetationsflächen des öffentlichen Straßenraums. Die Bildwerte sind keine radiometrisch kalibrierten NDVI-Messwerte.
+
+**Neue, getrennte Teststufe D3:** `scripts/segment_bev_vegetation.py` arbeitet rein lokal mit den bereits geprüften BEV-`RGB`- und `IR`-PNGs samt SHA-256- und Georeferenzierungsprüfung. Die bisherigen D2-Dateien und die Referenzmethoden A/B/C werden nicht verändert.
+
+1. Mit `I_WMS >= 0,10` entsteht eine großzügige Vegetationsmaske.
+2. Pixel mit `I_WMS >= 0,20` bilden stärkere Signale. In der **achtfach verbundenen** 0,10-Maske werden zusammenhängende Regionen gebildet; Regionen **ohne** mindestens einen 0,20-Pixel bleiben als schwache Vegetation dokumentiert und werden **nicht** in die Hysterese-Kandidaten übernommen.
+3. Pro Region werden Pixelzahl, Pixel-Bounding-Box, Füllgrad, Seitenverhältnis, ein rein indikatives Kompaktheitsmaß, Anteil der 0,20-Kernpixel und die **mittlere RGB-Luminanzdifferenz zwischen internen Nachbarpixeln** berechnet.
+4. Für einen **explorativen**, noch **nicht** an Referenzbeispielen kalibrierten Test bekommen große Regionen mit mittlerer Nachbartextur ab **8 Grauwerten (DN)** die Bezeichnung `strukturreicher_kronenkandidat`. Sehr gleichmäßige Regionen bis **4 DN** bleiben `strukturarm_nicht_als_baum_ausgeschlossen`; andere Objekte `unklare_vegetation`. Regionen mit weniger als **12 Pixeln** werden als `klein_unklar` geführt. Die genauen Schwellen sind CLI-Parameter und gelten **nicht** als Qualitätsnachweis.
+
+**Grenze der Hysterese:** Eine Baumkrone kann an eine Wiese oder Hecke anschließen und dadurch in **derselben** Komponente landen; Textur und Form gelten dann für die *Mischfläche*. Umgekehrt darf das Fehlen eines 0,20-Kerns nicht automatisch als `keine Vegetation` interpretiert werden. Auch die Strukturarm-Klasse bedeutet ausdrücklich **nicht**, dass es sich sicher um Rasen und nicht um einen Baum handelt. Die Farbcodierung ist eine vorläufige menschliche Prüfhilfe und **kein** validiertes Baumkronenmodell.
+
+**Lokal ausführen:**
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.segment_bev_vegetation
+```
+
+Quellen unter `data/processed/baumkronen/bev_wms/`, neue und getrennte Ergebnisse standardmäßig unter `data/processed/baumkronen/bev_segmentierung/`:
+
+| Ausgabe | Inhalt |
+| --- | --- |
+| `bev_segmentation_kandidaten.png` | RGB-Orthofoto mit halbtransparenten **Objektklassen** (grün = strukturreiche Kronenkandidaten, blau = strukturarme Vegetation, gelb = unklar/klein, grau = schwaches Signal ohne 0,20-Kern) |
+| `bev_segmentation_klassen.png` | Dasselbe Raster als farbige Klassen ohne RGB-Untergrund |
+| `bev_segmentation_kronenkandidaten.png` | Binärmaske **nur der strukturreichen Kronenkandidaten** – noch keine bestätigte Überschirmung |
+| `bev_segmentation_hysterese.png` | Binärmaske der 0,10-Komponenten, die mindestens einen 0,20-Kern enthalten, unabhängig von RGB-Textur |
+| `bev_segmentation_objekte.json` | Alle zusammenhängenden Objekte mit Pixelkoordinaten und Form-/Textur-/Kernstatistik; **kein GeoJSON** |
+| `bev_segmentation_bericht.json` | WMS-Herkunft, Prüfsummen, Schwellwerte, Klassen-Bilanzen, Qualitätsgrenzen und Ausgaben |
+
+Die vier PNGs sind jeweils als `PNG/.pgw/.prj` in **EPSG:3857** abgelegt und können für eine direkte visuelle GIS-Prüfung verwendet werden. Die Klassenmaske darf nicht allein aufgrund ihrer Farbe mit `measure_canopy_cover.py` als amtlicher Überschirmungsgrad gemessen werden. Der Bildausschnitt enthält auch private Innenhöfe und Dächer.
+
+**Validierung vor Kronenpolygonen:** Zunächst den tatsächlichen D3-Bildbericht und die Klassenübersicht kontrollieren, insbesondere strukturreiche **Wiesen** (Falschpositiv), glatte **Kronen** (Falschnegativ), Schatten, zusammenhängende Baum-/Rasenbereiche und lange Straßenbaumreihen. Im zweiten Schritt unabhängige Positiv-/Negativflächen aus dem Orthofoto anlegen, um Textur- und Formregeln zu prüfen. A/B/C können danach unabhängige Vergleichsflächen liefern, dürfen aber nicht unbemerkt die D3-Kronenerkennung steuern. **Für Methode D wird weiterhin keine neue Überschirmungsquote angegeben.**
+
+---
+
 **Wenn die WMS-Qualität unzureichend ist**, bleibt der eigenständige Roh-RGBI-Adapter `scripts/probe_bev_rgbir.py` als zweite Quelle erhalten. Ein großer TIFF-Download ist erst gerechtfertigt, wenn die WMS-Ergebnisse keine ausreichend verlässliche Spektraldiagnose zulassen.
 
 ---
