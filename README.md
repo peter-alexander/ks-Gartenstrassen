@@ -473,6 +473,8 @@ Alle vier PNGs erhalten eigene `PGW/PRJ`-Georeferenzierung (EPSG:3857). Die Text
 
 Die Konsole zeigt für alle Varianten Fläche **in m² und Prozent**. Der Bericht liegt unter `data/processed/baumkronen/bev_variantenvergleich/bev_varianten_strassenraum_vergleich.json`. **Unbedingt unterscheiden:** D2 liefert Vegetationsbedeckung und D3 liefert unvalidierte Kronenkandidaten; noch kein D-Wert ist ein nachgewiesener Wien-Plan-Überschirmungsgrad. Zuerst die echten Quoten vergleichen, **dann** über die nächste Segmentierung entscheiden. [Methodische Details](docs/Modul-4-Baumkronen-Vergleich.md#zwischenmessung-d2d3-alle-d-varianten-auf-identischem-straßenraum-14102026).
 
+**Festgelegter Zwischenstand Methode D (14.10.2026):** Die D2-Schwelle **0,20 ist die Baseline** für künftige Vergleiche. D erkennt damit experimentell Vegetationsflächen im Straßenraum; **eine verlässliche Unterscheidung zwischen Baumkronen und sonstiger Vegetation (z. B. Rasen, Beeten, Sträuchern) ist noch nicht umgesetzt**. D3-Kronenkandidaten sind dafür nicht ausreichend validiert. Die Baumkronentrennung bleibt ein **offener Punkt**. Wir lassen D vorerst unverändert und führen keine weitere Schwellenoptimierung oder Klassifikationsentwicklung durch. Die D-Vegetationsbedeckung ist **kein Baumkronen-Überschirmungsgrad**.
+
 **Die TIFF-/RGBI-Diagnose bleibt als Fallback**, falls die Kanäle des gerenderten BEV-WMS nicht geeignet sind. Sie ist im folgenden Abschnitt beschrieben.
 
 ### Optionale Originaldaten: BEV Orthofoto RGBI – Rasterdiagnose
