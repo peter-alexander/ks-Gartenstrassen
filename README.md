@@ -538,7 +538,11 @@ ein **V1-Diagnose-Prototyp**
 `scripts/diagnose_gip_junction_corners.py` implementiert,
 der Querprofile, vorläufige Eckpunkte und Schnittlinien
 für acht GIP-Kreuzungen erzeugt. Für dreiarmige Kreuzungen
-verwendet er nun bei einseitigen Übergängen eine **90°-Querlinie**;
+verwendet er nun bei einseitigen Übergängen eine **90°-Querlinie**.
+Seit V1.2 wird **der kreuzungsnahe Beginn** der Aufweitung
+statt der äußere stabile Endpunkt gesucht; beide
+Referenzvarianten berücksichtigen dieselben
+FMZK-Verkehrsflächen und Gebäude-Konturen als Zusatzdiagnose;
 mit `--boundary-mode gehsteigkante` ist alternativ die
 **vereinigten FMZK-Klassen 21/30/32/33/39** (Fahrbahn,
 Zebrastreifen, Tempo-Schwellen/Rampen, Parkspuren und

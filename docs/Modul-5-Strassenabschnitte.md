@@ -208,6 +208,16 @@ Ergebnisse sind weiterhin nur **unvalidierte Kandidaten**,
 keine abgegrenzten neuen Kreuzungspolygone oder geänderten
 Abschnittsflächen. [Varianten und Aufruf](Modul-5-Eckpunkte-Kreuzungen.md#v11-t-kreuzungen-und-alternative-gehsteigkante-14102026).
 
+**V1.2-Diagnose:** Die zuvor zu weit außen liegenden Schnitte
+werden jetzt an der **inneren Schulter der Ohrwaschln** gesucht,
+mit explizitem äußerem Fallback und gemeinsam genutzter
+Verkehrsflächen-Maske für **beide** Randvarianten.
+FMZK-Gebäude 11/19 werden als eigene Kontur- und
+Abstandsdiagnose verwendet, nicht als automatisch
+gültige Schnittlinie. Die Realerprobung der Änderung
+steht noch aus.
+[Methodik und Aufruf](Modul-5-Eckpunkte-Kreuzungen.md#v12-beginn-statt-ende-der-ohrwaschln--beide-referenzen-14102026).
+
 ## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (erste experimentelle Implementierung)
 
 Die eigentliche neue Aufgabe ist die **flächentreue, überschneidungsfreie

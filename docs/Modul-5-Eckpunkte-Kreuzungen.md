@@ -529,6 +529,115 @@ räumlich zu unerwünschten Nebenflächen führen.
 Sobald eine tatsächlich erfasste Gehsteigkante verfügbar
 und geprüft ist, soll sie als eigener Provider angebunden werden.
 
+## V1.2: Beginn statt Ende der Ohrwaschln – beide Referenzen (14.10.2026)
+
+**Rückmeldung aus der Sichtkontrolle:** Die zuvor ermittelten Punkte
+lagen häufig **am äußeren Ende der Kreuzungsaufweitung**, nicht an
+deren **kreuzungsnahem Beginn**. Der Algorithmus verlangte bisher
+zunächst eine deutlich breitere Zone und danach drei unauffällige
+Querprofile; er wählte also bewusst den ersten stabilen
+*Normalquerschnitt hinter* der Aufweitung. Das war für die
+gewünschte Schnittposition systematisch zu weit außen.
+
+### Geänderte Kandidatensuche
+
+`_side_transition(..., position="innen")` nutzt weiterhin eine
+nachweisbar stabile äußere Normalbreite, sucht aber **innerhalb
+der gemessenen Aufweitung** die erste gut messbare abfallende
+Schulter (zunächst: 65 % des lokal festgestellten, nicht
+abgeschnittenen Maximums). Abgeschnittene 45-m-Messprofile
+sind nie gültige Eckpunkte. Die alte Wahl ist für den Bericht
+als `position="aussen"` weiterhin verfügbar.
+
+Kann eine innere Schulter im Kreuzzungsbereich wegen Überdeckung
+durch eine kreuzende Straße nicht sauber gemessen werden,
+wird der bisherige äußere Schnitt **nur mit explizitem
+Status `innere_schulter_..._aussenfallback`** beibehalten.
+Ein Fallback ist kein Nachweis eines inneren Punktes.
+
+Bei T-Kreuzungen wird die **kreuzungsnähere** der zwei
+inneren Stationen verwendet und der Querschnitt
+rechtwinklig zur lokalen Achse gezogen. Bei vierarmigen
+Kreuzungen werden die beiden inneren Seitenpunkte
+verbunden. Wie zuvor muss die erzeugte Linie die aktive
+Maske geometrisch korrekt durchtrennen; bei unplausiblen
+Querschnitten wird sie nicht als valide ausgegeben.
+
+### Gemeinsame Hilfsdaten für beide Varianten
+
+Unabhängig von `--boundary-mode` wird jetzt dieselbe
+**geometrisch vereinigte Verkehrsmaske F_KLASSE
+21/30/32/33/39** berechnet und ausgewertet.
+
+- **`hauswand`** (Standard): Eckpunkte und Schnittlinien
+  weiterhin auf der **ursprünglichen äußeren Straßenraummaske**;
+  die Verkehrsmaske liefert **zusätzliche Stationshinweise**.
+- **`gehsteigkante`**: Endpunkte weiterhin auf der
+  vereinigten Verkehrsflächenmaske; die äußere Maske
+  liefert zusätzliche Stationshinweise.
+- Eine Hilfsgeometrie darf nur eine **Station auf der
+  Straßenachse**, nicht den geometrischen Endpunkt ersetzen.
+  An dieser Station muss ein plausibler, vollständig
+  gemessener Querschnitt **der aktiven Maske** vorliegen.
+  Überbreite oder abgeschnittene Querschnitte sind keine
+  bestätigten inneren Kreuzungsgrenzen.
+- Zusätzlich werden die **FMZK-Gebäudekonturen Klasse 11
+  (Gebäude) und 19 (Nebengebäude)** vereinigt und als
+  unabhängige **Kontrollgeometrie** herangezogen. Der
+  Bericht führt deren Fläche, jeder Eckpunkt den Abstand
+  zur nächsten Gebäudekontur. Die Kontur wird **noch nicht
+  automatisch** als neue Straßenraumgrenze verwendet;
+  insbesondere Überbauungen (12) werden nicht als
+  Straßenrand behandelt.
+
+Je Arm enthält der neue Diagnosebericht
+`aussenstationen_m`, `innenstationen_m`,
+`verschiebung_zum_knoten_m` sowie `seitenquellen`.
+Die neue GeoJSON-Schnittlinie enthält `position="innen"`;
+die bestehenden Ausgabedateinamen bleiben gleich.
+
+### Eingereichter Vergleich vor dieser Korrektur
+
+Der lokale Bericht der **fünfklassigen Verkehrsmaske**
+(13:42 UTC) zeigte eine vereinigte Bezugsfläche von
+**27.562,23 m²** (Fahrbahn 21: 15.792,00 m²,
+Ruhender Verkehr 33: 11.195,66 m² als Klassenflächen,
+zuzüglich 30/32/39, mit möglichen Überschneidungen).
+Von 28 Kreuzungsarmen lieferten lediglich **acht**
+`kandidat_pruefen`, 16 `uebergang_unklar`,
+zwei geometrisch abgelehnte Linien und zwei zu kurze
+Arme. Die reine Klasse-21-Variante hatte 14 plausible
+Linien, die äußere Maske 22. **Die neue, nun kürzer
+liegende V1.2-Variante wurde noch nicht auf den echten
+lokalen FMZK-Daten geprüft**; ihre Trefferzahlen und
+Lagequalität bleiben offen.
+
+### Beide neuen Diagnosevarianten ausführen
+
+```bash
+git pull --ff-only
+
+.venv/bin/python -m scripts.diagnose_gip_junction_corners \
+  --boundary-mode hauswand \
+  --out-dir data/processed/strassenabschnitte/eckpunkte_v12_hauswand
+
+.venv/bin/python -m scripts.diagnose_gip_junction_corners \
+  --boundary-mode gehsteigkante \
+  --out-dir data/processed/strassenabschnitte/eckpunkte_v12_gehsteigkante
+```
+
+Für einen direkten Vergleich die beiden
+`kreuzungen_diagnose_bericht.json` sowie nach Möglichkeit
+`kreuzungen_schnittlinien.geojson` übermitteln. Die
+Sichtprüfung soll insbesondere zeigen, ob die inneren
+Punkte tatsächlich **vor statt hinter den Ohrwaschln**
+liegen, und ob einzelne Linien trotzdem zu weit in
+die Straßenkreuzung hineingezogen werden.
+
+**Weiterhin nicht geändert:** `aufteilung_v0`, originale
+Straßenraummaske, Schnittmengen der Begrünung und
+Kronenüberschirmung sowie die amtlichen GIP-Quell-GeoJSONs.
+
 ## Empfohlene Implementierungsreihenfolge
 
 1. **Diagnose-only (Code vorhanden, lokaler Realtest offen):**
