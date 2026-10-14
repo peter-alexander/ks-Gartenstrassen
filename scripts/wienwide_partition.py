@@ -48,13 +48,17 @@ def graph_context(db, bounds, *, halo=75):
 	"""Nur benötigte Voronoi-Sites; Knotengrad aus GLOBALEN GIP-Achsen."""
 	x0,y0,x1,y1=bounds
 	search=(x0-halo,y0-halo,x1+halo,y1+halo)
-	site_ids=[r[0] for r in _rtree(db,"site_spatial",search)]
-	sites=[]
-	axis_ids=set()
-	for pk in sorted(site_ids):
-		row=db.execute("SELECT axis_pk,x,y FROM sites WHERE pk=?",(pk,)).fetchone()
-		sites.append((row["axis_pk"],row["x"],row["y"]))
-		axis_ids.add(row["axis_pk"])
+	sx0,sy0,sx1,sy1=search
+	# Eine räumliche SQL-Abfrage statt einer Abfrage je Stützpunkt:
+	# bei Wien-weiten Millionen Stützpunkten entscheidend.
+	rows=db.execute("""
+		SELECT p.axis_pk,p.x,p.y
+		FROM site_spatial s JOIN sites p ON p.pk=s.pk
+		WHERE s.maxx>=? AND s.minx<=? AND s.maxy>=? AND s.miny<=?
+		ORDER BY p.pk
+	""",(sx0,sx1,sy0,sy1))
+	sites=[(row["axis_pk"],row["x"],row["y"]) for row in rows]
+	axis_ids={pk for pk,_,_ in sites}
 	axes={}
 	for pk in axis_ids:
 		r=db.execute("SELECT pk,gip,name,fow,wkb FROM axes WHERE pk=?",(pk,)).fetchone()
@@ -62,18 +66,16 @@ def graph_context(db, bounds, *, halo=75):
 			"geometry":loads(r["wkb"])}
 	# Grad ausschließlich aus ALLEN geladenen Achsen, nicht aus
 	# den in einer einzelnen Kachel sichtbaren Armen.
-	degrees=dict(db.execute("""
-		SELECT nid,COUNT(*) AS degree FROM
-			(SELECT node_from AS nid FROM axes
-			 UNION ALL SELECT node_to AS nid FROM axes)
-		GROUP BY nid
-	""").fetchall())
+	# Das Gradverzeichnis wird bei der vollständigen Indexierung
+	# EINMAL global erzeugt, nicht für jede Kachel neu gezählt.
 	nodes=[]
 	node_ids=[r[0] for r in _rtree(db,"node_spatial",
 		(x0-7,y0-7,x1+7,y1+7))]
 	for pk in node_ids:
 		r=db.execute("SELECT gip,wkb FROM nodes WHERE pk=?",(pk,)).fetchone()
-		if degrees.get(r["gip"],0)>=3:
+		degree=db.execute("SELECT degree FROM node_degrees WHERE gip=?",
+			(r["gip"],)).fetchone()
+		if degree and degree[0]>=3:
 			nodes.append(loads(r["wkb"]))
 	return sites,axes,nodes
 
