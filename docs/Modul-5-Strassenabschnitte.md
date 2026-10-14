@@ -1,6 +1,6 @@
 # Modul 5 – Straßenabschnitte als Bezugsräume
 
-**Stand 14.10.2026: kleinräumiger WFS-Abruf mit Prüf-Layern implementiert; reale Ortsdatenprobe und Straßenabschnittsflächen stehen noch aus.**
+**Stand 14.10.2026: kleinräumiger GIP-Abruf erfolgreich mit echten Daten geprüft; unabhängiges Topologie-Audit implementiert. Visuelle Kontrolle und Straßenabschnittsflächen noch offen.**
 
 ## Ziel und Abgrenzung
 
@@ -108,13 +108,73 @@ Ein geänderter FMZK-Ausschnitt oder geänderte Abrufparameter werden
 beim Cachevergleich abgewiesen. Eine unterbrochene/teilweise Ausgabe
 wird nicht als fertiger Datensatz akzeptiert.
 
-**Wichtiger offener Realtest:** Die Attribute und Topologie an den tatsächlichen
-GIP-Objekten im Testausschnitt prüfen, einschließlich der Fälle mit
-getrennten Richtungsfahrbahnen, Straßenbahnanlagen, Sackgassen und
-mehrarmigen Kreuzungen. Die automatisierten Tests benutzen nur
-synthetische Features; GitHub Actions führt keine WFS-Abrufe aus.
-Allein aus der Beschreibung darf keine lückenlose Abdeckung
-unterstellt werden.
+### Erster realer Datenlauf (14.10.2026)
+
+Die lokal erzeugten und zur Prüfung bereitgestellten
+`gip_probe_bericht.json`, `abschnitte_achsen.geojson` und
+`abschnitte_knoten.geojson` wurden gemeinsam geometrisch geprüft.
+
+| Ergebnis | Befund |
+| --- | ---: |
+| Straßengraph (LineString) | **80 Achsen** |
+| Straßenknoten (Point) | **47 Knoten** |
+| Doppelte GIP-IDs und WFS-Feature-IDs | **0** |
+| Referenzierte Knoten-IDs | **64** |
+| Im Knotendatensatz vorhandene referenzierte IDs | **47** |
+| Im Knotenabruf nicht enthaltene IDs | **17** |
+| Linienenden mit abgerufenem Knoten | **140 / 160** |
+| Metrische Distanz der 140 verknüpften Endpunkte | **0 m** |
+| Endpunkte ohne geladenen Knoten | **20**; **alle außerhalb** der angefragten WFS-BBOX |
+| Achsen mit Kontakt zum ursprünglichen Testrechteck | **45** |
+| Knoten innerhalb des ursprünglichen Testrechtecks | **22** |
+| Zusammenhangskomponenten (nach Knoten-IDs) | **4**: 74, 3, 2, 1 Achsen |
+
+Die 17 fehlenden IDs sind **kein Topologiefehler**: Ihre 20
+zugehörigen Linienenden liegen vollständig außerhalb der WFS-Anfrage-BBOX
+mit 75 m Zusatzrand. Dies wurde geometrisch in EPSG:3857 geprüft;
+die Lage aller verfügbaren Knoten stimmt mit dem zugehörigen
+GIP-Linienende in EPSG:31256 exakt überein. Die 45/22-Teilmengen
+beziehen sich **nur auf das ursprüngliche geografische Rechteck**,
+nicht auf die vereinigten Modul-2-Straßenraumflächen.
+
+**Separierte Teilnetze:** Hauptgraph (74 Achsen),
+Karoline-Tintner-/Olga-Misař-Promenade (3),
+Siemens-Nixdorf-Steg (2) und Ari-Rath-Platz (1).
+Das sind zunächst nur topologische Komponenten im begrenzten
+GIP-Ausschnitt. Ob und wie sie zur Gartenstraßenanalyse gehören,
+muss anhand von Verkehrsart, Geometrie und Lage geprüft werden.
+
+Die Quellattribute enthalten verschiedene `FOW`-Werte (3/15/14/2/18)
+und `EDGECATEGORY`-Werte (G/L/B); **noch kein automatischer Filter**
+für Straßen, Fußwege, Brücken oder Promenaden. Der numerische
+`DEDICATEDWIDTH` ist keine vermessene Polygonbreite; negative
+bzw. fehlende Werte müssen ausdrücklich kenntlich bleiben.
+
+### Wiederholbare lokale Topologieprüfung
+
+Zusätzlich steht nun `scripts/analyze_gip_topology.py` bereit. Es
+prüft die Beziehungen der realen Knoten-IDs zu den Endpunkten,
+unterscheidet fehlende Knoten **innerhalb** und **außerhalb**
+der Anfrage-BBOX, ermittelt Teilnetze und meldet Endpunktabweichungen.
+Das Skript verändert keine der geladenen GeoJSONs.
+
+```bash
+git pull --ff-only
+.venv/bin/python -m scripts.analyze_gip_topology
+```
+
+Ausgabe: `data/processed/strassenabschnitte/gip/gip_topologie_bericht.json`.
+Ein schon vorhandener Bericht wird nicht überschrieben (alternativ
+`--out <neuer-pfad>`). Die Prüfung selbst ist offline;
+die GitHub-Tests verwenden synthetische Daten.
+
+**Fachlich weiterhin zu prüfen:** Linienführung an echten Kreuzungen,
+getrennte Fahrbahnen, Straßenbahnanlagen, Sackgassen, Randabschnitte
+und die Sonderfälle der drei kleinen Teilnetze. Insbesondere
+nicht behaupten, dass GIP-Teilnetze identisch mit den zu bildenden
+Straßenraum-Polygonabschnitten sind. Eine fehlende Knotenreferenz
+innerhalb der Anfrage-BBOX wäre ein tatsächlicher Hinweis zur
+Nachprüfung. Ohne Flächenzuordnung noch keine Abschnittsquoten.
 
 ## 3. Aus Graphlinien exklusive Straßenraumflächen gewinnen (noch offen)
 
@@ -189,9 +249,11 @@ verschiedene, sich potenziell überlagernde Kennzahlen.
 
 ## Nächste konkrete Arbeit
 
-**Den ersten kleinräumigen GIP-Probelauf lokal ausführen und die beiden
-erzeugten Karten-Prüflayer auf echte Lage/Topologie sowie fehlende und
-doppelte GIP-IDs prüfen.** Erst nach dieser Sichtkontrolle die flächige
-Abschnittszuordnung programmieren und benchmarken. Bis dahin gibt es
-im Projekt **keine fertigen Straßenabschnittsflächen und keine
-abschnittsweisen Begrünungswerte**.
+**Als Nächstes** das neue Topologie-Audit lokal ausführen und die
+Quellachsen samt Knoten in der Kartensammlung überprüfen. Vor allem die
+drei kleinen separaten Netzkomponenten und die Linien im Kreuzungsbereich
+müssen sichtbar beurteilt werden. Danach ein experimentelles Verfahren
+zur **exklusiven Aufteilung der Straßenraum-Maske** implementieren,
+einschließlich separater Knoten-/Restflächen sowie Flächenbilanz.
+Bis dahin gibt es im Projekt **keine fertigen Straßenabschnittsflächen
+und keine abschnittsweisen Begrünungswerte**.
