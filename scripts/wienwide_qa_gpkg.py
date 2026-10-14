@@ -12,6 +12,7 @@ direkt erzeugen, ohne zusätzliche GIS-Paket-Abhängigkeiten.
 """
 import argparse
 from collections import Counter, defaultdict
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 import math
@@ -25,7 +26,7 @@ from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.wkb import dumps, loads
 
 from scripts.wienwide_grid import checksum, read_manifest
-from scripts.wienwide_partition import GROUPS, SCHEMA as PARTITION_SCHEMA, report_results
+from scripts.wienwide_partition import SCHEMA as PARTITION_SCHEMA, report_results
 
 LAYERS = ("gip_abschnitte", "knotenbereiche", "sonderachsen", "nicht_zugeordnet")
 SOURCE_GROUP = {"knotenbereich": "knotenbereiche",
@@ -186,7 +187,7 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 	expected={"manifest_sha256":checksum(manifest_path),
 		"gip_sha256":checksum(gip_path),
 		"schema_version":str(PARTITION_SCHEMA)}
-	with readonly(partition_path) as src, readonly(gip_path) as gip:
+	with closing(readonly(partition_path)) as src, closing(readonly(gip_path)) as gip:
 		src.row_factory=sqlite3.Row
 		gip.row_factory=sqlite3.Row
 		actual=dict(src.execute("SELECT key,value FROM config"))
@@ -227,7 +228,7 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		limits={name:None for name in LAYERS}
 		output.parent.mkdir(parents=True,exist_ok=True)
 		try:
-			with sqlite3.connect(tmp) as target:
+			with closing(sqlite3.connect(tmp)) as target, target:
 				init_gpkg(target)
 				for row in src.execute("""SELECT tile_id,kind,gip_id,area,geom
 					FROM parts ORDER BY tile_id,kind,gip_id"""):
