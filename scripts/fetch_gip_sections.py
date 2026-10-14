@@ -108,7 +108,8 @@ def _count_reported_features(data, count):
 
 
 def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
-	allow_bbox_envelope_match=False, bbox_numeric_tolerance_m=0.0):
+	allow_bbox_envelope_match=False, bbox_numeric_tolerance_m=0.0,
+	filter_wfs_bbox_superset=False):
 	"""Original-GeoJSON fachlich/technisch prüfen und Karten-Layer erstellen.
 
 	WFS-Geometrien dürfen die BBOX überschreiten. GeoServer kann bei
@@ -120,6 +121,13 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 	und für Achsen eine maximal 0,25 m große numerische
 	Grenzabweichung in EPSG:3857 ausdrücklich protokolliert annehmen.
 	Objekte außerhalb dieser Fälle werden weiterhin abgelehnt.
+	Bei filter_wfs_bbox_superset=True werden nicht schneidende
+	WFS-Rückgabeobjekte stattdessen mit ID/Abstand protokolliert
+	und nur aus der lokalen *Arbeitsansicht* ausgeschlossen:
+	Die vollständige WFS-Antwort wird vorher auf Mengenlimit,
+	Metadaten, CRS und Geometrien geprüft. Das Anfragegebiet hat
+	für die Wien-Pipeline bereits 75 m Halo gegenüber höchstens
+	25 m Achszuordnungsdistanz. Keine Koordinaten werden geändert.
 	GIP_OBJECTID-Duplikate werden *dokumentiert*, nicht zusammengelegt.
 	"""
 	if kind not in LAYERS:
@@ -153,6 +161,7 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 	formats = Counter()
 	envelope_only_ids = []
 	numeric_border_hits = []
+	off_bbox_features = []
 	view_features = []
 	for index, feature in enumerate(features):
 		label = f"{kind} Feature {index}"
@@ -162,12 +171,10 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 		if not isinstance(properties, dict):
 			raise ValueError(f"{label}: Properties fehlen")
 		identifier = _require_identifier(properties, label)
-		ids[identifier] += 1
 		source_id = feature.get("id")
 		if source_id is not None:
 			if not isinstance(source_id, (int, str)) or isinstance(source_id, bool):
 				raise ValueError(f"{label}: ungültige WFS-Feature-ID")
-			source_ids[str(source_id)] += 1
 		try:
 			geometry = shape(feature["geometry"])
 		except (KeyError, TypeError, ValueError, AttributeError) as exc:
@@ -187,6 +194,20 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 		envelope_only = False
 		numeric_border_distance = None
 		if not mercator_geometry.intersects(query_area):
+			if filter_wfs_bbox_superset:
+				# Ein WFS-BBOX-Resultat ist eine Kandidatenmenge.
+				# Die weiter entfernte Antwortgeometrie kann den
+				# Kachelkern bei 75-m-Halo und 25-m-Limit nicht
+				# beeinflussen; nicht als reale Achse einbinden.
+				# Keine schleichende Vergrößerung der Toleranz.
+				off_bbox_features.append({
+					"gip_id":identifier,
+					"abstand_epsg3857_m":round(
+						mercator_geometry.distance(query_area), 6),
+					"huellrechteck_schneidet":box(
+						*mercator_geometry.bounds).intersects(query_area),
+				})
+				continue
 			# WFS-BBOX: der Server kann nur die Hülle prüfen;
 			# Transformations-/Rundungsreste liegen bisweilen
 			# wenige Zentimeter neben der numerischen Kante.
@@ -211,6 +232,9 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 					f"{distance:.3f} m, "
 					f"Hüllrechteck-Treffer={envelope_match}, "
 					f"Toleranz={bbox_numeric_tolerance_m:.3f} m)")
+		ids[identifier] += 1
+		if source_id is not None:
+			source_ids[str(source_id)] += 1
 		name = properties.get("FEATURENAME") or properties.get("REG_STRNAME") or ""
 		if not isinstance(name, str):
 			name = str(name)
@@ -240,7 +264,10 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 	duplicate_ids = {key: number for key, number in ids.items() if number > 1}
 	duplicate_source_ids = {key: number for key, number in source_ids.items() if number > 1}
 	summary = {
-		"anzahl": len(features),
+		"anzahl": len(view_features),
+		"antwort_features": len(features),
+		"wfs_bbox_ausgeschlossen_anzahl": len(off_bbox_features),
+		"wfs_bbox_ausgeschlossen": off_bbox_features,
 		"geometrietypen": dict(formats),
 		"verschiedene_gip_ids": len(ids),
 		"doppelte_gip_ids": duplicate_ids,
