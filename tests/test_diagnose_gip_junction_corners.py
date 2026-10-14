@@ -103,8 +103,33 @@ class JunctionCornerDiagnosticsTests(unittest.TestCase):
 		self.assertEqual(report["parameter"]["boundary_mode"], "gehsteigkante")
 		self.assertTrue(all(f["properties"]["grenzmodus"] == "gehsteigkante"
 			for f in layers["schnittlinien"]))
-		with self.assertRaisesRegex(ValueError, "Fahrbahnklasse"):
+		with self.assertRaisesRegex(ValueError, "21/30/32/33/39"):
 			fahrbahn_mask([(2, 23, "Gehsteig", street)], street)
+
+	def test_curb_proxy_includes_parking_speed_humps_and_crossings(self):
+		street = box(0, 0, 60, 30)
+		# Testsegmente mit je eigener FMZK-Klasse:
+		# separat kodierte Zebrastreifen/Schwellen dürfen den
+		# fahrbaren Querschnitt nicht künstlich durchschneiden.
+		data = [
+			(1, 21, "Fahrbahn", box(0, 10, 10, 20)),
+			(2, 30, "Zebrastreifen", box(10, 10, 20, 20)),
+			(3, 32, "Fahrbahnaufwölbung (Schwelle)", box(20, 10, 30, 20)),
+			(4, 33, "Ruhender Verkehr", box(30, 10, 40, 20)),
+			(5, 39, "Sonstige Verkehrsfläche", box(40, 10, 50, 20)),
+			(6, 22, "Verkehrsinsel", box(50, 10, 60, 20)),
+			(7, 23, "Gehsteig", box(0, 20, 60, 30)),
+			(8, 24, "Fußgängerzone", box(0, 0, 60, 10)),
+		]
+		mask = fahrbahn_mask(data, street)
+		self.assertAlmostEqual(mask.area, 500, places=5)
+		self.assertTrue(mask.covers(Point(45, 15)))
+		self.assertFalse(mask.covers(Point(55, 15)))
+		self.assertFalse(mask.covers(Point(45, 25)))
+		self.assertEqual(mask.geom_type, "Polygon")
+		# Klassen außerhalb des bisherigen Straßenraums nicht übernehmen.
+		clipped = fahrbahn_mask(data, box(0, 0, 35, 30))
+		self.assertAlmostEqual(clipped.area, 350, places=5)
 		with self.assertRaisesRegex(ValueError, "Grenzmodus"):
 			analyze(street, axes, nodes, node_ids=["10"], max_junctions=1,
 				boundary_mode="unbekannt")
