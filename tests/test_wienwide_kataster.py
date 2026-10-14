@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from shapely import union_all
 from shapely.geometry import box
 from scripts.wienwide_kataster import read_native_kataster_masks
 from scripts.wienwide_street import build_tile,load_street_tile
@@ -115,7 +116,9 @@ class WienwideKatasterTests(unittest.TestCase):
 		with patch("scripts.wienwide_street.load_polygons",
 			return_value=(self.fmzk,self.manifest,clip,[])), patch(
 			"scripts.wienwide_street.read_native_kataster_masks",
-			return_value=(self.slim,box(40,10,50,20),
+			return_value=(union_all([
+				self.slim,box(30,10,35,20)]),
+				box(40,10,50,20),
 				{"betroffene_grundstuecke":1,"quelle":"metric"})) as native:
 			result=build_tile(tile,aoi,root=inputs,out=self.root/"out",
 				halo=75,cache_dir=self.cache)
