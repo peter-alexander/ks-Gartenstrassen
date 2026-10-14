@@ -108,7 +108,7 @@ def _count_reported_features(data, count):
 
 
 def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
-	allow_bbox_envelope_match=False):
+	allow_bbox_envelope_match=False, bbox_numeric_tolerance_m=0.0):
 	"""Original-GeoJSON fachlich/technisch prüfen und Karten-Layer erstellen.
 
 	WFS-Geometrien dürfen die BBOX überschreiten. GeoServer kann bei
@@ -117,12 +117,19 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 	die Anfrage nicht berührt (räumlicher Index / BBOX-Vorfilter).
 	Im kleinen Diagnose-Ausschnitt gilt weiterhin der strenge
 	Geometrieschnitt. Die Wienweite Pipeline darf Hüllrechteck-Treffer
-	mit expliziter Diagnose annehmen – niemals beliebig entfernte
-	Objekte verwerfen oder automatisch akzeptieren.
+	und für Achsen eine maximal 0,25 m große numerische
+	Grenzabweichung in EPSG:3857 ausdrücklich protokolliert annehmen.
+	Objekte außerhalb dieser Fälle werden weiterhin abgelehnt.
 	GIP_OBJECTID-Duplikate werden *dokumentiert*, nicht zusammengelegt.
 	"""
 	if kind not in LAYERS:
 		raise ValueError(f"Unbekannter GIP-Datentyp {kind!r}")
+	if not isinstance(bbox_numeric_tolerance_m, (int, float)) or isinstance(
+		bbox_numeric_tolerance_m, bool
+	) or not math.isfinite(bbox_numeric_tolerance_m) or not (
+		0 <= bbox_numeric_tolerance_m <= 0.25
+	):
+		raise ValueError("Numerische WFS-BBOX-Toleranz muss zwischen 0 und 0,25 m liegen")
 	if len(raw) > MAX_RESPONSE_BYTES:
 		raise ValueError(f"{kind}: WFS-Antwort überschreitet 30 MB")
 	try:
@@ -145,6 +152,7 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 	names = Counter()
 	formats = Counter()
 	envelope_only_ids = []
+	numeric_border_hits = []
 	view_features = []
 	for index, feature in enumerate(features):
 		label = f"{kind} Feature {index}"
@@ -177,19 +185,32 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 			raise ValueError(f"{label}: GeoJSON-Koordinaten nicht plausibel für Wien")
 		mercator_geometry = transform(TO_3857, geometry)
 		envelope_only = False
+		numeric_border_distance = None
 		if not mercator_geometry.intersects(query_area):
-			# Eine WFS-BBOX ist ein Bounding-Box-Filter und keine
-			# zwingend exakte GEOS-intersects-Abfrage. Die Hülle
-			# kann die Kachel überdecken, obwohl die Linie sie
-			# umrundet. Nur diesen nachvollziehbaren Fall zulassen.
-			envelope_only = box(*mercator_geometry.bounds).intersects(query_area)
-			if not (allow_bbox_envelope_match and envelope_only and kind == "achsen"):
+			# WFS-BBOX: der Server kann nur die Hülle prüfen;
+			# Transformations-/Rundungsreste liegen bisweilen
+			# wenige Zentimeter neben der numerischen Kante.
+			# Kein unbeschränktes Puffern und keine Geometrieänderung.
+			envelope_match = box(*mercator_geometry.bounds).intersects(query_area)
+			distance = mercator_geometry.distance(query_area)
+			envelope_only = bool(allow_bbox_envelope_match and
+				envelope_match and kind == "achsen")
+			if envelope_only:
+				envelope_only_ids.append(identifier)
+			elif (kind == "achsen" and bbox_numeric_tolerance_m > 0
+				and 0 < distance <= bbox_numeric_tolerance_m):
+				numeric_border_distance = distance
+				numeric_border_hits.append({
+					"gip_id": identifier,
+					"abstand_epsg3857_m": round(distance, 6),
+				})
+			else:
 				raise ValueError(
 					f"{label}, GIP_OBJECTID={identifier}: Feature liegt "
 					f"außerhalb der WFS-BBOX (Abstand "
-					f"{mercator_geometry.distance(query_area):.3f} m, "
-					f"Hüllrechteck-Treffer={envelope_only})")
-			envelope_only_ids.append(identifier)
+					f"{distance:.3f} m, "
+					f"Hüllrechteck-Treffer={envelope_match}, "
+					f"Toleranz={bbox_numeric_tolerance_m:.3f} m)")
 		name = properties.get("FEATURENAME") or properties.get("REG_STRNAME") or ""
 		if not isinstance(name, str):
 			name = str(name)
@@ -212,6 +233,7 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 				"edgecategory": properties.get("EDGECATEGORY"),
 				"dedicatedwidth": properties.get("DEDICATEDWIDTH"),
 				"wfs_bbox_nur_huelle": envelope_only,
+				"wfs_bbox_numerischer_randabstand_m": numeric_border_distance,
 				"status": "nur_quellgeometrie_ungepruefte_abschnittsflaeche",
 			},
 		})
@@ -225,6 +247,8 @@ def validate_layer(raw, kind, bbox, *, max_features=DEFAULT_MAX_FEATURES,
 		"doppelte_wfs_feature_ids": duplicate_source_ids,
 		"wfs_bbox_nur_huelle_anzahl": len(envelope_only_ids),
 		"wfs_bbox_nur_huelle_gip_ids": envelope_only_ids,
+		"wfs_bbox_numerische_randtreffer": numeric_border_hits,
+		"wfs_bbox_numerische_randtreffer_anzahl": len(numeric_border_hits),
 		"namen_top_15": names.most_common(15),
 		"quelle_sha256": hashlib.sha256(raw).hexdigest(),
 	}
