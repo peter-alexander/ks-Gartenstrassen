@@ -649,7 +649,23 @@ git pull --ff-only
 	--out-dir data/processed/baumkronen/bev_variantenvergleich_iou_alle_d2
 ```
 
-Die neue Datei `bev_variantenvergleich_iou_alle_d2/bev_varianten_strassenraum_vergleich.json` enthält bei verfügbaren A/B/C-Geometrien **21 D2- und 9 D3-IoUs**. Eine WMS-Neuabfrage oder Änderung der bestehenden Schwellen/Klassen ist dafür nicht erforderlich. Erst anhand dieser Daten die sieben D2-Schwellen räumlich vergleichen; die fehlenden IoUs können aus den aggregierten Flächen des ersten JSON-Berichts **nicht** rückwirkend berechnet werden.
+Die neue Datei `bev_variantenvergleich_iou_alle_d2/bev_varianten_strassenraum_vergleich.json` enthält bei verfügbaren A/B/C-Geometrien **21 D2- und 9 D3-IoUs**. Eine WMS-Neuabfrage oder Änderung der bestehenden Schwellen/Klassen ist dafür nicht erforderlich.
+
+**Vollständiger zweiter lokaler Lauf vom 14.10.2026 (10:14 UTC):** Die hochgeladene zweite Vergleichs-JSON bestätigt die gleichen BEV-RGB-/IR- und Straßenraum-SHA-256-Prüfsummen sowie unveränderte D2-/D3-Flächen. Alle 14 projizierten Masken sind ohne Reparatur `valide`. Die 30 IoUs liegen vollständig vor. Gesamtlaufzeit **5,94 s**, davon **4,19 s** für die Masken und **0,71 s** für die Referenzvergleiche.
+
+| D2-Schwelle | IoU A Wien | IoU B Wien + OSM | IoU C GRM 2023 |
+| --- | ---: | ---: | ---: |
+| 0,10 | 57,1705 % | 57,0453 % | 68,5099 % |
+| 0,15 | 58,5053 % | 58,2625 % | 70,2124 % |
+| 0,17 | 58,7908 % | 58,5133 % | 70,6891 % |
+| 0,18 | 58,7680 % | 58,4809 % | 70,7675 % |
+| **0,20** | **58,8215 %** | **58,5216 %** | **70,9895 %** |
+| 0,30 | 55,3331 % | 54,9886 % | 65,4017 % |
+| 0,40 | 43,0923 % | 42,7734 % | 48,0507 % |
+
+**Befund:** Unter den sieben explizit getesteten Schwellen liegt **0,20 für alle drei Referenzen** leicht vorne. Der Unterschied zu 0,17 beträgt lediglich **0,031, 0,008 und 0,300 Prozentpunkte** (A, B, C); ein scharfes Optimum ist daraus nicht ableitbar. Gegenüber C erfasst 0,20 **3.857,50 m² von 4.358,69 m² (88,50 %)**; daneben liegen **1.075,21 m² der D-Maske außerhalb der C-Referenz**, während **501,19 m² der C-Fläche nicht in D** vorkommen. Bei 0,17 werden 90,53 % von C erfasst, aber 1.223,19 m² außerhalb von C markiert. Der IoU bevorzugt hier knapp 0,20, er validiert **keine Unterscheidung von Baumkronen und anderer Vegetation**. Auch 0,30 ist trotz seiner näher an A/B gelegenen **Gesamtfläche** räumlich schlechter und verliert einen großen Teil der Referenzkronen.
+
+**Konsequenz für den nächsten Schritt:** Schwelle **0,20 vorläufig als Vergleichs-Baseline** für D2 behalten; die nahe liegenden **0,17–0,20** als Unsicherheits-/Sensitivitätsbereich dokumentieren. Für eine echte Baumkronenklassifikation unabhängige, manuell geprüfte Beispiele für Baumkrone/Rasen/Strauch/Mischfläche benötigen, möglichst aus mehreren Straßentypen oder Testgebieten. D3 unverändert als experimentell führen; nicht die 0,20-Maske oder die D3-Klasse `strukturreich` bereits als validierte Baumüberschirmung bezeichnen.
 
 ---
 
