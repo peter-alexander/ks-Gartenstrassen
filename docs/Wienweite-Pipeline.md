@@ -1,6 +1,6 @@
 # Wienweite Pipeline: vorbereitete Phasen 1 und 2
 
-**Stand 14.10.2026:** Technische Infrastruktur implementiert und synthetisch getestet. **Noch kein echter Bezirks- oder Wien-Gesamtlauf** mit vollständigen regionalen Daten. Der erfolgreiche kleine Modul-6-Test und seine V0-Daten bleiben unverändert.
+**Stand 14.10.2026:** Der vollständige **Alsergrund-Pilot** wurde mit 10/10 Straßenraumkacheln, vollständiger GIP-V0-Partition und QA-GeoPackage erfolgreich durchgeführt. Er ist eine **technisch erfolgreiche Bezirksberechnung**, keine unabhängig fachlich validierte Straßengeometrie. Ein vollständiger Lauf für ganz Wien und echte Bezirksmesswerte der neu implementierten FMZK-/GRM-Begrünungsstufe stehen noch aus. Der bisherige kleine Modul-6-Test und seine V0-Daten bleiben unverändert.
 
 ## Gleichbleibende Methodik
 
@@ -225,11 +225,10 @@ Diese Zeiten umfassen **nicht** die vorherigen FMZK-/BEV-Downloads
 oder GIP-Indexierung. Die genauen, ungerundeten Flächen stehen
 in den zehn lokalen `street.sqlite`.
 
-Damit sind die echten Straßenraum-Eingaben für den ersten
-Bezirks-Voronoi-Test vorbereitet. Die GIP-V0-Flächenzuordnung
-und ihre strenge Flächenbilanz sind **noch nicht real
-durchgelaufen**. Zunächst nur eine Partitionierungskachel
-mit `--limit-tiles 1` ausführen und das Ergebnis prüfen.
+Damit wurden die echten Straßenraum-Eingaben für den ersten
+Bezirks-Voronoi-Test vorbereitet. **Der vollständige
+Bezirks-Voronoi-Test ist inzwischen erfolgreich durchgelaufen**;
+die exakten Messwerte stehen unten in Abschnitt 4.
 
 ### 4. V0 kachelweise rechnen und wiederaufnehmen
 
@@ -592,13 +591,13 @@ Anschließend denselben Ablauf mit eigener AOI und getrennten Pfaden für Donaus
 
 ## Qualitäts- und Skalierungsgrenzen
 
-- Die Voronoi-Ergebnisse werden pro Kachel gegen den Original-Straßenraum geprüft. Gemeinsam verwenden sie **globale GIP-Stützpunkte**, sodass selbst an einer Kreuzung auf der Kachelgrenze dieselbe Flächenzuordnung wie in einem globalen V0-Lauf entstehen soll. Die synthetischen Regressionen prüfen die Übereinstimmung mit der bisherigen V0; **Realtest steht aus**.
+- Die Voronoi-Ergebnisse werden pro Kachel gegen den Original-Straßenraum geprüft. Gemeinsam verwenden sie **globale GIP-Stützpunkte**, sodass selbst an einer Kreuzung auf der Kachelgrenze dieselbe Flächenzuordnung wie in einem globalen V0-Lauf entstehen soll. Die synthetischen Regressionen prüfen die Übereinstimmung mit der bisherigen V0; der **reale Alsergrund-Gesamtlauf** war bezüglich Flächenbilanz erfolgreich, eine unabhängige fachliche Stichprobenprüfung bleibt aus.
 - Alle Kacheln sind auf die AOI-Kerne beschnitten; keine Übertragung einer 75-m-Halo-Fläche in die endgültige Flächenbilanz.
 - GIP-ID-Dubletten mit abweichender Geometrie führen zu einem Fehler. Nichts wird mit einer neuen ID ersetzt.
 - Der Quellstand muss konsistent sein. Die Katalog-/Daten-SHA werden zwischen Läufen geprüft. Wegen WFS-Änderungen während eines sehr langen Abrufs bleibt eine **zeitliche Snapshot-/Änderungsprüfung vor dem endgültigen Wien-Lauf** erforderlich.
 - Die bisherige Katasteranalyse nutzt BEV-z16 mit Grenzwerten für Kacheln und Grundstücke. Sie muss bei schwierigen Pilotkacheln anhand echter Fälle weiter abgesichert werden.
 - Der Benchmark-Zeitwert bezieht sich **nur auf lokale Voronoi-Partitionierung samt Kachel-Lesen**, **nicht** auf sämtliche FMZK-/BEV-/GIP-Downloads oder Kronenmethoden.
-- Baumkronen A/B/C und Bodenbegrünung je GIP-ID **wienweit berechnen**, insbesondere GRM-WMS kachelweise korrekt in metrischer Auflösung zu verwenden, ist ein **nächster eigener Schritt**. Die bestehende GRM-Maske ist nur für kleine Rastergrößen ausgelegt.
+- Die neuen Module `wienwide_grm2023` und `wienwide_gip_greening` erlauben nun die **kachelweise** GRM-Baumschicht- und FMZK-Bodenbegrünungsauswertung je GIP-ID. **Echte Alsergrund-Messwerte dieser Stufe stehen noch aus**, ebenso unabhängige Prüfungen der Rendererqualität und die wienweite Skalierung; Methoden A/B sind weiterhin nur für bisher vorhandene Testausschnitte verfügbar.
 - **Keine** fertige Kartenkachel-/MBTiles-Erzeugung oder automatische Gartenstraßen-Klassifizierung in diesem Schritt.
 
 Die bisherigen 45 Testabschnitte und ihre Kennzahlen bleiben unverändert. Rohdaten liegen lokal unter data/ (Git-ignored) und gehören nicht in das öffentliche Repository.
