@@ -176,6 +176,10 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 					d3_report=root/"absent_d3.json",references={})
 			self.assertEqual(len(result["varianten"]),len(D2_THRESHOLDS)+len(D3_CLASSES))
 			self.assertEqual(result["referenzen"],{})
+			self.assertGreaterEqual(result["zeitmessung"]["gesamt_bis_bericht_s"], 0)
+			self.assertGreaterEqual(result["zeitmessung"]["d_masken_vermessen_s"], 0)
+			for variant in result["varianten"].values():
+				self.assertGreaterEqual(variant["laufzeit_s"], 0)
 			self.assertEqual(result["quelle"]["d3_bericht"]["status"],
 				"nicht_vorhanden")
 			self.assertGreater(result["varianten"]["D2_schwelle_010"]

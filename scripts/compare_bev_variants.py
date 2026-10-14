@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from time import perf_counter
 
 from pyproj import Transformer
 from shapely import union_all
@@ -198,6 +199,7 @@ def measure_variants(street, mask_dict, geometry):
 	results = {}
 	clipped = {}
 	for name, mask in mask_dict.items():
+		variant_started = perf_counter()
 		shape_metric, debug = runs_to_metric_union(mask, geometry,
 			street_bounds_metric=street.bounds)
 		metrics, inside = nonempty_measure(street, shape_metric)
@@ -205,6 +207,7 @@ def measure_variants(street, mask_dict, geometry):
 			"pixel_positiv_gesamtbild": mask.histogram()[255],
 			"maskenmetrik": metrics,
 			"polygonisierung": debug,
+			"laufzeit_s": round(perf_counter() - variant_started, 6),
 		}
 		if name in SELECTED_IOU:
 			clipped[name] = inside
@@ -254,6 +257,7 @@ def run(*, input_dir=DEFAULT_INPUT, street=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 		raise FileExistsError(
 			f"Vergleichsbericht existiert bereits: {report_path}. "
 			"Für neuen Lauf ein anderes --out-dir wählen.")
+	started = perf_counter()
 	manifest_path = Path(input_dir) / "bev_wms_diagnose.json"
 	if not manifest_path.is_file():
 		raise FileNotFoundError(f"BEV-WMS-Diagnose nicht vorhanden: {manifest_path}")
@@ -261,20 +265,25 @@ def run(*, input_dir=DEFAULT_INPUT, street=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 	geometry, evidence = validate_manifest(diagnosis)
 	rgb, rgb_hash = read_verified_image(input_dir, "rgb", diagnosis, geometry)
 	ir, ir_hash = read_verified_image(input_dir, "ir", diagnosis, geometry)
+	images_ready = perf_counter()
 	_, masks, raster_summary = index_and_masks(rgb, ir,
 		thresholds=D2_THRESHOLDS, min_signal=DEFAULT_MIN_SIGNAL)
 	classified, _, d3_summary = component_regions(
 		masks[.10], masks[.20], rgb)
 	checked_d3 = check_d3_report(d3_report,
 		rgb_digest=rgb_hash, ir_digest=ir_hash, comparison=d3_summary)
+	segmentation_ready = perf_counter()
 	variants = {f"D2_schwelle_{round(t*100):03d}": masks[t]
 		for t in D2_THRESHOLDS}
 	for name, codes in D3_CLASSES.items():
 		variants[name] = render_class_mask(classified, codes)
 	_, fmzk_manifest, clip, _ = load_polygons(fmzk)
 	street_geom, street_meta = load_street_mask(street, clip)
+	street_ready = perf_counter()
 	values, clipped = measure_variants(street_geom, variants, geometry)
+	masks_ready = perf_counter()
 	ref_stats, ref_overlaps = reference_comparison(street_geom, clipped, references)
+	references_ready = perf_counter()
 	report = {
 		"schema_version": 1,
 		"created_utc": datetime.now(timezone.utc).isoformat(),
@@ -305,6 +314,14 @@ def run(*, input_dir=DEFAULT_INPUT, street=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 		"varianten": values,
 		"referenzen": ref_stats,
 		"raeumliche_vergleiche": ref_overlaps,
+		"zeitmessung": {
+			"quellbilder_validieren_s": round(images_ready - started, 6),
+			"vegetation_und_d3_s": round(segmentation_ready - images_ready, 6),
+			"strassenraum_laden_s": round(street_ready - segmentation_ready, 6),
+			"d_masken_vermessen_s": round(masks_ready - street_ready, 6),
+			"referenzen_und_iou_s": round(references_ready - masks_ready, 6),
+			"gesamt_bis_bericht_s": round(references_ready - started, 6),
+		},
 		"messmethode": (
 			"Original BEV-WMS-Pixel als EPSG:3857-Rechtecke polygonisiert; "
 			"geometrisch vereinigt, in EPSG:31256 transformiert und mit exakt "
@@ -337,6 +354,8 @@ def run(*, input_dir=DEFAULT_INPUT, street=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 		else:
 			print(f"  {name}: nicht verfügbar ({stat['pfad']})")
 	print(f"Bericht: {report_path}")
+	print(f"Rechenzeit D-Masken: {report['zeitmessung']['d_masken_vermessen_s']:.3f} s; "
+		f"bis zum Bericht: {report['zeitmessung']['gesamt_bis_bericht_s']:.3f} s")
 	return report
 
 
