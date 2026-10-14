@@ -156,6 +156,44 @@ Ist diese Probe korrekt, den Aufruf **ohne --only** wiederholen. Das Kataster-Sk
 
 Die resultierende street.sqlite liegt **je Tile** mit metrischer WKB-Geometrie und FMZK-/Kataster-Prüfsummen vor. Eine tatsächlich straßenraumfreie Kachel wird nach vollständiger Quellenauswertung explizit als leer markiert; fehlende Quelldaten sind dagegen ein Fehler.
 
+**Fortsetzen nach erfolgreicher erster Alsergrund-Kachel (14.10.2026):**
+Die Kachel `x+000001_y+000342` ergab **178.176,7 m²**
+Straßenraum in **20,76 s**. `wienwide_street build` ist
+ab jetzt wiederaufnehmbar: Existiert eine `street.sqlite`,
+werden zuerst **Schema, Tile-ID, CRS, AOI-Fläche, Halo,
+Fläche der WKB-Geometrie sowie Prüfsummen von FMZK,
+Katasterbericht und allen BEV-z16-Rohkacheln** kontrolliert.
+Erst dann wird die fertige Kachel übersprungen. Bei
+irgendeiner Abweichung wird **abgebrochen**, nie überschrieben
+oder still neu gerechnet.
+
+Zum Fertigstellen von Alsergrund nach dieser ersten Kachel:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m scripts.wienwide_street fetch-inputs \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --input-root data/processed/wienweit/alsergrund/eingaben \
+  --fmzk-source data/raw/FMZK_WIEN_GP.gpkg \
+  --kataster-cache data/cache/kataster \
+  --max-parcels 1500
+
+.venv/bin/python -m scripts.wienwide_street build \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --input-root data/processed/wienweit/alsergrund/eingaben \
+  --out-root data/processed/wienweit/alsergrund/strassenraum \
+  --kataster-cache data/cache/kataster
+~~~
+
+`--max-parcels 1500` ist ein bewusst anpassbarer,
+**technischer Schutzwert**, keine neue fachliche Regel.
+`fetch-inputs` verwendet im Standardmodus **keine neuen
+BEV-Grundstücks-Detailabfragen**. Falls eine weitere Kachel
+den Schutzwert oder das Vektorkachellimit überschreitet,
+Fehler prüfen und den Wert begründet anpassen, nicht die
+Bezirksgrenze verkleinern.
+
+
 **Realer Alsergrund-Pilot, nfl-Geometriefehler (14.10.2026):**
 Bei der ersten Kachel `x+000001_y+000342` wurden **14.764 FMZK-Objekte** extrahiert, **36 BEV-z16-Kacheln** erfolgreich geladen und **811 Grundstücke** des FMZK-Straßenkerns ermittelt. Die 811 Klasse-D-Einträge bedeuten, dass die optionalen Grundstücksdetails nicht abgefragt wurden; die BEV-nfl-Vektorkacheln enthalten trotzdem die für die Straßenraumklassifikation benötigten Nutzungspolygone.
 
