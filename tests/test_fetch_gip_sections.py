@@ -100,7 +100,7 @@ class GIPSectionsTests(unittest.TestCase):
 		self.assertEqual(view["features"][0]["properties"]["node_from"], 101)
 
 	def test_rejects_incomplete_and_malformed_wfs_answers(self):
-		with self.assertRaisesRegex(ValueError, "keine GeoJSON"):
+		with self.assertRaisesRegex(ValueError, "kein gültiges GeoJSON"):
 			validate_layer(b"<ServiceException/>", "achsen", self.bbox)
 		with self.assertRaisesRegex(ValueError, "Limit"):
 			validate_layer(payload("knoten"), "knoten", self.bbox,
