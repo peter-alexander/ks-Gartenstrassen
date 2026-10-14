@@ -286,6 +286,66 @@ ungeklärte Restflächen räumlich in QGIS/Kartensammlung
 kontrollieren und erst danach Parameter-/Methodikänderungen
 in Betracht ziehen.
 
+### 4a. QA-GeoPackage für QGIS und Kartensammlung
+
+Nach der vollständigen GIP-V0-Partition kann **ohne erneute Berechnung**
+ein GeoPackage aller Flächen in **EPSG:31256** erzeugt werden. Exportiert
+werden die bestehenden WKB-Polygone direkt; es gibt **keinen WGS84-
+GeoJSON-Rückweg** und keine Veränderung der Zuordnungsregel.
+
+~~~bash
+git pull --ff-only
+
+.venv/bin/python -m scripts.wienwide_qa_gpkg \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --gip-index data/processed/wienweit/alsergrund/gip.sqlite \
+  --street-root data/processed/wienweit/alsergrund/strassenraum \
+  --partition-db data/processed/wienweit/alsergrund/aufteilung.sqlite \
+  --out data/processed/wienweit/alsergrund/alsergrund_qa.gpkg
+~~~
+
+Das GeoPackage besitzt genau **vier räumliche Layer**:
+
+| Layer | Inhalt und wichtigste Attribute |
+| --- | --- |
+| `gip_abschnitte` | Zugeordnete Fläche je **Kachel × GIP-ID**; `gip_id`, `strassenname`, `fow` (derzeit 3), `knoten_von`, `knoten_nach`, `flaeche_m2`, `gip_gesamt_m2` |
+| `knotenbereiche` | Kachelweise vereinigte Bereiche um Knoten (7-m-Radius), `kachel_id`/`flaeche_m2` |
+| `sonderachsen` | Kachelweise vereinigte Flächen der FOW-ungleich-3-Achsen, `kachel_id`/`flaeche_m2` |
+| `nicht_zugeordnet` | Nach der V0-Partition nicht zugeteilte Restflächen, `kachel_id`/`flaeche_m2` |
+
+Alle Geometrien sind **MultiPolygon**, direkt im metrischen CRS, mit
+**GeoPackage-RTree-Raumindex** pro Layer. Die GIP-Flächen werden bewusst
+**nicht über Kachelgrenzen dissolved**; mehrere Zeilen mit derselben
+`gip_id` sind Teile desselben globalen Abschnitts. Die Spalte
+`gip_gesamt_m2` enthält bereits die Summe dieser Teile über alle Kacheln.
+
+Das GeoPackage enthält außerdem die **nicht räumliche Tabelle**
+`qa_provenienz` mit den SHA-256-Werten von Manifest, GIP-Index,
+Partition und sämtlichen Straßenraum-Eingaben sowie dem vollständigen
+V0-Flächenbilanzbericht. Der Export akzeptiert nur eine **vollständige**
+Partition mit passenden Quelle-Prüfsummen, gültigen Geometrien,
+Kachelschnitt und kontrollierter Flächenbilanz. Er schreibt
+atomar (erst `.gpkg.tmp`, dann das fertige `.gpkg`) und
+**überschreibt niemals** ein bestehendes QA-GeoPackage.
+
+**Wesentliche fachliche Grenze:** Die V0-Partition hat alle
+Sonderachsen pro Kachel zu einer Sammelfläche vereinigt.
+Deshalb können im bestehenden Ergebnis **keine verlässlichen
+Sonderachsen-GIP-IDs oder einzelnen FOW-Werte** angezeigt werden.
+Eine echte FOW-Statistik pro Achse würde Änderungen an
+`wienwide_partition` und eine neue V0-Aufteilung erfordern.
+Auch die Knotenbereiche sind im V0-Ergebnis nicht einzelnen
+GIP-Knoten-IDs zugeordnet.
+
+**Sichtung:** Alle vier GeoPackage-Ebenen in QGIS oder
+Kartensammlung öffnen, ein aktuelles Orthofoto darunterlegen,
+`nicht_zugeordnet` zuerst auf mögliche systematische Restlücken
+kontrollieren, danach die großen `sonderachsen` und
+`knotenbereiche`. Die Polygonattribute mit `kachel_id` und
+`gip_id` erlauben eine gezielte Rücksuche in den Rohdaten.
+Ein erfolgreicher Export beweist die **technische** Flächenkonsistenz,
+nicht die fachliche Richtigkeit jeder Straßenzuordnung.
+
 ### 5. Benchmark protokollieren
 
 ~~~bash
