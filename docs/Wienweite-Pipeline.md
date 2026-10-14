@@ -346,6 +346,39 @@ kontrollieren, danach die großen `sonderachsen` und
 Ein erfolgreicher Export beweist die **technische** Flächenkonsistenz,
 nicht die fachliche Richtigkeit jeder Straßenzuordnung.
 
+**Erster realer QA-GeoPackage-Export (14.10.2026):**
+`data/processed/wienweit/alsergrund/alsergrund_qa.gpkg` wurde
+aus der vollständigen Bezirksaufteilung erfolgreich erzeugt.
+Die CLI lieferte folgende **tatsächlich ermittelten** Ergebnisse:
+
+| Räumlicher Layer | Features | Fläche m² | Anteil Straßenraum |
+| --- | ---: | ---: | ---: |
+| `gip_abschnitte` | 662 | 652.048,8463966663 | 82,43 % |
+| `sonderachsen` | 9 | 84.741,46299363286 | 10,71 % |
+| `knotenbereiche` | 10 | 50.908,65436687977 | 6,44 % |
+| `nicht_zugeordnet` | 10 | 3.295,095199577912 | 0,42 % |
+| **Gesamt** | **691** | **790.994,0589567656** | **100 %** |
+
+Flächenbilanzdifferenz gegenüber Straßenraum:
+**−9,0803951025 × 10⁻⁹ m²**. Die 662
+Abschnittsfeatures sind Kachelfragmente von
+**586 eindeutigen GIP-IDs** (aus dem vollständigen V0-Bericht).
+Alle zehn Bezirkskacheln sind enthalten.
+**Dies ist der erste reale erfolgreiche GeoPackage-Export,
+aber noch keine fachliche Ortskontrolle der Einzelpolygone.**
+
+Zur ersten Sichtprüfung in QGIS die vier Layer laden,
+insbesondere `sonderachsen` und `nicht_zugeordnet`
+mit kontrastierenden Farben über Orthofoto und GIP-Achsen legen.
+In QGIS lassen sich die großen Sammelgeometrien über die
+Attributtabelle nach `flaeche_m2` absteigend sortieren.
+Da `sonderachsen` derzeit **je Kachel** aggregiert ist, sind
+9 Features **nicht** 9 GIP-Sonderachsen; zur Zuordnung nach FOW
+ist eine separate Weiterentwicklung des Partitionsmoduls nötig.
+`knotenbereiche` und `nicht_zugeordnet` sind ebenfalls
+je Kachel gesammelte Multipolygone, die viele disjunkte
+Kleinflächen enthalten können.
+
 ### 5. Benchmark protokollieren
 
 ~~~bash
