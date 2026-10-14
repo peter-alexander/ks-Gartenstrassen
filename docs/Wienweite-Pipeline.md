@@ -80,46 +80,55 @@ Das Raster ist fix in EPSG:31256 und vollständig auf die echte AOI beschnitten.
 
 Der Index lässt sich **nicht** aus unvollständigen Fragmenten erstellen. Leere WFS-Kacheln sind nach expliziter Prüfung erlaubt; Limitüberschreitungen, Duplikatkonflikte, falsches CRS oder fehlende GIP-Knoten am AOI-Rand führen zum Abbruch. Die Quelle und der Index bleiben unverändert.
 
-**GIP-WFS-BBOX-Prüfung (14.10.2026):** Beim ersten Alsergrund-Abruf
-wurden sieben der zehn Kacheln erfolgreich gespeichert, danach meldete
-die achte Kachel `achsen Feature 169: Feature liegt außerhalb der
-WFS-BBOX`. Die ursprüngliche Validierung verlangte, dass die
-**Liniengeometrie selbst** die Anfrage-BBOX schneidet. Bei
-WFS-BBOX-Abfragen können aber auch Linien mit überschneidendem
-**Geometrie-Hüllrechteck** zurückkommen, obwohl die Linie selbst
-außerhalb verläuft. Der wienweite Adapter berücksichtigt dies
-jetzt: Nur Achsen mit einem tatsächlich die WFS-BBOX schneidenden
-Hüllrechteck werden zusätzlich angenommen. Sie werden
-in den Karten-Features als `wfs_bbox_nur_huelle` markiert,
-sowie im Kachelbericht `wfs_bbox_nur_huelle.achsen` mit
-Anzahl und GIP-IDs protokolliert. Ein Feature, dessen Hüllrechteck
-ebenfalls nicht schneidet, bleibt grundsätzlich **ungültig**
-und wird mit GIP_OBJECTID, Abstand und Hüllrechteckstatus gemeldet.
+**GIP-WFS-BBOX-Prüfung, aktualisiert 14.10.2026:** Beim
+realen Alsergrund-GIP-Abruf wurden neun Kacheln erfolgreich
+zwischengespeichert. Die achte hatte GIP_OBJECTID
+`20028505`, dessen vollständige Linie **0,059 m** außerhalb
+der WFS-Anfrage-BBOX lag; die zehnte meldete GIP_OBJECTID
+`10023340` mit **1,309 m** Außenabstand. In beiden Fällen
+schneidet auch das Geometrie-Hüllrechteck nicht die Anfrage.
+Die exakte serverseitige Ursache ist **nicht** nachgewiesen.
+Eine schrittweise größer werdende numerische Toleranz
+wäre daher keine belastbare Lösung.
 
-**Nachprüfung des echten Grenzfalls:** Bei GIP_OBJECTID
-`20028505` lag die zurücktransformierte Achse nur
-**0,059 m (EPSG:3857)** außerhalb der WFS-Anfrage; auch ihr
-Hüllrechteck berührte die Anfrage nicht. Für den Wien-weiten
-Achsenabruf gilt deshalb eine **eng begrenzte numerische
-Randtoleranz von maximal 0,25 m**. Solche Treffer werden
-unter `wfs_bbox_numerische_randtreffer.achsen` mit Anzahl,
-GIP-ID und `abstand_epsg3857_m` protokolliert; im
-GeoJSON-Feature steht
-`wfs_bbox_numerischer_randabstand_m`. Die Achsenkoordinaten
-werden **nicht** verschoben, vereinfacht oder gepuffert.
-Punktknoten, weiter entfernte Features und die unveränderte
-kleine GIP-Diagnose werden weiterhin streng geprüft.
-Die tatsächliche serverseitige Ursache der geringen
-Randabweichung ist ohne Original-WFS-/Serveranalyse
-**nicht bewiesen**; numerische Genauigkeit und
-serverseitige BBOX-Indexierung sind mögliche Gründe.
+**Verbindliches Verhalten für neue Wien-Kacheln:**
+Die WFS-BBOX wird als Kandidatenabfrage behandelt.
+`validate_layer(..., filter_wfs_bbox_superset=True)` kontrolliert
+**vor der lokalen räumlichen Filterung** die vollständige
+WFS-Antwort, einschließlich GeoJSON/CRS, Featurelimit,
+gemeldeter Gesamtzahl und sämtlicher vorhandener Geometrien.
+Anschließend werden in die GIP-Arbeitsansicht ausschließlich
+Geometrien übernommen, die die **bereits um 75 m
+erweiterte Anfrage-BBOX tatsächlich schneiden**.
+Außerhalb liegende Server-Kandidaten werden **nicht** in den
+neuen GIP-Index aufgenommen, aber im Kachelbericht
+unter `wfs_bbox_ausgeschlossen.<achsen|knoten>` mit Anzahl,
+GIP-ID, `abstand_epsg3857_m` und Hüllrechteckstatus
+dokumentiert. `wfs_antwort_features` enthält die Anzahl
+**vor**, `anzahl` die Anzahl **nach** der Filterung.
+Die Quellgeometrien werden nicht gepuffert, bewegt
+oder gekürzt. Eine zu geringe Rückgabezahl/Featurelimit/
+ungültige Geometrie bleibt weiterhin ein Fehler.
 
-Die ersten sieben erfolgreich geschriebenen Kacheln verbleiben im
-SHA-geprüften Cache. Zum Fortsetzen einfach **denselben fetch-Befehl**
-erneut ausführen – keine Quellfragmente löschen. Die Fehlerursache
-für das reale Feature 169 muss anhand des Wiederholungslaufs
-bestätigt werden; zuvor wurde nur der zu strenge
-Validierungspfad identifiziert.
+**Warum das methodisch zulässig ist:** Die GIP-Anfrage enthält
+bereits einen **75-m-Halo** um den 1-km-Kachelkern,
+V0 berücksichtigt für die Zuweisung dagegen
+höchstens **25 m Achsabstand** und **7 m Knotenradius**.
+Ein vollständiges Linien- oder Punktobjekt, das sogar
+die vergrößerte Anfrage-BBOX nicht schneidet, kann
+keinen Kernpunkt innerhalb dieser V0-Grenzen zuweisen.
+Die zentrale, kachelübergreifende GIP-Deduplizierung
+erfolgt weiterhin nach echten GIP-IDs; bisherige
+gültige Kachel-Caches werden unverändert benutzt.
+Zuvor in Kachel 8 gespeicherte Randkandidaten bleiben
+deshalb weiterhin im alten Cache, müssen aber
+**nicht gelöscht oder neu heruntergeladen** werden.
+
+Der ursprüngliche streng prüfende GIP-Testgebiet-Adapter
+bleibt unverändert im Default-Modus. Eine erfolgreiche
+**lokale Ausführung über alle zehn Alsergrund-Kacheln**
+und die Graphvollständigkeitsprüfung stehen nach
+dieser Korrektur noch aus.
 
 ### 3. FMZK und Kataster
 
