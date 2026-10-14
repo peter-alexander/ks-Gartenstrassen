@@ -598,7 +598,7 @@ Die stärkere 0,20-Maske umfasst **100.521 Pixel**. Die Hysterese behält **123.
 
 ---
 
-### D4-Vergleichsrechnung: alle D-Varianten auf identischem Straßenraum (14.10.2026)
+### Zwischenmessung D2/D3: alle D-Varianten auf identischem Straßenraum (14.10.2026)
 
 **Motivation:** Vor weiteren Versuchen mit Texturschwellen und lokaler Segmentierung wollen wir erstmals wissen, welche **Flächenanteile im tatsächlichen Straßenraum** die bereits vorhandenen D-Varianten ergeben. Die bisherigen 12–15 % aus D2 bezogen sich **auf das gesamte Orthofoto einschließlich privater Innenhöfe und Dächer** und sind nicht mit A/B/C vergleichbar.
 
