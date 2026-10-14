@@ -224,7 +224,7 @@ class SectionMetricsTests(unittest.TestCase):
 		# Alte WGS84-Rückprojektion liefert > 0,5 m² Lücke.
 		from shapely.affinity import translate
 		self._write_v0(parts=[
-			feature("gip:1001", translate(self.left, xoff=.10),
+			feature("gip:1001", translate(self.left, xoff=-.10),
 				group="abschnitt", label="A-Gasse"),
 			feature("gip:1002", self.right,
 				group="abschnitt", label="B-Gasse"),
