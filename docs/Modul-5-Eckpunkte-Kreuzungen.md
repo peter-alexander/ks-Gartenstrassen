@@ -400,6 +400,104 @@ gezielt einseitige T-Übergänge und die Klassifizierung
 ungültiger Profile nachbearbeiten. Die vorhandene
 `aufteilung_v0` unverändert lassen.
 
+## V1.1: T-Kreuzungen und alternative Gehsteigkante (14.10.2026)
+
+Nach der ersten echten Diagnose (19 Schnittlinien bei 28 Armen)
+wurden eine T-Kreuzungsregel und ein umschaltbarer Referenzrand
+implementiert. Die bisherige `aufteilung_v0` bleibt unverändert;
+dieses Skript erzeugt weiterhin **nur diagnostische GeoJSONs**,
+keine neuen Abschnittsflächen.
+
+### T-Kreuzung: im Zweifel rechtwinklig
+
+Bei einem **GIP-Knoten mit Grad 3** gilt jetzt:
+
+1. Die beiden seitlichen Übergangspunkte weiterhin getrennt aus
+   den Querschnittsprofilen suchen.
+2. **Nur eine Seite erkennbar:** An ihrer Entfernung `s` vom
+   Knoten den **vollständigen Querschnitt senkrecht zur lokalen
+   GIP-Achse** verwenden. Sein gegenüberliegender Endpunkt
+   wird direkt aus dem aktiven Randpolygon ermittelt, ohne
+   auf dieser Seite eine zusätzliche Aufweitung zu behaupten.
+   Status/Methode `orthogonal_einseitig`.
+3. **Beide Seiten erkennbar:** Den Querschnitt an der
+   **weiter außen** liegenden der beiden Übergangsstationen
+   verwenden. So schneidet die Linie hinter beiden Aufweitungen.
+   Methode `orthogonal_beidseitig`.
+4. Keine Übergangsstelle oder Schnitt durch unzulässige
+   Fremdfläche: **kein erzwungener Erfolg**. Kurze Achsen,
+   unklare Querprofile und die getrennten benachbarten
+   Kreuzungen bleiben ausdrücklich offen.
+
+Die exportierten Eckpunkte enthalten `methode` und
+`status`. Der auf einer geraden Gegenseite nur durch
+den senkrechten Querschnitt bestimmte Punkt ist als
+`orthogonaler_gegenseitenpunkt_nicht_validiert` gekennzeichnet,
+nicht als visuell nachgewiesener Scheitelpunkt. In den
+Schnittlinien steht `methode`; keine davon ist bereits
+fachlich validiert.
+
+Bei **Grad 4** bleibt die bestehende Eckpunkt-Verbindung
+als Vergleich unverändert. Eine über **0,03 m** tatsächlich
+außerhalb der ausgewählten Maske verlaufende Schnittlinie
+wird nun als `schnittlinie_geometrisch_abgelehnt`
+markiert statt großzügig toleriert.
+
+### Wahl der Bezugsgrenze
+
+`--boundary-mode` bietet zwei Optionen:
+
+| Wert | Geometrische Bedeutung |
+| --- | --- |
+| **`hauswand`** (Standard) | Äußere **Modul-2-Straßenraummaske**, oft entlang Hauswand/Grundstücksgrenze, nicht zwingend realer Fassadenverlauf. Gleiche Grundlage wie zuvor. |
+| **`gehsteigkante`** | **FMZK F_KLASSE=21, Fahrbahnfläche**; ihr Rand dient als **experimentelle Gehsteigkanten-/Bordkanten-Näherung**. **Nicht** gleichzusetzen mit amtlich vermessener Bordsteinkante! Parkbuchten (Klasse 33), Inseln, Zufahrten und weitere Fälle können die Näherung verfälschen. |
+
+Der alternative Modus liest Klasse 21 **aus dem vorhandenen lokalen
+FMZK-Test-GeoPackage**, schneidet sie mit dem vorhandenen
+Straßenraum und lädt keine weiteren Daten. Es wird **nur der
+Referenzrand für die Diagnose** gewechselt, nicht die Maske
+für Modul 2 oder die V0-Flächenaufteilung. Liegt eine
+GIP-Achse nicht innerhalb dieser Fahrbahnflächen, bleibt
+sie explizit ungeklärt; es wird nicht heimlich auf
+`hauswand` zurückgefallen.
+
+### Beide Varianten lokal vergleichen
+
+```bash
+git pull --ff-only
+
+# Äußerer Straßenraum (Standard) – neues Verzeichnis, ohne den alten Lauf zu überschreiben
+.venv/bin/python -m scripts.diagnose_gip_junction_corners \
+  --boundary-mode hauswand \
+  --out-dir data/processed/strassenabschnitte/eckpunkte_diagnose_v1_t90
+
+# Fahrbahnrand als Näherung für die Gehsteigkante
+.venv/bin/python -m scripts.diagnose_gip_junction_corners \
+  --boundary-mode gehsteigkante \
+  --out-dir data/processed/strassenabschnitte/eckpunkte_diagnose_v1_gehsteigkante
+```
+
+Beide Ausgaben haben getrennte
+`kreuzungen_querprofile.geojson`,
+`kreuzungen_eckpunkte.geojson`,
+`kreuzungen_schnittlinien.geojson` und
+`kreuzungen_diagnose_bericht.json`. Der Bericht dokumentiert
+`boundary_mode`, die Referenzgeometrie und deren Fläche.
+Die Resultate bitte **mit denselben acht Knoten** vergleichen,
+insbesondere Pramergasse/Servitengasse,
+Porzellangasse/Seegasse und die Ausreißerzone an
+Hahngasse/Seegasse/Rotenlöwengasse.
+
+**Grenzen:** Die neuen T-Querlinien sind mathematisch senkrecht
+zur **lokalen** GIP-Achse, jedoch noch keine bestätigten
+Kreuzungsgrenzen. Eine gerundete Gehsteigkante und eine
+Fahrbahnkante können deutlich verschieden sein. Die
+zugrunde liegenden FMZK-21-Polygone ersetzen keine
+separat vermessene Bordstein-Geometrie. Sobald eine solche
+Quelle vorhanden und geprüft ist, soll sie als **separater
+Provider** angebunden werden, statt Klasse 21 als
+vermessene Gehsteigkante auszugeben.
+
 ## Empfohlene Implementierungsreihenfolge
 
 1. **Diagnose-only (Code vorhanden, lokaler Realtest offen):**

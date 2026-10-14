@@ -537,7 +537,11 @@ Lücken oder Überlappungen; die räumliche Zuordnung ist jedoch
 ein **V1-Diagnose-Prototyp**
 `scripts/diagnose_gip_junction_corners.py` implementiert,
 der Querprofile, vorläufige Eckpunkte und Schnittlinien
-für acht GIP-Kreuzungen erzeugt. Der echte lokale V1-Lauf
+für acht GIP-Kreuzungen erzeugt. Für dreiarmige Kreuzungen
+verwendet er nun bei einseitigen Übergängen eine **90°-Querlinie**;
+mit `--boundary-mode gehsteigkante` ist alternativ die
+**FMZK-Fahrbahnklasse 21 als Näherung** für den Gehsteigrand
+wählbar. Standard bleibt `hauswand` (äußerer Straßenraum). Der echte lokale V1-Lauf
 und die Sichtprüfung stehen noch aus;
 [Methodik und Aufruf](docs/Modul-5-Eckpunkte-Kreuzungen.md).
 **Keine** der bisherigen Abschnittsflächen wird damit geändert
