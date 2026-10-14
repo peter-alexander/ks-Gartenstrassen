@@ -208,6 +208,72 @@ class BEVVariantsMeasurementTests(unittest.TestCase):
 			self.assertEqual(len(pairs),1)
 			self.assertAlmostEqual(pairs[0]["iou"],1,delta=0.005)
 
+	def test_all_d2_thresholds_have_iou_against_every_reference(self):
+		expected_d2 = {
+			f"D2_schwelle_{round(threshold*100):03d}"
+			for threshold in D2_THRESHOLDS
+		}
+		expected_d3 = {
+			"D3_strukturreiche_kronenkandidaten",
+			"D3_kronenkandidaten_plus_unklar",
+			"D3_hysterese_010_mit_020_kern",
+		}
+		self.assertEqual(SELECTED_IOU, expected_d2 | expected_d3)
+		with tempfile.TemporaryDirectory() as temp:
+			root = Path(temp)
+			input_dir = root / "wms"
+			input_dir.mkdir()
+			geo = fake_sources(input_dir)
+			x0, y0, x1, y1 = geo["bbox"]
+			street = transform(TO_METRIC, box(x0, y0, x1, y1))
+			# Unterschiedlich große Referenzflächen; die tatsächliche
+			# Referenzgeometrie durchläuft weiterhin die GeoJSON-Einlesung.
+			reference_shapes = {
+				"A_Wien": box(x0, y0, x1, y1),
+				"B_Wien_OSM": box(x0, y0, x0+20, y1),
+				"C_GRM2023": box(x0+10, y0, x1, y1),
+			}
+			references = {}
+			for name, shape in reference_shapes.items():
+				path = root / f"{name}.geojson"
+				path.write_text(json.dumps({
+					"type": "FeatureCollection",
+					"features": [{
+						"type": "Feature", "properties": {},
+						"geometry": mapping(transform(
+							TO_LONLAT, transform(TO_METRIC, shape))),
+					}],
+				}), encoding="utf-8")
+				references[name] = path
+			with patch("scripts.compare_bev_variants.load_polygons",
+				return_value=([], {"bbox_lon_lat": [16.36, 48.22, 16.37, 48.23]},
+					street, [])), patch(
+				"scripts.compare_bev_variants.load_street_mask",
+				return_value=(street, {"masken_sha256": "test-street"})):
+				report = run(input_dir=input_dir, street=root/"street.geojson",
+					fmzk=root/"fmzk.gpkg", output=root/"result",
+					d3_report=root/"missing_d3.json", references=references)
+			pairs = report["raeumliche_vergleiche"]
+			expected_pairs = {(variant, ref)
+				for variant in SELECTED_IOU for ref in references}
+			self.assertEqual(len(pairs), 3 * (len(D2_THRESHOLDS) + 3))
+			self.assertEqual({
+				(item["d_variante"], item["referenz"]) for item in pairs
+			}, expected_pairs)
+			self.assertTrue(all(item["iou"] is not None
+				and 0 <= item["iou"] <= 1 for item in pairs))
+			self.assertEqual(set(report["referenzen"]), set(references))
+			self.assertTrue(all(record["status"] == "gemessen"
+				for record in report["referenzen"].values()))
+			# Bei einer vollflächigen Referenz ist IoU proportional zur
+			# D2-Maskenfläche und muss mit der Schwelle monoton abnehmen.
+			a_scores = {item["d_variante"]: item["iou"] for item in pairs
+				if item["referenz"] == "A_Wien"}
+			d2_scores = [a_scores[f"D2_schwelle_{round(t*100):03d}"]
+				for t in D2_THRESHOLDS]
+			self.assertTrue(all(a >= b - 1e-6
+				for a, b in zip(d2_scores, d2_scores[1:])))
+
 	def test_end_to_end_comparison_outputs_and_sources_unmodified(self):
 		with tempfile.TemporaryDirectory() as temp:
 			root=Path(temp)

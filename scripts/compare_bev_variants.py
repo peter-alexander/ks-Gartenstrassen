@@ -59,8 +59,11 @@ D3_CLASSES = {
 	"D3_schwache_vegetation_ohne_kern": {1},
 	"D3_hysterese_010_mit_020_kern": {2, 3, 4, 5},
 }
+# Alle geprüften D2-Schwellen räumlich gegen jede verfügbare Referenz
+# vergleichen; D3-Auswahl bewusst unverändert lassen.
 SELECTED_IOU = {
-	"D2_schwelle_010", "D2_schwelle_020",
+	f"D2_schwelle_{round(threshold*100):03d}" for threshold in D2_THRESHOLDS
+} | {
 	"D3_strukturreiche_kronenkandidaten",
 	"D3_kronenkandidaten_plus_unklar",
 	"D3_hysterese_010_mit_020_kern",
@@ -396,6 +399,32 @@ def run(*, input_dir=DEFAULT_INPUT, street=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 			print(f"  {name}: {stat['flaeche_m2']:.2f} m² / {stat['anteil_pct']:.2f} %")
 		else:
 			print(f"  {name}: nicht verfügbar ({stat['pfad']})")
+	if ref_overlaps:
+		# Vollständige D2-IoU-Matrix zusätzlich zum JSON direkt anzeigen.
+		# Unterschiede zur Referenz sind kein Nachweis für Baum-/Rasenerkennung.
+		by_pair = {(item["d_variante"], item["referenz"]): item["iou"]
+			for item in ref_overlaps}
+		available = [name for name, value in ref_stats.items()
+			if value["status"] == "gemessen"]
+		print("Räumliche Übereinstimmung D2 / A-B-C (IoU, keine Genauigkeit):")
+		print(f"  {'Schwelle':<12}" + "".join(f"{name:>16}" for name in available))
+		for threshold in D2_THRESHOLDS:
+			label = f"D2_schwelle_{round(threshold*100):03d}"
+			values_row = [by_pair[(label, name)] for name in available]
+			print(f"  {threshold:<12.2f}" +
+				"".join(f"{value:>15.2%} " if value is not None
+					else f"{'–':>16}" for value in values_row))
+		for name in available:
+			scores = [(threshold, by_pair[
+				(f"D2_schwelle_{round(threshold*100):03d}", name)])
+				for threshold in D2_THRESHOLDS]
+			valid_scores = [(threshold, score) for threshold, score in scores
+				if score is not None]
+			if valid_scores:
+				threshold, score = max(valid_scores, key=lambda item: item[1])
+				print(f"  Höchster D2-IoU mit {name}: "
+					f"Schwelle {threshold:.2f} ({score:.2%}); "
+					"kein Nachweis einer besseren Kronenklassifikation")
 	print(f"Bericht: {report_path}")
 	print(f"Rechenzeit D-Masken: {report['zeitmessung']['d_masken_vermessen_s']:.3f} s; "
 		f"bis zum Bericht: {report['zeitmessung']['gesamt_bis_bericht_s']:.3f} s")

@@ -608,7 +608,7 @@ Die stärkere 0,20-Maske umfasst **100.521 Pixel**. Die Hysterese behält **123.
 - Vorläufiger Straßenraum `data/processed/street_space/fmzk_strassenraum.geojson` und `data/processed/fmzk_test.gpkg` über **denselben Modul-2-Adapter** wie A/B/C.
 - Die **sieben bisher tatsächlich geprüften D2-Schwellen** `0,10`, `0,15`, `0,17`, `0,18`, `0,20`, `0,30`, `0,40`.
 - Die bisherige unveränderte D3-Objektklassifikation: `Hysterese (0,10 mit 0,20-Kern)`, `strukturreiche Kronenkandidaten`, `Kronenkandidaten + unklare Vegetation` und die fünf Einzelklassen. Ein vorhandener `bev_segmentation_bericht.json` wird gegen die neu berechneten Klassenhäufigkeiten, Parameter und Quellbild-Prüfsummen kontrolliert, damit tatsächlich **derselbe D3-Lauf** verglichen wird.
-- Die bestehenden Kronengeometrien A/B/C werden zur direkten Gegenüberstellung eingelesen, **wenn sie lokal vorhanden sind**; fehlende Referenzen werden ausdrücklich als fehlend dokumentiert. Zusätzlich wird für besonders interessante D-Varianten die Überlappung mit A/B/C (IoU) gemessen. **IoU ist keine Qualitätsbewertung**.
+- Die bestehenden Kronengeometrien A/B/C werden zur direkten Gegenüberstellung eingelesen, **wenn sie lokal vorhanden sind**; fehlende Referenzen werden ausdrücklich als fehlend dokumentiert. Zusätzlich wird die räumliche Überlappung **aller sieben D2-Schwellen** sowie der drei ausgewählten D3-Varianten mit jeder verfügbaren Referenz A/B/C (IoU) gemessen. Der JSON-Bericht enthält `raeumliche_vergleiche` (bis zu 30 Werte), die Konsole die vollständige D2-IoU-Tabelle samt maximalem IoU je Referenz. **IoU misst Übereinstimmung, keine Genauigkeit der Baumkronenerkennung**.
 
 **Metrische Berechnung:** Die Binärmasken werden **im originalen georeferenzierten WMS-Raster EPSG:3857** als Rasterzell-Rechtecke bzw. zusammenhängende horizontale Streifen polygonisiert, geometrisch vereinigt und nach EPSG:31256 transformiert. Der Schnitt erfolgt **geometrisch** mit der bestehenden Straßenraum-Polygonmaske. Damit werden teilweise bedeckte **Randpixel anteilig** berücksichtigt, statt einen Pixel allein aufgrund seines Mittelpunkts vollständig hinzuzuzählen. Die Straßenraumfläche bleibt der gemeinsame, aus Modul 2 übernommene Nenner; die Ausgabe wird verweigert, wenn der WMS-Ausschnitt den Straßenraum nicht vollständig umfasst. Reprojektion und Abtastraster bleiben trotzdem eigene Auflösungs-/Rasterisierungsunsicherheiten.
 
@@ -627,9 +627,29 @@ Ergebnis: `data/processed/baumkronen/bev_variantenvergleich/bev_varianten_strass
 
 **Performanceprüfung:** Der Vergleich protokolliert nun die Laufzeit seiner fünf Phasen unter `zeitmessung` sowie die Laufzeit jeder einzelnen D-Variante unter `varianten[*].laufzeit_s`. Für einen aussagekräftigen Leistungsbefund ist der Lauf mit den originalen Pixelmasken nötig. Eine synthetische lokale Einzelmessung mit 943 × 878 Pixeln und 14.196 horizontalen Pixelruns benötigte ungefähr 0,55 s für die geometrische Vereinigung und 0,15 s für die Projektion; das ist **kein** Messwert des realen D-Vergleichs. Bei einer auffälligen Laufzeit zuerst die D-Phasen und Run-Anzahlen kontrollieren, bevor man die anteilige Randzellenbehandlung optimiert.
 
-**Referenzwerte für den noch ausstehenden realen Lauf:** A = 3.647,05 m² (7,82 %), B = 3.678,65 m² (7,89 %), C = 4.358,69 m² (9,35 %) bei 46.630,56 m² Straßenraum. Für die 14 D-Varianten existieren noch **keine** real gemessenen Straßenraumwerte. Die originalen WMS-Bilddateien und das FMZK liegen nur lokal, nicht im Git-Repository; gesamte WMS-Bildanteile dürfen nicht als Straßenraumwerte übernommen werden.
+**Realer Lauf am 14.10.2026:** Die lokal erzeugte und zur Auswertung bereitgestellte `bev_varianten_strassenraum_vergleich.json` enthält alle 14 D-Masken auf **46.630,56 m² Straßenraum**, reproduzierte D3-Quelldaten und bei allen Polygonisierungen den Status `valide`, also **keine Geometriereparatur**. Gesamtlaufzeit **6,41 s**, davon **4,66 s** für die 14 Masken und **0,62 s** für 15 räumliche Vergleiche. Die WMS-Bilddateien und das FMZK liegen weiterhin nur lokal, nicht im Git-Repository.
 
-**Nächster lokaler Schritt:** `.venv/bin/python -m scripts.compare_bev_variants` im synchronisierten Repo ausführen. Ein bereits existierender Ausgabepfad erfordert bei Wiederholung ein neues `--out-dir`. Danach die JSON-Datei `bev_varianten_strassenraum_vergleich.json` einschließlich SHA-256, `varianten`, `referenzen`, `raeumliche_vergleiche` und `zeitmessung` zur Auswertung heranziehen. Keine neue WMS-Abfrage ist dafür nötig.
+| D2-Schwelle | Vegetationsmaske im Straßenraum | Anteil |
+| --- | ---: | ---: |
+| 0,10 | 5.715,52 m² | 12,26 % |
+| 0,15 | 5.325,46 m² | 11,42 % |
+| 0,17 | 5.168,97 m² | 11,08 % |
+| 0,18 | 5.085,39 m² | 10,91 % |
+| 0,20 | 4.932,71 m² | 10,58 % |
+| 0,30 | 3.875,68 m² | 8,31 % |
+| 0,40 | 2.417,44 m² | 5,18 % |
+
+**Referenzflächen:** A = 3.647,05 m² (7,82 %), B = 3.678,65 m² (7,89 %), C = 4.358,69 m² (9,35 %). Von den zuvor gemessenen D2-IoUs lagen 0,20 gegen alle drei Referenzen vor 0,10: A 58,82 % statt 57,17 %, B 58,52 % statt 57,05 %, C 70,99 % statt 68,51 %. Für die fünf anderen D2-Schwellen lagen im ersten Bericht noch keine räumlichen IoUs vor. Ein ähnlicher Flächenanteil allein bedeutet nicht höhere Übereinstimmung; ebenso ist IoU gegen A/B/C keine unabhängig validierte Klassifikationsgenauigkeit.
+
+**Nächster lokaler Schritt (erweiterter D2-IoU-Vergleich):** Im aktualisierten Repository mit unveränderten lokalen Quelldateien erneut ausführen. Da der erste Bericht bereits existiert, **neues Ausgabeverzeichnis wählen**, damit nichts überschrieben wird:
+
+```bash
+git pull --ff-only
+.venv/bin/python -m scripts.compare_bev_variants \
+	--out-dir data/processed/baumkronen/bev_variantenvergleich_iou_alle_d2
+```
+
+Die neue Datei `bev_variantenvergleich_iou_alle_d2/bev_varianten_strassenraum_vergleich.json` enthält bei verfügbaren A/B/C-Geometrien **21 D2- und 9 D3-IoUs**. Eine WMS-Neuabfrage oder Änderung der bestehenden Schwellen/Klassen ist dafür nicht erforderlich. Erst anhand dieser Daten die sieben D2-Schwellen räumlich vergleichen; die fehlenden IoUs können aus den aggregierten Flächen des ersten JSON-Berichts **nicht** rückwirkend berechnet werden.
 
 ---
 
