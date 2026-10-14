@@ -15,6 +15,7 @@ GIP-V0 verwendet **5 m Abtastung, 7 m Knotenradius bei Grad >= 3, 25 m maximalen
 | scripts/wienwide_aoi.py | Wiener Bezirks-/Landesflächen als echte AOI-Polygone aus MA41-WFS abfragen |
 | scripts/wienwide_grid.py | Festes Raster in EPSG:31256, AOI-/Manifest-Hash, Kachelkontrolle |
 | scripts/wienwide_gip.py | WFS-Abrufe kachelweise mit Halo, Quelldaten-Cache, globale GIP-ID-Deduplizierung, SQLite-Graph und RTree-Index |
+| scripts/wienwide_kataster.py | Bereits gespeicherte BEV-z16-MVT-Kacheln direkt in EPSG:31256 auswerten; nfl-Flächen ohne WGS84-GeoJSON-Rückweg |
 | scripts/wienwide_street.py | Bestehende FMZK-/Kataster-Regeln auf lokale Quellkacheln anwenden und Ergebnis direkt als metrisches WKB/SQLite speichern |
 | scripts/wienwide_partition.py | Voronoi-V0 anhand globaler 5-m-Stützpunkte kachelweise rechnen, Flächenbilanz und Ergebnis-Fragmente nach GIP-ID in SQLite speichern |
 | scripts/wienwide_benchmark.py | Quellabdeckung, Kachel-Laufzeiten, partielle/vollständige Resultate und Flächenbilanz als JSON |
@@ -149,10 +150,29 @@ Ist diese Probe korrekt, den Aufruf **ohne --only** wiederholen. Das Kataster-Sk
 .venv/bin/python -m scripts.wienwide_street build \
   --manifest data/processed/wienweit/alsergrund/raster.json \
   --input-root data/processed/wienweit/alsergrund/eingaben \
-  --out-root data/processed/wienweit/alsergrund/strassenraum
+  --out-root data/processed/wienweit/alsergrund/strassenraum \
+  --kataster-cache data/cache/kataster
 ~~~
 
 Die resultierende street.sqlite liegt **je Tile** mit metrischer WKB-Geometrie und FMZK-/Kataster-Prüfsummen vor. Eine tatsächlich straßenraumfreie Kachel wird nach vollständiger Quellenauswertung explizit als leer markiert; fehlende Quelldaten sind dagegen ein Fehler.
+
+**Realer Alsergrund-Pilot, nfl-Geometriefehler (14.10.2026):**
+Bei der ersten Kachel `x+000001_y+000342` wurden **14.764 FMZK-Objekte** extrahiert, **36 BEV-z16-Kacheln** erfolgreich geladen und **811 Grundstücke** des FMZK-Straßenkerns ermittelt. Die 811 Klasse-D-Einträge bedeuten, dass die optionalen Grundstücksdetails nicht abgefragt wurden; die BEV-nfl-Vektorkacheln enthalten trotzdem die für die Straßenraumklassifikation benötigten Nutzungspolygone.
+
+Der erste `wienwide_street build` brach bei `Keine gültige Polygonfläche: nfl #159` ab. Die damalige Funktion las `kataster_nfl_ausschnitt.geojson` und projizierte die ursprünglich metrisch erzeugten Fragmente **über WGS84 wieder zurück nach EPSG:31256**. Die Wien-weite Stufe verwendet deshalb jetzt `wienwide_kataster.py`: Es liest die **bereits lokal zwischengespeicherten BEV-Rohkacheln** ausschließlich offline, gleicht z16-Kachel-Liste, BBOX und die Anzahl der vom FMZK-Kern getroffenen Grundstücke mit dem vorhandenen Katasterbericht ab, beschleunigt das Polygon-Clipping mit einem räumlichen Index und verwendet die ursprünglichen metrischen nfl-Fragmente. Kein erneuter Download und keine neuen Grundstücks-Detailabfragen.
+
+Nur wie bisher Quell-Schnittfragmente mit **höchstens 0,05 m²** werden ausgeschlossen und quantitativ berichtet; echte ungültige oder irreparabel flächenverlustige Polygonfragmente oberhalb dieser Schwelle führen weiter zum Fehler. Die 95-%-Regel und die Kategorien 95/65 bleiben unverändert. Der bestehende **kleine Testgebiets-Workflow ist unverändert**. Der metrische Rechenweg ist synthetisch geprüft, **die reale Wiederholung dieser Alsergrund-Kachel ist noch ausständig**. Zum Nachtesten:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m scripts.wienwide_street build \
+  --manifest data/processed/wienweit/alsergrund/raster.json \
+  --input-root data/processed/wienweit/alsergrund/eingaben \
+  --out-root data/processed/wienweit/alsergrund/strassenraum \
+  --kataster-cache data/cache/kataster \
+  --only 'x+000001_y+000342'
+~~~
+
 
 ### 4. V0 kachelweise rechnen und wiederaufnehmen
 
