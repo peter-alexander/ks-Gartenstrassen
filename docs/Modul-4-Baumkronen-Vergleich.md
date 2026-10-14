@@ -570,6 +570,34 @@ Die vier PNGs sind jeweils als `PNG/.pgw/.prj` in **EPSG:3857** abgelegt und kö
 
 ---
 
+### Tatsächlicher lokaler D3-Befund – 14.10.2026
+
+**Datengrundlage:** Vom Benutzer bereitgestelltes `bev_segmentation_kandidaten.png` und `bev_segmentation_bericht.json`; der Bericht stammt aus der getrennten D3-Implementierung mit `low=0,10`, `strong=0,20`, `min_signal=20`, `strukturreich_ab=8 DN`, `strukturarm_bis=4 DN`, `klein_unter=12 Pixel`. Das Quellraster besitzt 943 × 878 = **827.954** gültige Pixel. Quellbild-Prüfsummen stimmen mit den zuvor dokumentierten BEV-WMS-RGB/IR-Darstellungen überein.
+
+| D3-Klasse | 8fach zusammenhängende Komponenten | Pixel | Anteil an allen 125.345 Vegetationspixeln (≥ 0,10) |
+| --- | ---: | ---: | ---: |
+| Strukturreiche *Kronenkandidaten* (grün) | **233** | **104.483** | **83,36 %** |
+| Unklare Vegetation (gelb) | **19** | **17.894** | **14,28 %** |
+| Vegetation ohne ≥ 0,20-Kern (grau) | **664** | **2.046** | **1,63 %** |
+| Strukturarme Vegetation (blau) | **13** | **675** | **0,54 %** |
+| Kleine unklare Objekte | **37** | **247** | **0,20 %** |
+| **Insgesamt** | **966** | **125.345** | **100 %** |
+
+Die stärkere 0,20-Maske umfasst **100.521 Pixel**. Die Hysterese behält **123.299 Pixel bzw. 98,37 %** der 0,10-Maske: Nur 1,63 % der Vegetationskandidaten gehören zu zusammenhängenden Komponenten ohne einen einzigen stärkeren Kern. **Das 0,20-Kernkriterium ist für das Entfernen ganzer Vegetationsobjekte damit kaum selektiv**. Die größte 0,10-Komponente umfasst **18.828 Pixel**, also weit mehr als eine typische kleine Einzelbaumkrone. Solche zusammenhängenden Flächen können Bäume, Rasen und Beete gemeinsam enthalten.
+
+**Beobachtungen anhand des Bildes, noch ohne unabhängige Referenzklassifikation:**
+
+- Die erkannten grünen Straßenbaumkronen/-reihen und viele Innenhofbereiche bestätigen, dass **0,10 als Vegetations-Kandidatenschwelle** brauchbar erscheint.
+- Lange gelb markierte zusammenhängende Streifen entlang von Straßen – auffällig im rechten oberen und linken unteren Bildbereich – sehen im zugrundeliegenden Orthofoto **stark nach Straßenbaumreihen** aus. Sie landen trotz sichtbarer Kronenstrukturen teilweise in `unklare_vegetation`; also mögliche *falsch negative Kronenklassifikationen*.
+- Die große grüne Fläche im westlichen Innenhof wirkt wie **gemischte Vegetation**: Einzelne Bäume und bodennahe Vegetation können zusammenhängen. Die vollständige grüne Klassifizierung ist **kein Nachweis**, dass diese gesamte Fläche von Baumkronen bedeckt ist; mögliche *falsch positive Kronenklassifikationen*.
+- Der bisherige Algorithmus **berechnet** je zusammenhängendem Objekt Bounding-Box-Füllgrad, Seitenverhältnis und Kompaktheit, **verwendet diese Werte aber noch nicht für die Klassenentscheidung**. Die grüne Klasse entsteht im Wesentlichen aus dem mittleren RGB-Luminanzkontrast im **gesamten** Objekt (≥ 8 DN), sofern Größe und starker Kern vorhanden sind. Schon deshalb kann ein großes Mischobjekt als einheitliche „Krone“ erscheinen.
+
+**Fachliches Urteil:** Der D3-Lauf bestätigt den Nutzen der spektralen Vegetationsmaske, **nicht** die Zuverlässigkeit der Textur-Kronenerkennung. Die 104.483 grünen Pixel (= 83,36 % der Kandidaten) dürfen **nicht** als erkannte Baumkronen, Überschirmungsgrad oder validierte Methode D berichtet werden. Ein objektweiter Textur-Grenzwert kann die Baum-/Rasen-Grenze nicht zuverlässig ziehen. Auch der reine 0,20-Kernfilter trennt kaum.
+
+**Empfohlener nächster Schritt (noch nicht implementiert):** Zuerst einige **manuell bestätigte** Beispielbereiche markieren: deutliche Straßenbaumkronen (einschließlich der gelben Reihen), gemischter Innenhof, zusammenhängender Rasen, Hecken/Beete, Schatten und Dachflächen. Danach den Verlauf **lokaler** RGB-Textur in Fenstern (z. B. 5×5/9×9 Pixel) sowie den kontinuierlichen spektralen Index gegen diese Beispielflächen vergleichen und eine Unterteilung großer Vegetationskomponenten prüfen. Die volle 0,10-Maske und das 0,20-Signal bleiben unabhängig erhalten; echte Kronenpolygone und eine Straßenraumquote bleiben zurückgestellt. Der Objektbericht `bev_segmentation_objekte.json` ist noch nicht hier ausgewertet und wäre für weitere größen-/formabhängige Diagnosen nützlich.
+
+---
+
 **Wenn die WMS-Qualität unzureichend ist**, bleibt der eigenständige Roh-RGBI-Adapter `scripts/probe_bev_rgbir.py` als zweite Quelle erhalten. Ein großer TIFF-Download ist erst gerechtfertigt, wenn die WMS-Ergebnisse keine ausreichend verlässliche Spektraldiagnose zulassen.
 
 ---
