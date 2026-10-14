@@ -99,6 +99,7 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 		report = {
 			"schema_version": SCHEMA, "created_utc":datetime.now(timezone.utc).isoformat(),
 			"tile_id":tile["id"], "urls":urls,
+			"max_features":max_features,
 			"bbox_3857":list(bounds),
 			"sha256":{kind:checksum(path) for kind,path in targets.items()},
 			"quelle_sha256":{kind:summary[kind]["quelle_sha256"] for kind in LAYERS},
@@ -147,8 +148,10 @@ def build_index(manifest_path, root, output):
 		report=json.loads(report_path.read_text(encoding="utf-8"))
 		if report.get("tile_id")!=tile["id"] or report.get("schema_version")!=SCHEMA:
 			raise ValueError(f"GIP-Kachelbericht inkonsistent: {tile['id']}")
-		urls,_=urls_for_tile(tile,manifest["halo_m"],4000)
-		# Eventuell WFS-Probe mit anderem Featurelimit:
+		feature_limit=report.get("max_features",4000)
+		if not isinstance(feature_limit,int) or not 100<=feature_limit<=10000:
+			raise ValueError(f"{tile['id']}: ungültiges GIP-WFS-Limit")
+		urls,_=urls_for_tile(tile,manifest["halo_m"],feature_limit)
 		if report.get("urls") != urls:
 			raise ValueError(f"{tile['id']}: GIP-Cachingparameter/Anfrage nicht wie erwartet")
 		for kind,name in (("achsen",AXES),("knoten",NODES)):
@@ -176,6 +179,7 @@ def build_index(manifest_path, root, output):
 					x REAL NOT NULL,y REAL NOT NULL);
 				CREATE VIRTUAL TABLE site_spatial USING rtree(pk,minx,maxx,miny,maxy);
 				CREATE INDEX sites_by_axis ON sites(axis_pk);
+				CREATE TABLE node_degrees(gip TEXT PRIMARY KEY,degree INTEGER NOT NULL);
 			""")
 			duplicates=Counter()
 			for tile in manifest["tiles"]:
@@ -210,6 +214,13 @@ def build_index(manifest_path, root, output):
 						(item["id"],item["name"],x,y,dumps(geom)))
 					db.execute("INSERT INTO node_spatial VALUES (?,?,?,?,?)",
 						(cur.lastrowid,x,x,y,y))
+			db.execute("""
+				INSERT INTO node_degrees(gip,degree)
+				SELECT nid,COUNT(*) FROM (
+					SELECT node_from AS nid FROM axes
+					UNION ALL SELECT node_to AS nid FROM axes
+				) GROUP BY nid
+			""")
 			# Auf den kompletten Satz aller Achsen referenzierende Knoten
 			# im AOI-Inneren müssen verfügbar sein (WFS-Rand darf extern fehlen).
 			for row in db.execute("SELECT gip,node_from,node_to,wkb FROM axes"):
