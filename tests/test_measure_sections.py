@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from shapely.geometry import box, mapping
+from shapely.geometry import Polygon, box, mapping
 from shapely.ops import transform
 from scripts.measure_sections import (
-	TO_LONLAT, compute_rows, read_partition, run, sha256,
+	TO_LONLAT, _geometry, compute_rows, read_partition, run, sha256,
 )
 
 
@@ -140,6 +140,40 @@ class SectionMetricsTests(unittest.TestCase):
 		])
 		with self.assertRaises(ValueError):
 			read_partition(self.v0, self.street, street_sha256=self.masksha)
+
+	def test_invalid_v0_polygon_can_be_repaired_with_audit(self):
+		# Berührende/schneidende Ringe können beim GeoJSON-
+		# Rundweg ungültig werden. Nur die metrisch reparierte
+		# Kopie darf benutzt werden; Ergebnis und Grund notieren.
+		from scripts.measure_sections import TO_METRIC
+		x, y = TO_METRIC(16.363, 48.223)
+		bowtie = Polygon([(x, y), (x+10, y+10),
+			(x, y+10), (x+10, y), (x, y)])
+		self.assertFalse(bowtie.is_valid)
+		feature_input = feature("gip:4001", bowtie, group="abschnitt")
+		repaired = []
+		result = _geometry(feature_input, label="gip:4001",
+			repaired=repaired)
+		self.assertTrue(result.is_valid)
+		self.assertGreater(result.area, 0)
+		self.assertEqual(len(repaired), 1)
+		self.assertEqual(repaired[0]["id"], "gip:4001")
+		self.assertIsNotNone(repaired[0]["grund_epsg31256"])
+
+	def test_repairs_do_not_hide_area_mismatch(self):
+		# Selbstreparatur allein reicht nicht als Freigabe;
+		# die Quelle und die vollständige Partition müssen stimmen.
+		from scripts.measure_sections import TO_METRIC
+		x, y = TO_METRIC(16.363, 48.223)
+		bowtie = Polygon([(x, y), (x+10, y+10),
+			(x, y+10), (x+10, y), (x, y)])
+		self._write_v0(parts=[
+			feature("gip:1001", bowtie, group="abschnitt", area=1800),
+			feature("gip:1002", self.right, group="abschnitt"),
+		])
+		with self.assertRaisesRegex(ValueError, "Quellenfläche"):
+			read_partition(self.v0, self.street,
+				street_sha256=self.masksha)
 
 	def test_duplicate_ids_and_wrong_attributes_rejected(self):
 		self._write_v0(parts=[
