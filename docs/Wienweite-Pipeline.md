@@ -80,6 +80,29 @@ Das Raster ist fix in EPSG:31256 und vollständig auf die echte AOI beschnitten.
 
 Der Index lässt sich **nicht** aus unvollständigen Fragmenten erstellen. Leere WFS-Kacheln sind nach expliziter Prüfung erlaubt; Limitüberschreitungen, Duplikatkonflikte, falsches CRS oder fehlende GIP-Knoten am AOI-Rand führen zum Abbruch. Die Quelle und der Index bleiben unverändert.
 
+**GIP-WFS-BBOX-Prüfung (14.10.2026):** Beim ersten Alsergrund-Abruf
+wurden sieben der zehn Kacheln erfolgreich gespeichert, danach meldete
+die achte Kachel `achsen Feature 169: Feature liegt außerhalb der
+WFS-BBOX`. Die ursprüngliche Validierung verlangte, dass die
+**Liniengeometrie selbst** die Anfrage-BBOX schneidet. Bei
+WFS-BBOX-Abfragen können aber auch Linien mit überschneidendem
+**Geometrie-Hüllrechteck** zurückkommen, obwohl die Linie selbst
+außerhalb verläuft. Der wienweite Adapter berücksichtigt dies
+jetzt: Nur Achsen mit einem tatsächlich die WFS-BBOX schneidenden
+Hüllrechteck werden zusätzlich angenommen. Sie werden
+in den Karten-Features als `wfs_bbox_nur_huelle` markiert,
+sowie im Kachelbericht `wfs_bbox_nur_huelle.achsen` mit
+Anzahl und GIP-IDs protokolliert. Ein Feature, dessen Hüllrechteck
+ebenfalls nicht schneidet, bleibt **ungültig** und wird mit
+GIP_OBJECTID, Abstand und Hüllrechteckstatus gemeldet.
+
+Die ersten sieben erfolgreich geschriebenen Kacheln verbleiben im
+SHA-geprüften Cache. Zum Fortsetzen einfach **denselben fetch-Befehl**
+erneut ausführen – keine Quellfragmente löschen. Die Fehlerursache
+für das reale Feature 169 muss anhand des Wiederholungslaufs
+bestätigt werden; zuvor wurde nur der zu strenge
+Validierungspfad identifiziert.
+
 ### 3. FMZK und Kataster
 
 Zunächst die tatsächliche erste Tile-ID aus raster.json auswählen (der Platzhalter ist kein ausführbarer Name).
