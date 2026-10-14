@@ -460,6 +460,19 @@ Alle vier PNGs erhalten eigene `PGW/PRJ`-Georeferenzierung (EPSG:3857). Die Text
 
 [Modul-4-Dokumentation einschließlich des lokalen Schwellen-Feinvergleichs und der Grenzen von D3](docs/Modul-4-Baumkronen-Vergleich.md#d2-feinvergleich-und-d3-vorsichtige-kronenkandidaten-ohne-höhenmodelle-14102026).
 
+### D-Variantenvergleich auf dem Straßenraum – alle bisherigen Schwellen und D3-Klassen
+
+**Bevor weitere Kronenregeln entwickelt werden, messen wir zunächst die vorhandenen D-Masken.** `scripts/compare_bev_variants.py` berechnet **für dieselbe Straßenraummaske wie A/B/C** den metrischen Flächenanteil von sieben D2-Schwellen (`0,10`, `0,15`, `0,17`, `0,18`, `0,20`, `0,30`, `0,40`) und den D3-Varianten: Hysterese, nur strukturreiche Kronenkandidaten, Kronenkandidaten plus unklare Vegetation sowie sämtliche D3-Einzelklassen.
+
+```bash
+./scripts/update-and-sync.sh
+.venv/bin/python -m scripts.compare_bev_variants
+```
+
+**Es wird nichts neu heruntergeladen oder verändert.** Der Vergleich reproduziert D2/D3 aus den ursprünglichen SHA-geprüften RGB-/IR-Bildern, nutzt die vorhandene Straßenraum- und FMZK-Maske und vergleicht optional die Kronenflächen A/B/C, wenn deren GeoJSONs vorhanden sind. Positive Rasterzellen werden als georeferenzierte Flächen polygonisiert und **an der Straßenraumgrenze geometrisch angeschnitten** – inklusive anteiliger Randzellen, statt die Bildanteile als Straßenanteile auszugeben.
+
+Die Konsole zeigt für alle Varianten Fläche **in m² und Prozent**. Der Bericht liegt unter `data/processed/baumkronen/bev_variantenvergleich/bev_varianten_strassenraum_vergleich.json`. **Unbedingt unterscheiden:** D2 liefert Vegetationsbedeckung und D3 liefert unvalidierte Kronenkandidaten; noch kein D-Wert ist ein nachgewiesener Wien-Plan-Überschirmungsgrad. Zuerst die echten Quoten vergleichen, **dann** über die nächste Segmentierung entscheiden. [Methodische Details](docs/Modul-4-Baumkronen-Vergleich.md#d4-vergleichsrechnung-alle-d-varianten-auf-identischem-straßenraum-14102026).
+
 **Die TIFF-/RGBI-Diagnose bleibt als Fallback**, falls die Kanäle des gerenderten BEV-WMS nicht geeignet sind. Sie ist im folgenden Abschnitt beschrieben.
 
 ### Optionale Originaldaten: BEV Orthofoto RGBI – Rasterdiagnose
@@ -515,7 +528,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 ## Nächste Schritte (modular)
 
 1. **Bodenbegrünung fachlich prüfen:** Der erste lokale Lauf liegt mit **1,91 %** vor; insbesondere die nahezu fehlende Klasse 58 und unsichere Randflächen später an Beispielen kontrollieren. Modul 3 bleibt dabei zunächst unverändert.
-2. **Methode D – D3 verbessern statt Kronenquote ableiten:** Der erste echte D3-Bildtest ist ausgewertet: **83,36 %** aller Vegetationspixel werden bislang grün als Kronenkandidaten markiert, aber sichtbare Straßenbaumreihen erscheinen teils gelb und große Mischflächen grün. Vor D4 einige unabhängige Baum-/Rasen-/Strauch-/Schatten-Beispiele abgrenzen und lokale Textur-/Objektunterteilung prüfen. Die **0,10-Maske** und das **0,20-Signal** bleiben erhalten; A/B/C (**7,82 / 7,89 / 9,35 %**) unverändert.
+2. **Methode D – zuerst alle vorhandenen Varianten messen:** Mit `python -m scripts.compare_bev_variants` die D2-Schwellen (0,10–0,40) sowie die D3-Klassen/Hysterese auf **denselben Straßenraum wie A/B/C** schneiden und die resultierenden m²-/Prozentwerte gegenüberstellen. Der erste D3-Bildtest zeigte, dass 83,36 % der Vegetationspixel als Kronenkandidaten markiert werden; dies darf nicht ohne Mess- und Qualitätsvorbehalt als echte Überschirmung gelten. **Erst aus den Vergleichswerten und Prüfbeispielen** die nächsten methodischen Schritte auswählen.
 3. **Straßenabschnitte als Bezugsräume** festlegen und Bodenbegrünung, Kronenüberschirmung und weitere Kriterien getrennt je Abschnitt auswerten.
 4. **Modul 2 gezielt verbessern oder ersetzen**, falls die konkrete Prüfung Fehlzuordnungen zeigt – ohne die Kennzahlenmodule umprogrammieren zu müssen.
 
