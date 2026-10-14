@@ -105,6 +105,9 @@ class JunctionCornerDiagnosticsTests(unittest.TestCase):
 			for f in layers["schnittlinien"]))
 		with self.assertRaisesRegex(ValueError, "21/30/32/33/39"):
 			fahrbahn_mask([(2, 23, "Gehsteig", street)], street)
+		with self.assertRaisesRegex(ValueError, "Grenzmodus"):
+			analyze(street, axes, nodes, node_ids=["10"], max_junctions=1,
+				boundary_mode="unbekannt")
 
 	def test_curb_proxy_includes_parking_speed_humps_and_crossings(self):
 		street = box(0, 0, 60, 30)
@@ -130,9 +133,7 @@ class JunctionCornerDiagnosticsTests(unittest.TestCase):
 		# Klassen außerhalb des bisherigen Straßenraums nicht übernehmen.
 		clipped = fahrbahn_mask(data, box(0, 0, 35, 30))
 		self.assertAlmostEqual(clipped.area, 350, places=5)
-		with self.assertRaisesRegex(ValueError, "Grenzmodus"):
-			analyze(street, axes, nodes, node_ids=["10"], max_junctions=1,
-				boundary_mode="unbekannt")
+
 
 	def test_straight_road_does_not_invent_crossing_corners(self):
 		street, axes, nodes = synthetic_cross()
