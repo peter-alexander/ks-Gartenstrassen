@@ -61,9 +61,12 @@ def validated_wfs(raw, kind, bounds, *, max_features):
 	vom Server gemeldete höhere Anzahl bleibt ein Fehler.
 	"""
 	try:
+		# Keine auslaufende numerische Randtoleranz: der Server darf
+		# Superset-Kandidaten zurückgeben, lokal werden nur echte
+		# Geometrieschnitte mit der bereits 75 m gepufferten BBOX
+		# behalten. Alle übersprungenen GIP-IDs protokollieren.
 		return validate_layer(raw,kind,bounds,max_features=max_features,
-			allow_bbox_envelope_match=True,
-			bbox_numeric_tolerance_m=WFS_BBOX_NUMERIC_TOLERANCE_M)
+			filter_wfs_bbox_superset=True)
 	except ValueError as exc:
 		if "keine GIP-Features" not in str(exc):
 			raise
@@ -145,6 +148,16 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 			"sha256":{kind:checksum(path) for kind,path in targets.items()},
 			"quelle_sha256":{kind:summary[kind]["quelle_sha256"] for kind in LAYERS},
 			"anzahl":{kind:summary[kind]["anzahl"] for kind in LAYERS},
+			"wfs_antwort_features":{kind:summary[kind].get(
+				"antwort_features", summary[kind]["anzahl"]) for kind in LAYERS},
+			"wfs_bbox_ausgeschlossen": {
+				kind:{
+					"anzahl":summary[kind].get("wfs_bbox_ausgeschlossen_anzahl",0),
+					"gip_ids_mit_abstand":summary[kind].get(
+						"wfs_bbox_ausgeschlossen",[]),
+				}
+				for kind in LAYERS
+			},
 			"wfs_bbox_nur_huelle": {
 				kind:{
 					"anzahl":summary[kind].get("wfs_bbox_nur_huelle_anzahl",0),
@@ -168,7 +181,8 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 		print(f"GIP {i}/{len(tiles)} {tile['id']}: "
 			f"{report['anzahl']['achsen']} Achsen, {report['anzahl']['knoten']} Knoten"
 			f"{', Hüllrechteck-Treffer: '+str(report['wfs_bbox_nur_huelle']['achsen']['anzahl']) if report['wfs_bbox_nur_huelle']['achsen']['anzahl'] else ''}"
-			f"{', numerische Randtreffer: '+str(report['wfs_bbox_numerische_randtreffer']['achsen']['anzahl']) if report['wfs_bbox_numerische_randtreffer']['achsen']['anzahl'] else ''}")
+			f"{', numerische Randtreffer: '+str(report['wfs_bbox_numerische_randtreffer']['achsen']['anzahl']) if report['wfs_bbox_numerische_randtreffer']['achsen']['anzahl'] else ''}"
+			f"{', WFS-Kandidaten außerhalb BBOX: '+str(report['wfs_bbox_ausgeschlossen']['achsen']['anzahl']) if report['wfs_bbox_ausgeschlossen']['achsen']['anzahl'] else ''}")
 	return results
 
 
