@@ -16,7 +16,8 @@ from scripts.wienwide_grid import (
 	read_manifest, write_manifest, checksum,
 )
 from scripts.wienwide_gip import (
-	AXES,NODES,REPORT,urls_for_tile,build_index,connect as connect_gip,
+	AXES,NODES,REPORT,urls_for_tile,build_index,validated_wfs,
+	connect as connect_gip,
 )
 from scripts.wienwide_street import save_street_tile, load_street_tile
 from scripts.wienwide_partition import (
@@ -194,6 +195,45 @@ class WienPipelineTests(unittest.TestCase):
 				f"Naht oder Zuordnung bei GIP {gid}")
 		for group,geom in unknown:
 			self.assertAlmostEqual(all_unknown[group],geom.area,delta=.05)
+
+	def test_verified_empty_wfs_and_incorrect_counts(self):
+		tile=self.manifest["tiles"][0]
+		_,bounds=urls_for_tile(tile,75,4000)
+		empty=json.dumps(fc([])).encode()
+		_,view,stats=validated_wfs(empty,"achsen",bounds,
+			max_features=4000)
+		self.assertEqual(stats["anzahl"],0)
+		self.assertEqual(view["features"],[])
+		doc=fc([])
+		doc["numberMatched"]=3
+		with self.assertRaisesRegex(ValueError,"trotz leerer Kachel"):
+			validated_wfs(json.dumps(doc).encode(),"achsen",bounds,
+				max_features=4000)
+		doc=fc([])
+		doc["crs"]={"type":"name","properties":{"name":"EPSG:3857"}}
+		with self.assertRaisesRegex(ValueError,"nicht unterstütztes Quell-CRS"):
+			validated_wfs(json.dumps(doc).encode(),"achsen",bounds,
+				max_features=4000)
+
+	def test_empty_street_requires_explicit_verified_status(self):
+		from shapely.geometry import Polygon
+		from scripts.wienwide_partition import split_tile
+		empty=Polygon()
+		out=self.root/"empty.sqlite"
+		with self.assertRaisesRegex(ValueError,"Leere"):
+			save_street_tile(out,empty,{"schema_version":"1",
+				"crs":"EPSG:31256"})
+		save_street_tile(out,empty,{"schema_version":"1",
+			"crs":"EPSG:31256","nachweislich_ohne_strassenraum":True},
+			allow_empty=True)
+		loaded=load_street_tile(out,self.aoi)
+		self.assertTrue(loaded.is_empty)
+		parts,rest,stats=split_tile(loaded,self.aoi,[],{},[])
+		self.assertEqual(parts,{})
+		self.assertEqual(rest,{})
+		self.assertEqual(stats["zugeordnet_m2"],0)
+		self.assertEqual(stats["strassenraum_m2"],0)
+		self.assertEqual(stats["ungeklaert_m2"],0)
 
 	def test_sqlite_result_resume_and_full_area_audit(self):
 		self._fragments()
