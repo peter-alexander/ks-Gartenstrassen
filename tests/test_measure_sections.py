@@ -9,7 +9,8 @@ from unittest.mock import patch
 from shapely.geometry import Polygon, box, mapping
 from shapely.ops import transform
 from scripts.measure_sections import (
-	TO_LONLAT, _geometry, compute_rows, read_partition, run, sha256,
+	TO_LONLAT, _geometry, compute_rows, read_partition,
+	read_partition_metric, run, sha256,
 )
 
 
@@ -200,6 +201,114 @@ class SectionMetricsTests(unittest.TestCase):
 		self.assertEqual(totals["vegetation_d"]["gesamt_m2"], 900)
 		self.assertEqual(totals["kronen_c"]["gesamt_m2"], 2125)
 
+	def _mock_metric_sources(self):
+		"""Im Test denselben GIP-Hash-Vertrag wie reale V0-Reports erzeugen."""
+		self.gip = self.root / "gip"
+		self.gip.mkdir(exist_ok=True)
+		for name in ("abschnitte_achsen.geojson",
+			"abschnitte_knoten.geojson", "gip_probe_bericht.json"):
+			(self.gip / name).write_text(json.dumps({}),
+				encoding="utf-8")
+		p = self.v0 / "abschnitte_bericht.json"
+		report = json.loads(p.read_text(encoding="utf-8"))
+		report["quelle"]["gip_achsen_sha256"] = sha256(
+			self.gip / "abschnitte_achsen.geojson")
+		report["quelle"]["gip_knoten_sha256"] = sha256(
+			self.gip / "abschnitte_knoten.geojson")
+		report["bilanz"]["gesamt_m2"] = self.street.area
+		p.write_text(json.dumps(report), encoding="utf-8")
+
+	def test_metric_v0_rebuild_recovers_geojson_gap_without_filling(self):
+		# Synthetisch: GeoJSON-Abschnitt ist 0,1 m verschoben;
+		# sein gespeicherter Flächenwert bleibt 1.800 m².
+		# Alte WGS84-Rückprojektion liefert > 0,5 m² Lücke.
+		from shapely.affinity import translate
+		self._write_v0(parts=[
+			feature("gip:1001", translate(self.left, xoff=.10),
+				group="abschnitt", label="A-Gasse"),
+			feature("gip:1002", self.right,
+				group="abschnitt", label="B-Gasse"),
+		])
+		with self.assertRaisesRegex(ValueError, "fehlende Straßenfläche"):
+			read_partition(self.v0, self.street,
+				street_sha256=self.masksha)
+		self._mock_metric_sources()
+		def metric_result(*args, **kwargs):
+			self.assertEqual(kwargs, dict(spacing_m=5, node_radius_m=7,
+				max_distance_m=25))
+			return ([
+				({"id": "1001", "name": "A-Gasse"}, self.left),
+				({"id": "1002", "name": "B-Gasse"}, self.right),
+			], [("knotenbereich", self.unresolved)], {
+				"strassenraum_m2": self.street.area,
+				"zugeordnet_m2": self.left.area+self.right.area,
+				"ungeklaert_m2": self.unresolved.area,
+				"gesamt_m2": self.street.area,
+				"anzahl_zugeordnete_abschnitte": 2,
+				"ueberlappung_m2": 0,
+				"fehlend_m2": 0,
+				"ausserhalb_m2": 0,
+			})
+		with patch("scripts.analyze_gip_topology.read_geojson",
+			return_value=[]), patch("scripts.analyze_gip_topology.audit",
+			return_value={"status": "topologie_konsistent"}
+		), patch("scripts.assign_gip_section_areas.prepare_graph",
+			return_value=([], [])
+		), patch("scripts.assign_gip_section_areas.partition",
+			side_effect=metric_result):
+			parts, stats, report = read_partition_metric(
+				self.v0, self.street,
+				street_sha256=self.masksha, gip=self.gip)
+			self.assertEqual(len(parts), 3)
+			self.assertEqual(stats["berechnungsgrundlage"],
+				"metrische_v0_neuberechnung")
+			self.assertAlmostEqual(stats["fehlende_flaeche_m2"], 0,
+				places=6)
+			self.assertEqual(parts[0]["id"], "gip:1001")
+			self.assertTrue(parts[0]["geometry"].equals(self.left))
+			rows, totals = compute_rows(parts, self.street,
+				{"bodenbegruenung": self.greening, "kronen_a": self.a})
+			self.assertEqual(len(rows), 3)
+			self.assertAlmostEqual(totals["bodenbegruenung"]
+				["bilanzdifferenz_m2"], 0, places=5)
+			self.assertAlmostEqual(totals["kronen_a"]
+				["bilanzdifferenz_m2"], 0, places=5)
+		# Ein abweichendes GIP-GeoJSON darf die Fehlerfläche
+		# gerade nicht durch unbemerkte Neuaufteilung kaschieren.
+		(self.gip / "abschnitte_knoten.geojson").write_text('{"changed":true}')
+		with self.assertRaisesRegex(ValueError, "Quellhash"):
+			read_partition_metric(self.v0, self.street,
+				street_sha256=self.masksha, gip=self.gip)
+
+	def test_metric_v0_rebuild_rejects_changed_area_metadata(self):
+		self._mock_metric_sources()
+		sections = json.loads((self.v0/"abschnitte_flaechen.geojson")
+			.read_text(encoding="utf-8"))
+		sections["features"][0]["properties"]["flaeche_m2"] += 5
+		(self.v0/"abschnitte_flaechen.geojson").write_text(
+			json.dumps(sections), encoding="utf-8")
+		with patch("scripts.analyze_gip_topology.read_geojson",
+			return_value=[]), patch("scripts.analyze_gip_topology.audit",
+			return_value={"status": "topologie_konsistent"}
+		), patch("scripts.assign_gip_section_areas.prepare_graph",
+			return_value=([], [])
+		), patch("scripts.assign_gip_section_areas.partition",
+			return_value=([
+				({"id": "1001", "name": "A-Gasse"}, self.left),
+				({"id": "1002", "name": "B-Gasse"}, self.right),
+			], [("knotenbereich", self.unresolved)], {
+				"strassenraum_m2": self.street.area,
+				"zugeordnet_m2": self.left.area+self.right.area,
+				"ungeklaert_m2": self.unresolved.area,
+				"gesamt_m2": self.street.area,
+				"anzahl_zugeordnete_abschnitte": 2,
+				"ueberlappung_m2": 0, "fehlend_m2": 0,
+				"ausserhalb_m2": 0,
+			})):
+			with self.assertRaisesRegex(ValueError, "Fläche laut Export"):
+				read_partition_metric(self.v0, self.street,
+					street_sha256=self.masksha, gip=self.gip)
+
 	def test_full_offline_workflow_generates_geojson_csv_json_and_no_overwrite(self):
 		source = [
 			(1, 58, "Grün", self.greening),
@@ -224,12 +333,13 @@ class SectionMetricsTests(unittest.TestCase):
 			report = run(sections=self.v0, fmzk=self.gpkg,
 				street=self.mask, canopy_a=self.crownpaths[0],
 				canopy_b=self.crownpaths[1], canopy_c=self.crownpaths[2],
-				output=output)
+				output=output, partition_source="geojson")
 			with self.assertRaises(FileExistsError):
 				run(sections=self.v0, fmzk=self.gpkg,
 					street=self.mask, canopy_a=self.crownpaths[0],
 					canopy_b=self.crownpaths[1],
-					canopy_c=self.crownpaths[2], output=output)
+					canopy_c=self.crownpaths[2], output=output,
+					partition_source="geojson")
 		self.assertEqual(len(report["abschnitte"]), 2)
 		self.assertEqual(len(report["ungeklaerte_flaechen"]), 1)
 		self.assertEqual(report["v0_parameter"]["knotenradius_m"], 7)
