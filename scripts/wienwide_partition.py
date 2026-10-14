@@ -80,6 +80,13 @@ def graph_context(db, bounds, *, halo=75):
 	return sites,axes,nodes
 
 
+def _empty_tile_stats():
+	return {"strassenraum_m2":0., "zugeordnet_m2":0.,
+		"ungeklaert_m2":0.,"fehlend_m2":0.,"overlap_m2":0.,
+		"ausserhalb_m2":0.,"toleranz_m2":.05,
+		"sites":0,"knoten":0}
+
+
 def split_tile(street, core, sites, axes, nodes,
 	*, radius=7, max_distance=25):
 	"""Identische Semantik zu V0, Voronoi-Sites aus globalem Index.
@@ -90,11 +97,11 @@ def split_tile(street, core, sites, axes, nodes,
 	if (not street.is_valid or not core.is_valid
 		or not core.intersects(street)):
 		if street.is_empty or not street.intersects(core):
-			return {},{},{"strassenraum_m2":0., "fehlend_m2":0.,"overlap_m2":0.}
+			return {},{},_empty_tile_stats()
 		raise ValueError("Straßenmaske oder Kachel ungültig")
 	mask=_polygon(street.intersection(core),"Straßenraum innerhalb Kachel")
 	if mask is None:
-		return {},{},{"strassenraum_m2":0., "fehlend_m2":0.,"overlap_m2":0.}
+		return {},{},_empty_tile_stats()
 	junction=_polygon(union_all([node.buffer(radius,resolution=12)
 		for node in nodes]).intersection(mask) if nodes else None,
 		"Knotenbereich")
