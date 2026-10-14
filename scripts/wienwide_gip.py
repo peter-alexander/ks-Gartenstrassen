@@ -23,6 +23,7 @@ from scripts.assign_gip_section_areas import prepare_graph
 from scripts.fetch_gip_sections import (
 	LAYERS, build_wfs_url, validate_layer, _download,
 )
+from scripts.geojson_crs import require_geojson_lonlat
 from scripts.wienwide_grid import read_manifest, checksum
 
 TO_MERCATOR = Transformer.from_crs("EPSG:31256", "EPSG:3857",
@@ -46,6 +47,41 @@ def _read_features(path):
 	if doc.get("type") != "FeatureCollection" or not isinstance(doc.get("features"), list):
 		raise ValueError(f"GIP-Cache keine GeoJSON FeatureCollection: {path}")
 	return doc["features"]
+
+
+def validated_wfs(raw, kind, bounds, *, max_features):
+	"""Leere WFS-Antwort als echte Nullmenge, nicht als Transportfehler.
+
+	Die Testgebietsfunktion verlangt absichtlich >0 Features;
+	hier sind leere, korrekt deklarierte Kacheln (z.B. Gewässer)
+	im landesweiten Lauf zulässig. Unbekanntes CRS oder eine
+	vom Server gemeldete höhere Anzahl bleibt ein Fehler.
+	"""
+	try:
+		return validate_layer(raw,kind,bounds,max_features=max_features)
+	except ValueError as exc:
+		if "keine GIP-Features" not in str(exc):
+			raise
+		try:
+			doc=json.loads(raw.decode("utf-8-sig"))
+		except (UnicodeError,json.JSONDecodeError) as cause:
+			raise ValueError("Leere WFS-Antwort ist kein GeoJSON") from cause
+		if doc.get("type")!="FeatureCollection" or doc.get("features")!=[]:
+			raise
+		require_geojson_lonlat(doc,label=f"GIP {kind}")
+		for key in ("totalFeatures","numberMatched"):
+			value=doc.get(key)
+			if value is not None and value!="unknown":
+				try:
+					count=int(value)
+				except (ValueError,TypeError) as cause:
+					raise ValueError(f"Ungültige Anzahl {key}") from cause
+				if count!=0:
+					raise ValueError(f"WFS meldet {key}={count} trotz leerer Kachel")
+		return doc,{"type":"FeatureCollection","features":[]},{
+			"anzahl":0,"doppelte_gip_ids":{},
+			"quelle_sha256":__import__("hashlib").sha256(raw).hexdigest(),
+			"status":"verifizierte_leere_wfs_kachel"}
 
 
 def fetch_all(manifest_path, root, *, max_features=4000,
@@ -86,7 +122,7 @@ def fetch_all(manifest_path, root, *, max_features=4000,
 		summary = {}
 		for kind in LAYERS:
 			raw = fetch(urls[kind])
-			_, view, stats = validate_layer(raw, kind, bounds,
+			_, view, stats = validated_wfs(raw, kind, bounds,
 				max_features=max_features)
 			views[kind] = view
 			summary[kind] = stats
@@ -255,6 +291,9 @@ def build_index(manifest_path, root, output):
 					db.execute("INSERT INTO site_spatial VALUES (?,?,?,?,?)",
 						(cur.lastrowid,point.x,point.x,point.y,point.y))
 					site_count+=1
+			if site_count==0:
+				raise ValueError("GIP-AOI liefert keine einzige Voronoi-Stützstelle; "
+					"Quellen und Bezugsgebiet prüfen")
 			stats={
 				"schema_version":SCHEMA,"manifest_sha256":checksum(manifest_path),
 				"tile_count":len(manifest["tiles"]),"fragment_hashes":digests,
