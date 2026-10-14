@@ -41,6 +41,9 @@ BOUNDARY_MODES = ("hauswand", "gehsteigkante")
 # 26 Verkehrsfläche auf Privatgrund, 27/28 Gleiskörper usw.
 # Die Maske ist eine Fahrbahn-/Parkraum-Näherung, KEINE echte Bordsteinkante.
 VERKEHRSFLAECHEN_CODES = frozenset((21, 30, 32, 33, 39))
+# Gebäudekanten nur als Hilfsdiagnose: Klasse 11 Gebäude und
+# 19 Nebengebäude; keine Überbauungen über Fahrbahnen.
+GEBAEUDE_CODES = frozenset((11, 19))
 VERKEHRSFLAECHEN_LABELS = {
 	21: "Fahrbahn inkl. Radwege",
 	30: "Zebrastreifen",
@@ -73,6 +76,24 @@ def verkehrsflaechen_mask(fmzk_features, street):
 
 # Abwärtskompatible Funktionsbezeichnung für bestehende Modul-5-Tests.
 fahrbahn_mask = verkehrsflaechen_mask
+
+
+def gebaeudekonturen(fmzk_features, street):
+	"""Bauliche FMZK-Konturen im Umfeld, keine Straßenraum-Ausdehnung."""
+	region = street.envelope.buffer(20)
+	parts = [geom.intersection(region) for _fid, code, _label, geom
+		in fmzk_features if code in GEBAEUDE_CODES and geom.intersects(region)]
+	parts = [g for g in parts if not g.is_empty and g.area > 0]
+	if not parts:
+		return None
+	merged = union_all(parts)
+	if not merged.is_valid:
+		raise ValueError("FMZK-Gebäudekonturen 11/19 nicht valide")
+	return merged
+
+
+def gebaeudeabstand(point, building):
+	return None if building is None else round(point.distance(building.boundary), 3)
 
 
 def verkehrsflaechen_statistik(fmzk_features, street):
@@ -204,11 +225,13 @@ def _profile(street, oriented, distance, *, cross_half_m=CROSS_HALF_M):
 		"separate_intervals": len(segments)-1}, None
 
 
-def _side_transition(profiles, side, *, step_m=STEP_M):
-	"""Robuster, explizit konservativer Übergang: deutliche Aufweitung
-	nahe dem Knoten, danach mindestens drei stabile Querprofile.
-	Kein reiner Vertex- oder Maximalwinkel-Trick.
+def _side_transition(profiles, side, *, step_m=STEP_M, position="innen"):
+	"""Innen: Kreuzungsnahe Schulter der Aufweitung statt äußeres Plateau.
+
+	Aussen ist die alte V1-Heuristik und bleibt zur Diagnose erhalten.
 	"""
+	if position not in ("innen", "aussen"):
+		raise ValueError("Unbekannte Übergangsposition")
 	valid = [p for p in profiles if p is not None]
 	if len(valid) < 9:
 		return None, "zu_wenige_profile"
@@ -235,25 +258,52 @@ def _side_transition(profiles, side, *, step_m=STEP_M):
 	# auftreten. Breitenänderungen ganz am Datenrand ignorieren.
 	if valid[widened[0]]["s_m"] >= far_start:
 		return None, "aufweitung_ausserhalb_suchbereich"
-	# Erste 3er-Folge unauffälliger Profile nach der letzten Aufweitung.
+	# Erst die bekannte stabile äußere Zone bestimmen, damit
+	# lokale Aufweitungen weit außerhalb der Kreuzung nicht gewinnen.
 	last_widened = max(widened)
 	tolerance = max(.65, .07*width_base)
+	outer = None
 	for i in range(last_widened+1, len(valid)-2):
 		if all(not valid[j][f"clipped_{side}"]
 			and abs(valid[j][f"{side}_m"]-base) <= tolerance
 			for j in range(i, i+3)):
-			return valid[i], None
-	return None, "uebergang_ohne_stabile_folge"
+			outer = valid[i]
+			break
+	if outer is None:
+		return None, "uebergang_ohne_stabile_folge"
+	if position == "aussen":
+		return outer, None
+	# Die innere Schulter wird aus der ersten messbaren abfallenden
+	# Hälfte der Aufweitung bestimmt, statt aus dem äußeren Ende.
+	# Die 45-m-Caps sind keine echten Eckpunkte.
+	band = [(i, p, p[f"{side}_m"]-base)
+		for i, p in enumerate(valid) if p["s_m"] < outer["s_m"]
+		and not p[f"clipped_{side}"]
+		and p[f"{side}_m"]-base > deviation_limit]
+	if len(band) < 2:
+		return None, "innerer_uebergang_nicht_messbar"
+	peak_i, _, peak = max(band, key=lambda row: row[2])
+	candidates = [p for i, p, excess in band if i >= peak_i
+		and excess <= peak*.65 and excess >= deviation_limit
+		and not p["clipped_left"] and not p["clipped_right"]]
+	if not candidates:
+		candidates = [p for _i, p, _excess in band
+			if not p["clipped_left"] and not p["clipped_right"]]
+	if not candidates:
+		return None, "innerer_uebergang_abgeschnitten"
+	return min(candidates, key=lambda p: p["s_m"]), None
 
 
 def analyze(street, axis_features, node_features, *, node_ids=None,
 	max_junctions=MAX_JUNCTIONS, step_m=STEP_M,
 	max_search_m=MAX_SEARCH_M, cross_half_m=CROSS_HALF_M,
-	boundary_mode="hauswand"):
+	boundary_mode="hauswand", support_mask=None, building_mask=None):
 	"""Datenunabhängig testbarer Diagnosekern; sämtliche Inputs EPSG:4326
 	außer street, welches bereits metrisch EPSG:31256 vorliegt.
 	"""
 	_metric_street(street)
+	if support_mask is not None:
+		_metric_street(support_mask)
 	if boundary_mode not in BOUNDARY_MODES:
 		raise ValueError("Unbekannter Grenzmodus")
 	if not (.25 <= step_m <= 2 and 8 <= max_search_m <= 45
@@ -313,6 +363,7 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 				arm["status"] = "arm_zu_kurz"
 				continue
 			profiles = []
+			support_profiles = []
 			errors = Counter()
 			distance = max(1., step_m)
 			while distance <= max_s+1e-7:
@@ -335,28 +386,63 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 								if p["clipped_left"] or p["clipped_right"]
 								else "messung")}))
 				profiles.append(p)
+				if support_mask is not None and support_mask is not street:
+					aux, _ = _profile(support_mask, line, distance,
+						cross_half_m=cross_half_m)
+					support_profiles.append(aux)
 				distance += step_m
 			arm["profile_count"] = len(profiles)
 			arm["valid_profile_count"] = sum(p is not None for p in profiles)
 			arm["profile_errors"] = dict(errors)
-			left, left_error = _side_transition(profiles, "left",
-				step_m=step_m)
-			right, right_error = _side_transition(profiles, "right",
-				step_m=step_m)
-			arm["left_status"] = left_error or "kandidat"
-			arm["right_status"] = right_error or "kandidat"
+			outer_by_side = {}
+			source_by_side = {}
+			def select_side(side):
+				outer, _ = _side_transition(profiles, side,
+					step_m=step_m, position="aussen")
+				outer_by_side[side] = outer
+				inner, error = _side_transition(profiles, side,
+					step_m=step_m, position="innen")
+				choices = [(inner, "aktive_grenze")] if inner else []
+				if support_profiles:
+					aux, _ = _side_transition(support_profiles, side,
+						step_m=step_m, position="innen")
+					if aux is not None:
+						# Der zweite Rand darf nur die *Station* vorschlagen.
+						# Für die Endpunkte immer das aktive Polygon benutzen.
+						match = min((p for p in profiles if p is not None
+							and not p["clipped_left"] and not p["clipped_right"]),
+							key=lambda p: abs(p["s_m"]-aux["s_m"]), default=None)
+						if match and abs(match["s_m"]-aux["s_m"]) <= step_m*1.01:
+							if outer is None or match["s_m"] <= outer["s_m"]:
+								choices.append((match, "verkehr_und_aussenrand"))
+				if not choices:
+					source_by_side[side] = "kein_nachweis"
+					return None, error or "keine_innenkante"
+				pick, source = min(choices, key=lambda row: row[0]["s_m"])
+				source_by_side[side] = source
+				return pick, None
+			left, left_error = select_side("left")
+			right, right_error = select_side("right")
+			arm["left_status"] = left_error or "innenkandidat"
+			arm["right_status"] = right_error or "innenkandidat"
+			arm["seitenquellen"] = source_by_side
+			arm["aussenstationen_m"] = {
+				side: round(p["s_m"], 3) if p else None
+				for side, p in outer_by_side.items()}
+			arm["innenstationen_m"] = {
+				"left": round(left["s_m"], 3) if left else None,
+				"right": round(right["s_m"], 3) if right else None}
 			# Bei dreiarmigen Kreuzungen liegt auf einer Seite oft eine
 			# unveränderte Gerade ohne Aufweitung. Im Zweifelsfall:
 			# Schnitt senkrecht zur lokalen GIP-Achse bei der gefundenen
 			# Übergangsstation; zweiter Endpunkt = gegenüberliegender
-			# Straßenrand derselben Querschnittsmessung. Auch wenn zwei
-			# Übergänge erkannt wurden, die *äußere* Station wählen,
-			# damit die Linie hinter beiden Eckrundungen liegt.
+			# Straßenrand derselben Querschnittsmessung. Hier die
+			# *innere* statt der früheren äußeren Station wählen.
 			orthogonal = len(incident[node_id]) == 3 and (
 				left is not None or right is not None)
 			selected_profile = None
 			if orthogonal:
-				selected_profile = max((p for p in (left, right)
+				selected_profile = min((p for p in (left, right)
 					if p is not None), key=lambda p: p["s_m"])
 				if selected_profile["clipped_left"] or selected_profile["clipped_right"]:
 					arm["status"] = "querschnitt_am_suchlimit"
@@ -389,7 +475,9 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 						"seite": side,
 						"s_m": round(selected_profile["s_m"] if orthogonal
 							else p["s_m"], 3),
-						"methode": cut_method, "status": status}))
+						"methode": cut_method, "status": status,
+						"position": "innen",
+						"abstand_gebaeudekontur_m": gebaeudeabstand(pos, building_mask)}))
 			intersection = cut.intersection(line)
 			outside = cut.difference(street).length
 			# Ein Punkt im Achskorridor und keine Durchdringung von
@@ -399,6 +487,7 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 				and outside <= .03)
 			arm["schnittlinie_m"] = round(cut.length, 3)
 			arm["schnittmethode"] = cut_method
+			arm["schnitt_position"] = "innen"
 			arm["ausserhalb_strassenraum_m"] = round(outside, 3)
 			arm["status"] = ("kandidat_pruefen" if accepted
 				else "schnittlinie_geometrisch_abgelehnt")
@@ -412,6 +501,9 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 						else right["s_m"], 3),
 					"methode": cut_method,
 					"grenzmodus": boundary_mode,
+					"position": "innen",
+					"quelle_links": source_by_side["left"],
+					"quelle_rechts": source_by_side["right"],
 					"out_of_mask_m": round(outside, 3)}))
 		records.append(node_record)
 	armstatuses = Counter(a["status"] for n in records for a in n["arme"])
@@ -420,7 +512,9 @@ def analyze(street, axis_features, node_features, *, node_ids=None,
 		"parameter": {"step_m": step_m, "max_search_m": max_search_m,
 			"cross_half_m": cross_half_m,
 			"selected_junctions": len(selected),
-			"boundary_mode": boundary_mode},
+			"boundary_mode": boundary_mode,
+			"transition_position": "innen",
+			"support_mask_aktiv": support_mask is not None},
 		"knoten": records, "arm_status_counts": dict(armstatuses),
 		"geojson_feature_counts": {k: len(v) for k, v in geo.items()},
 		"hinweis": "Punkte und Linien sind ungeprüfte Kandidaten. "
@@ -455,8 +549,12 @@ def run(street_path=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 		raise ValueError("Unbekannter Grenzmodus")
 	fmzk_features, manifest, clip, _ = load_polygons(fmzk)
 	street, meta = load_street_mask(street_path, clip)
-	profile_mask = (street if boundary_mode == "hauswand"
-		else verkehrsflaechen_mask(fmzk_features, street))
+	traffic_mask = verkehrsflaechen_mask(fmzk_features, street)
+	building_mask = gebaeudekonturen(fmzk_features, street)
+	profile_mask = street if boundary_mode == "hauswand" else traffic_mask
+	# Beide Grenzvarianten verwenden die Verkehrsfläche UND den äußeren
+	# Straßenraum zur Positionsdiagnose; Gebäudekanten als Kontrollmaß.
+	support_mask = traffic_mask if boundary_mode == "hauswand" else street
 	gip = Path(gip)
 	probe = json.loads((gip/"gip_probe_bericht.json").read_text(encoding="utf-8"))
 	if probe.get("fmzk_bbox_lon_lat") != manifest.get("bbox_lon_lat"):
@@ -471,7 +569,12 @@ def run(street_path=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 	geo, report = analyze(profile_mask, axes, nodes, node_ids=node_ids,
 		max_junctions=max_junctions, step_m=step_m,
 		max_search_m=max_search_m, cross_half_m=cross_half_m,
-		boundary_mode=boundary_mode)
+		boundary_mode=boundary_mode, support_mask=support_mask,
+		building_mask=building_mask)
+	report["gebaeudekonturen"] = {
+		"fmzk_klassen": sorted(GEBAEUDE_CODES),
+		"flaeche_m2": building_mask.area if building_mask else 0.0,
+		"status": "Kontrollgeometrie; nicht als automatische Schnittgrenze"}
 	report["grenzreferenz"] = (
 		"Modul-2-Straßenraumaußenrand (Gebäude-/Grundstücksgrenze)"
 		if boundary_mode == "hauswand" else
@@ -479,9 +582,10 @@ def run(street_path=DEFAULT_STREET, fmzk=DEFAULT_FMZK,
 		"(Fahrbahn, Zebrastreifen, Schwellen, Parkspuren, Sonstiges) "
 		"als Gehsteigkanten-Näherung; keine amtlich vermessene Bordsteinkante")
 	report["profilmaske_m2"] = profile_mask.area
-	if boundary_mode == "gehsteigkante":
-		report["verkehrsflaechen"] = verkehrsflaechen_statistik(
-			fmzk_features, street)
+	# Identische Klassenkombination in beiden Varianten dokumentieren.
+	report["verkehrsflaechen"] = verkehrsflaechen_statistik(
+		fmzk_features, street)
+	report["verkehrsflaechen"]["vereinigte_flaeche_m2"] = traffic_mask.area
 	report["created_utc"] = datetime.now(timezone.utc).isoformat()
 	report["quellen"] = {
 		"strassenraum": str(street_path),
