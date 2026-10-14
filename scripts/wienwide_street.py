@@ -19,9 +19,8 @@ from shapely import union_all
 from shapely.geometry import box, Polygon
 from shapely.wkb import dumps,loads
 
-from scripts.export_fmzk_strassenraum import (
-	classify_fmzk, read_kataster_masks,
-)
+from scripts.export_fmzk_strassenraum import classify_fmzk
+from scripts.wienwide_kataster import read_native_kataster_masks
 from scripts.fmzk_source import load_polygons
 from scripts.wienwide_grid import read_manifest, checksum
 
@@ -77,7 +76,8 @@ def save_street_tile(path, street, metadata, *, allow_empty=False):
 	return path
 
 
-def build_tile(tile, aoi, *, root, out, halo, report=None):
+def build_tile(tile, aoi, *, root, out, halo, cache_dir=Path("data/cache/kataster"),
+	report=None):
 	"""Nur vorhandene lokale, geprüfte FMZK- und Kataster-Dateien lesen."""
 	root,out=Path(root),Path(out)
 	fmzk=root/tile["id"]/"fmzk.gpkg"
@@ -93,7 +93,11 @@ def build_tile(tile, aoi, *, root, out, halo, report=None):
 	if not clip.covers(core.buffer(min(halo,20))):
 		raise ValueError(f"{tile['id']}: FMZK-Halo unvollständig; "
 			"größeren Ausschnitt extrahieren")
-	street,other,mask_stats=read_kataster_masks(kataster,clip,manifest)
+	# Nur hier, wienweit: direkt die ursprünglichen BEV-z16-Kacheln
+	# metrisch aus dem verifizierten Offline-Cache lesen.
+	# Keine WGS84-GeoJSON-Rückprojektion bei dünnen nfl-Polygonen.
+	street,other,mask_stats=read_native_kataster_masks(
+		kataster,clip,features,manifest,cache_dir)
 	classified=classify_fmzk(features,street,other,minimum_share=.95)
 	selected=[geom for target,_props,geom in classified
 		if target=="strassenraum" and geom.intersects(core)]
@@ -157,7 +161,8 @@ def prefetch_tile(tile, *, manifest, aoi, root, source, cache, offline=False,
 	return {"tile":tile["id"],"fmzk":str(fmzk),"kataster":str(kataster)}
 
 
-def run(manifest_path, input_root, output_root, *, only=None):
+def run(manifest_path, input_root, output_root, *, only=None,
+	cache_dir=Path("data/cache/kataster")):
 	manifest,aoi=read_manifest(manifest_path)
 	report=[]
 	selected=[t for t in manifest["tiles"] if only is None or t["id"]==only]
@@ -166,7 +171,7 @@ def run(manifest_path, input_root, output_root, *, only=None):
 	for i,tile in enumerate(selected,1):
 		start=perf_counter()
 		stats=build_tile(tile,aoi,root=input_root,out=output_root,
-			halo=manifest["halo_m"],report=report)
+			halo=manifest["halo_m"],cache_dir=cache_dir,report=report)
 		print(f"Straßenraum {i}/{len(selected)} {tile['id']}: "
 			f"{stats['strassenraum_m2']:.1f} m², "
 			f"{perf_counter()-start:.2f}s")
@@ -190,10 +195,13 @@ def main():
 			q.add_argument("--max-parcels",type=int,default=600)
 		else:
 			q.add_argument("--out-root",type=Path,required=True)
+			q.add_argument("--kataster-cache",type=Path,
+				default=Path("data/cache/kataster"))
 	args=p.parse_args()
 	try:
 		if args.action=="build":
-			result=run(args.manifest,args.input_root,args.out_root,only=args.only)
+			result=run(args.manifest,args.input_root,args.out_root,
+				only=args.only,cache_dir=args.kataster_cache)
 		else:
 			manifest,aoi=read_manifest(args.manifest)
 			selected=[tile for tile in manifest["tiles"]
