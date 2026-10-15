@@ -55,6 +55,55 @@ class KatasterUsageTests(unittest.TestCase):
 				with self.assertRaisesRegex(RuntimeError, "BEV-Stufe"):
 					kat.run(fmzk, Path(tmp) / "kataster", Path(tmp) / "cache")
 
+	def test_wien_parcel_guard_checks_1587_before_optional_api_details(self):
+		# Der Wien-Gesamtlauf übergibt 2500 als explizites Maximum;
+		# der normale Kataster-Standard bleibt 250.
+		source = Path("synthetic_wien_fmzk.gpkg")
+		core = box(0, 0, 10, 10)
+		features = [(1, 25, "Gehweg, Radweg", core)]
+		manifest = {"bbox_lon_lat": [16.3, 48.2, 16.31, 48.21],
+			"feature_count": 1}
+		clip = box(-5, -5, 15, 15)
+		shared_parcel = box(0, 0, 1, 1)
+		entries = {("01001", str(i)): shared_parcel
+			for i in range(1587)}
+		with patch.object(kat, "load_polygons",
+			return_value=(features, manifest, clip, [])), patch.object(
+			kat, "read_tiles", return_value=(entries, [], [])), patch.object(
+			kat, "load_parcel_details",
+			side_effect=RuntimeError("Limit akzeptiert; Detailsphase erreicht")) as details:
+			with self.assertRaisesRegex(RuntimeError, "Detailsphase erreicht"):
+				kat.run(source, max_parcels=2500)
+			details.assert_called_once()
+			details.reset_mock()
+			with self.assertRaisesRegex(ValueError,
+				"1587 getroffene Grundstücke, maximal 1500"):
+				kat.run(source, max_parcels=1500)
+			details.assert_not_called()
+
+	def test_wien_parcel_guard_still_rejects_above_2500(self):
+		source = Path("synthetic_wien_fmzk.gpkg")
+		core = box(0, 0, 10, 10)
+		entries = {("01001", str(i)): box(0, 0, 1, 1)
+			for i in range(2501)}
+		with patch.object(kat, "load_polygons", return_value=(
+			[(1,21,"Fahrbahn",core)],
+			{"bbox_lon_lat": [16.3,48.2,16.31,48.21],
+				"feature_count":1}, box(-5,-5,15,15), [])), patch.object(
+			kat, "read_tiles", return_value=(entries,[],[])), patch.object(
+			kat, "load_parcel_details",
+			side_effect=AssertionError("Darf keine Detailphase aufrufen")) as details:
+			with self.assertRaisesRegex(ValueError,
+				"2501 getroffene Grundstücke, maximal 2500"):
+				kat.run(source, max_parcels=2500)
+			details.assert_not_called()
+
+	def test_wien_pipeline_sets_cadastral_guard_explicitly(self):
+		script = (Path(__file__).resolve().parents[1] /
+			"scripts/run-wien-gartenstrassen.sh").read_text(encoding="utf-8")
+		self.assertIn("--max-parcels 2500", script)
+		self.assertNotIn("--max-parcels 1500", script)
+
 	def test_cadastral_ids_and_endpoint_match_kartensammlung(self):
 		self.assertEqual(kat.cadastral_key({"kgez": "01004", "gnr": "123/4"}), ("01004", "123/4"))
 		self.assertEqual(kat.cadastral_key({"kg": 1004, "gnr": ".17"}), ("01004", ".17"))
