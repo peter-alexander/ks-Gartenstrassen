@@ -1,6 +1,6 @@
 # Methodik und Arbeitsstand: FMZK-Straßenraumabgrenzung
 
-**Stand:** 13. Oktober 2026 · **Status:** funktionierender, visuell plausibler **Zwischenstand**; **keine endgültige, flächendeckend validierte Lösung**.
+**Stand der ursprünglichen Pilotmessung:** 13. Oktober 2026 · **Regeländerung:** 15. Oktober 2026 (Klasse 25 ergänzt) · **Status:** funktionierender, visuell plausibler **Zwischenstand**; **keine endgültige, flächendeckend validierte Lösung**.
 
 > **Entscheidung:** Die vorläufige Abgrenzung wird als Arbeitsgrundlage für den nächsten Analyseschritt verwendet. Weitere Präzisierungen bleiben ausdrücklich möglich. Eine gute Darstellung im Testgebiet ersetzt keine systematische Qualitätsprüfung für ganz Wien.
 
@@ -38,8 +38,11 @@ Als klar identifizierbarer **Straßenraum-Kern** gelten momentan:
 | 21 | Fahrbahn |
 | 23 | Gehsteig |
 | 24 | Fußgängerzone |
+| 25 | Gehweg, Radweg – neu seit 15.10.2026; als befestigte/versiegelte Verkehrsfläche behandelt |
 | 33 | Ruhender Verkehr |
 | 39 | Sonstige Verkehrsfläche |
+
+**Wichtig:** Klasse 25 ist keine private Kontextfläche. Die tatsächlich physische Versiegelung lässt sich allein aus der FMZK-Klassenbezeichnung nicht auf Teilflächenebene beweisen; für die vorläufige Klassifikation wird der Weg als Straßenfläche geführt.
 
 Die Klassen **58/69** (Grün) und **59** (andere befestigte Flächen) sind **nicht allein aufgrund ihrer FMZK-Klasse** dem Straßenraum zugeordnet. Die bereits untersuchten Kontakte zum Kern – Nähe, Nachbarschaft, mehrseitige Einbettung – bleiben wertvolle **Prüfindizien**, begründen derzeit aber keine positive automatische Zuordnung.
 
@@ -73,7 +76,7 @@ Der aktuelle Export `scripts/export_fmzk_strassenraum.py` hält die **originale 
 
 Die aktuell implementierten Regeln, in dieser Reihenfolge:
 
-1. **Kernklassen 21/23/24/33/39 → `strassenraum`**, unabhängig von einem möglichen Katasterkonflikt. Bei deutlicher Abweichung wird `pruefhinweis=kern_abweichung_zum_kataster` gesetzt (weniger als 90 % Straßenmasken-Deckung oder mehr als 10 % andere Nutzungen).
+1. **Kernklassen 21/23/24/25/33/39 → `strassenraum`**, unabhängig von einem möglichen Katasterkonflikt. Bei deutlicher Abweichung wird `pruefhinweis=kern_abweichung_zum_kataster` gesetzt (weniger als 90 % Straßenmasken-Deckung oder mehr als 10 % andere Nutzungen).
 2. **Alle weiteren FMZK-Klassen → `strassenraum`**, wenn das gesamte FMZK-Polygon zu **mindestens 95 %** auf der vereinigten `nfl`-Straßenmaske **95/65** liegt **und höchstens 5 %** von anderen `nfl`-Nutzungen getroffen werden. Zuweisungsgrund: `nfl_95_65_hohe_deckung`.
 3. **Alle übrigen FMZK-Polygone → `uebrige`**. Mit `teilweise_strassenlage_pruefen`, wenn es einen noch so kleinen Schnitt mit 95/65 gibt; alternativ Hinweis auf fehlende Katasterabdeckung oder `keine_strassenlage_nachgewiesen`.
 
@@ -95,7 +98,9 @@ Die Attribute enthalten `fid`, `f_klasse`, `f_klasse_text`, `zuordnung`, `grund`
 
 **Soll-Invariante:** Beide GeoJSONs zusammen enthalten **jedes Objekt des ursprünglichen Test-GeoPackages einmal**, ohne wegen der Zuordnung Geometriefragmente hinzuzufügen oder auszuscheiden. Diese Invariante wird im Export bzw. in Tests geprüft; der genaue lokale Real-Daten-Export kann zusätzlich über den Bericht kontrolliert werden.
 
-## Ergebnisse der ersten Katasterprüfung (Testgebiet, 13.10.2026)
+## Ergebnisse der ersten Katasterprüfung (Testgebiet, 13.10.2026; alte Kernklassen)
+
+**Historischer Datensatz:** Die folgenden Kataster- und Flächensummen wurden noch ohne die am 15.10.2026 ergänzte FMZK-Kernklasse 25 berechnet. Eine neue Auswertung muss die Kataster-Grundstücksauswahl, die Straßenraummaske, die GIP-Zuordnung und die Abschnittskennzahlen erneut erzeugen. Alte Kataster- und Straßenraum-Kachelberichte ohne neue Regelversion gelten für den neuen Wien-Lauf nicht als gültiger Cache.
 
 **Gesichert aus `kataster_grundstuecke.csv` und `kataster_bericht.json`:**
 
@@ -165,7 +170,7 @@ Die Implementierung ist über vier Kernskripte nachvollziehbar: `scripts/extract
 
 ## Entscheidung für die nächste Projektphase
 
-**Vorläufig eingefrorene Basis:** Die bestehende FMZK-Kataster-Aufteilung bleibt zunächst **unverändert**. Ein neuer Arbeitsabschnitt darf ihre `fmzk_strassenraum.geojson` als **vorläufige Bezugsfläche** nutzen, muss den Unsicherheitsstatus weiterhin mitführen und sollte aus `fmzk_uebrige_flaechen.geojson` offen gebliebene Kandidaten nicht als gesicherte Nicht-Straßenraumflächen interpretieren.
+**Aktualisierte Basis (15.10.2026):** Die vorläufige FMZK-Kataster-Aufteilung bleibt abgesehen von der expliziten Aufnahme der Geh-/Radwege (`F_KLASSE=25`) in den Straßenraumkern unverändert. Ein neuer Arbeitsabschnitt darf ihre `fmzk_strassenraum.geojson` als **vorläufige Bezugsfläche** nutzen, muss den Unsicherheitsstatus weiterhin mitführen und sollte aus `fmzk_uebrige_flaechen.geojson` offen gebliebene Kandidaten nicht als gesicherte Nicht-Straßenraumflächen interpretieren.
 
 **Sinnvoller nächster fachlicher Schritt:** Die *Bodenbegrünung* innerhalb der vorläufig identifizierten Straßenraum-FMZK-Objekte **als eigenständige, reproduzierbare Kennzahl** bestimmen (zunächst für den Testausschnitt), **noch ohne Kronenüberschirmung** und noch ohne Anspruch auf eine endgültige Gartenstraßenklassifikation. Danach die räumliche Zuordnung zu einzelnen Straßenabschnitten vorbereiten. Begrünte Flächen und Baumkronen dürfen in späteren Kennzahlen nicht unbemerkt doppelt gezählt werden.
 
