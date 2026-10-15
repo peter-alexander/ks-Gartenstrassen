@@ -4,6 +4,7 @@ Die Quelle ist das bereits extrahierte lokale GeoPackage (EPSG:31256).
 Die Funktionen enthalten keine Logik zur Straßenraum-Klassifikation.
 """
 import json
+import math
 from pathlib import Path
 import sqlite3
 from urllib.parse import quote
@@ -19,62 +20,92 @@ from scripts.extract_fmzk import gpkg_info, parse_bbox, projected_clip
 FMZK_GROUND_GREEN_CODES = frozenset((58, 69))
 NO_AREA_EVENT = "ausgeschlossen_ohne_flaeche"
 REPAIRED_EVENT = "geometrie_repariert"
+COLLECTION_EVENT = "polygonanteile_aus_geometrycollection"
 
 
 def _polygon_for_analysis(geometry, fid, code, events):
-	"""Erhalte alle echten Flächen; dokumentiere flächenlose Zuschnittreste.
+	"""Flächen aus FMZK-Zuschnitten vollständig und überprüfbar erhalten.
 
-	ogr2ogr -clipsrc kann ein berührendes FMZK-Objekt als gültige
-	LineString-/leere (Multi)Polygon-Geometrie exportieren. Ein
-	0-m²-Rest darf keine Straßenraumfläche erzeugen. Er bleibt
-	nachweisbar im unveränderten Quell-GPKG samt FID.
+	Beim OGR-BBOX-Zuschnitt können gültige GeometryCollections mit
+	Polygonen und flächenlosen Randlinien entstehen. Ausschließlich
+	Polygonbestandteile tragen zur FMZK-Fläche bei. Positive
+	Flächenverluste (z.B. überlappende Polygonbestandteile) stoppen.
+	Original-GPKG und Feature-ID bleiben unverändert.
 	"""
 	original_type = geometry.geom_type
+	reason = None
 	if not geometry.is_valid:
 		reason = explain_validity(geometry)
-		repaired = make_valid(geometry)
-		polygon = polygonal_part(repaired)
-		if polygon is None or polygon.is_empty or polygon.area <= 0:
-			if repaired.area > 0:
-				raise ValueError(f"Feature {fid}: Geometrie enthält positive "
-					f"Fläche, aber keine reparierbare Polygonfläche ({reason})")
-			events.append({
-				"id": fid, "f_klasse": int(code),
-				"status": NO_AREA_EVENT,
-				"geometry_type": original_type,
-				"area_m2": 0,
-				"reason": f"Nach make_valid ohne Polygonfläche: {reason}",
-			})
-			return None
-		if not polygon.is_valid:
-			raise ValueError(f"Feature {fid}: polygonale Geometrie "
-				f"nicht reparierbar ({reason})")
+		geometry = make_valid(geometry)
+		if not geometry.is_valid:
+			raise ValueError(f"Feature {fid}: Geometrie nach make_valid "
+				f"weiterhin ungültig ({reason})")
+
+	if geometry.geom_type == "GeometryCollection":
+		area_before = geometry.area
+		if not math.isfinite(area_before):
+			raise ValueError(f"Feature {fid}: GeometryCollection mit "
+				"nicht-endlicher Fläche")
+		polygon = polygonal_part(geometry)
+		if area_before > 0 and (polygon is None or polygon.is_empty
+			or not polygon.is_valid or polygon.area <= 0):
+			raise ValueError(f"Feature {fid}: GeometryCollection enthält "
+				"positive Fläche, aber keine gültige Polygongeometrie")
+		if polygon is not None and not polygon.is_empty:
+			area_after = polygon.area
+			if not math.isfinite(area_after):
+				raise ValueError(f"Feature {fid}: Polygonanteile mit "
+					"nicht-endlicher Fläche")
+			# Vorher: Summe der Polygonanteile in der Collection.
+			# Nachher: deren Vereinigung ohne Linien und Punkte.
+			# Überlappende Polygonanteile würden die Fläche verringern:
+			# kein stilles Zusammenführen solcher Quellkonflikte.
+			tolerance = max(1e-12, abs(area_before) * 1e-10)
+			if abs(area_before - area_after) > tolerance:
+				raise ValueError(f"Feature {fid}: GeometryCollection "
+					"Flächenbilanz abweichend "
+					f"({area_before:.12g} zu {area_after:.12g} m²); "
+					"Polygonanteile nicht automatisch vereinigen")
+			if not isinstance(polygon, (Polygon, MultiPolygon)):
+				raise ValueError(f"Feature {fid}: nach Extraktion "
+					f"unerwarteter Geometrietyp {polygon.geom_type}")
+			if polygon.area > 0:
+				events.append({
+					"id": fid, "f_klasse": int(code),
+					"status": COLLECTION_EVENT,
+					"geometry_type": original_type,
+					"bestandteile": [part.geom_type for part in geometry.geoms],
+					"flaeche_original_m2": area_before,
+					"flaeche_polygon_m2": area_after,
+					"reason": "Polygonanteile aus GeometryCollection "
+						"extrahiert; übrige Bestandteile ohne Flächenbeitrag",
+				})
+		geometry = polygon
+
+	if geometry is None or geometry.is_empty or geometry.area <= 0:
+		events.append({
+			"id": fid, "f_klasse": int(code),
+			"status": NO_AREA_EVENT,
+			"geometry_type": original_type, "area_m2": 0,
+			"reason": ("Nach make_valid ohne Polygonfläche: " + reason)
+				if reason else "Keine Polygonfläche im zugeschnittenen Ausschnitt",
+		})
+		return None
+
+	if not isinstance(geometry, (Polygon, MultiPolygon)):
+		raise ValueError(f"Feature {fid}: Nicht-Polygon mit positiver "
+			f"Fläche ({geometry.geom_type}); manuell prüfen")
+	if not geometry.is_valid or not math.isfinite(geometry.area):
+		raise ValueError(f"Feature {fid}: Polygongeometrie ungültig "
+			"oder Fläche nicht endlich")
+
+	if reason is not None:
 		events.append({
 			"id": fid, "f_klasse": int(code),
 			"status": REPAIRED_EVENT,
 			"geometry_type": original_type,
 			"reason": reason,
 		})
-		geometry = polygon
-	if not isinstance(geometry, (Polygon, MultiPolygon)):
-		if not geometry.is_empty and geometry.area > 0:
-			raise ValueError(f"Feature {fid}: Nicht-Polygon mit positiver "
-				f"Fläche ({geometry.geom_type}); manuell prüfen")
-		events.append({
-			"id": fid, "f_klasse": int(code),
-			"status": NO_AREA_EVENT, "geometry_type": original_type,
-			"area_m2": 0,
-			"reason": "Keine Polygongeometrie im zugeschnittenen Ausschnitt",
-		})
-		return None
-	if geometry.is_empty or geometry.area <= 0:
-		events.append({
-			"id": fid, "f_klasse": int(code),
-			"status": NO_AREA_EVENT, "geometry_type": original_type,
-			"area_m2": 0,
-			"reason": "Polygon ohne positive Fläche im Zuschnitt",
-		})
-		return None
 	return geometry
 
 
