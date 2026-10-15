@@ -4,7 +4,9 @@
 
 ## Gleichbleibende Methodik
 
-Die vorläufige Modul-2-Straßenraumabgrenzung verwendet weiterhin FMZK-Kern 21/23/24/33/39 und bei anderen Flächen die BEV-Kataster-nfl-Klassen 95/65 mit mindestens 95 % Deckung. Unklare Objekte werden konservativ nicht zugeordnet.
+**Ab 15.10.2026 gilt die neue Regelversion:** Der vorläufige FMZK-Straßenraumkern umfasst **21/23/24/25/33/39**; die Klasse **25 (`Gehweg, Radweg`)** wird als Straßenfläche und nicht als private Kontextfläche übernommen. Bei anderen FMZK-Klassen werden weiterhin die BEV-Kataster-nfl-Klassen 95/65 mit mindestens 95 % Deckung geprüft. Unklare Objekte werden konservativ nicht zugeordnet.
+
+Die unten dokumentierten Alsergrund-Messwerte stammen vom **14.10.2026 und somit vor der Aufnahme von Klasse 25**. Sie bleiben als historische Referenz erhalten und müssen für einen Vergleich mit der neuen Wien-Methode vollständig neu berechnet werden. Veraltete Kataster- und Straßenraum-Caches werden jetzt anhand der Regelversion abgewiesen; dafür einen neuen Berechnungs-/Eingabeordner verwenden. Die ursprünglichen FMZK-Dateien und unveränderten BEV-z16-Rohkacheln können wiederverwendet werden.
 
 GIP-V0 verwendet **5 m Abtastung, 7 m Knotenradius bei Grad >= 3, 25 m maximalen Achsabstand, FOW=3 für reguläre Abschnitte**. Kreuzungen und Sonderachsen bleiben getrennt. V1-Eckpunkt-Erkennung wird nicht weiterentwickelt.
 
