@@ -11,6 +11,50 @@ import scripts.analyze_kataster as kat
 
 
 class KatasterUsageTests(unittest.TestCase):
+	def test_wien_edge_tile_without_fmzk_core_skips_bev_and_writes_zero_report(self):
+		# 20 gültige FMZK-Polygone ohne Kernklasse 21/23/24/25/33/39.
+		# Ein leeres Kataster-Suchergebnis ist nicht gleich einem BEV-Fehler.
+		with tempfile.TemporaryDirectory() as tmp:
+			fmzk = Path(tmp) / "fmzk.gpkg"
+			fmzk.write_bytes(b"synthetic local FMZK source")
+			out = Path(tmp) / "kataster"
+			features = [(i, 69, "Grünfläche", box(i, 0, i+0.25, 1))
+				for i in range(20)]
+			manifest = {"feature_count": 20,
+				"bbox_lon_lat": [16.3, 48.2, 16.31, 48.21]}
+			with patch.object(kat, "load_polygons", return_value=(
+				features, manifest, box(0, 0, 25, 25), [])), patch.object(
+				kat, "read_tiles", side_effect=AssertionError(
+					"Kernfreie Kachel darf keine BEV-Daten abfragen")), patch.object(
+				kat, "load_parcel_details", side_effect=AssertionError(
+					"Kernfreie Kachel darf keine API-Details abfragen")):
+				report = kat.run(fmzk, out, Path(tmp) / "cache")
+			self.assertTrue(report["kein_fmzk_kern_im_ausschnitt"])
+			self.assertTrue(report["kataster_uebersprungen_ohne_kern"])
+			self.assertEqual(report["fmzk_quell_features"], 20)
+			self.assertEqual(report["grundstuecke"], 0)
+			self.assertEqual(report["tiles_abgerufen"], [])
+			self.assertEqual(report["fmzk_kern_klassen"], [21, 23, 24, 25, 33, 39])
+			self.assertEqual(report["fmzk_sha256"], kat.checksum(fmzk))
+			self.assertEqual(json.loads((out / "kataster_grundstuecke.geojson").read_text())[
+				"features"], [])
+			self.assertEqual(json.loads((out / "kataster_nfl_ausschnitt.geojson").read_text())[
+				"features"], [])
+			self.assertTrue((out / "kataster_bericht.json").exists())
+
+	def test_kern_class_25_must_not_take_empty_cadastral_path(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			fmzk = Path(tmp) / "fmzk.gpkg"
+			fmzk.write_bytes(b"synthetic fmzk")
+			with patch.object(kat, "load_polygons", return_value=(
+				[(1, 25, "Gehweg, Radweg", box(0, 0, 1, 1))],
+				{"feature_count": 1,
+				 "bbox_lon_lat": [16.3, 48.2, 16.31, 48.21]},
+				box(-5, -5, 10, 10), [])), patch.object(kat, "read_tiles",
+				side_effect=RuntimeError("BEV-Stufe wurde korrekt betreten")):
+				with self.assertRaisesRegex(RuntimeError, "BEV-Stufe"):
+					kat.run(fmzk, Path(tmp) / "kataster", Path(tmp) / "cache")
+
 	def test_cadastral_ids_and_endpoint_match_kartensammlung(self):
 		self.assertEqual(kat.cadastral_key({"kgez": "01004", "gnr": "123/4"}), ("01004", "123/4"))
 		self.assertEqual(kat.cadastral_key({"kg": 1004, "gnr": ".17"}), ("01004", ".17"))
