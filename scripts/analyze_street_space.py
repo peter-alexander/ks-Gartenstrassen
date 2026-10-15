@@ -19,7 +19,8 @@ from shapely.ops import transform
 
 from scripts.street_embedding import CORE_CLASSES, make_contact_surfaces, measure_embedding
 from scripts.fmzk_source import (
-	FMZK_GROUND_GREEN_CODES, NO_AREA_EVENT, REPAIRED_EVENT, load_polygons,
+	FMZK_GROUND_GREEN_CODES, NO_AREA_EVENT, REPAIRED_EVENT, COLLECTION_EVENT,
+	load_polygons,
 )
 
 DEFAULT_SOURCE = Path("data/processed/fmzk_test.gpkg")
@@ -201,6 +202,7 @@ def write_review(review, output_dir, source, manifest, clip, repairs, *, toleran
 		"original_klassen_anzahl": review["class_counts"],
 		"geometrie_reparaturen": [e for e in repairs if e["status"] == REPAIRED_EVENT],
 		"flaechenlose_zuschnittreste": [e for e in repairs if e["status"] == NO_AREA_EVENT],
+		"polygonanteile_aus_collections": [e for e in repairs if e["status"] == COLLECTION_EVENT],
 		"fmzk_quell_features": manifest["feature_count"],
 		"kandidaten_je_klasse_und_lage": review["summary"],
 		"kandidaten_je_klasse_und_einbettung": review["embedding_counts"],
@@ -226,6 +228,8 @@ def analyze(source=DEFAULT_SOURCE, output_dir=DEFAULT_OUTPUT, *, tolerance_m=0.2
 		print(f"  Klasse {row['f_klasse']:2d} {row['einbettung']:34s} {row['objekte']:4d} Objekte")
 	if report["geometrie_reparaturen"]:
 		print(f"Geometriereparaturen: {len(report['geometrie_reparaturen'])} (siehe Bericht)")
+	if report["polygonanteile_aus_collections"]:
+		print(f"GeometryCollections mit erhaltener Polygonfläche: {len(report['polygonanteile_aus_collections'])} (siehe Bericht)")
 	if report["flaechenlose_zuschnittreste"]:
 		print(f"Flächenlose Zuschnittreste: {len(report['flaechenlose_zuschnittreste'])} (siehe Bericht)")
 	print(f"Lokale Dateien unter: {Path(output_dir).resolve()}")
