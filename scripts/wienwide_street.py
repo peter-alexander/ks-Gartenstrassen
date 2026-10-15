@@ -40,6 +40,8 @@ def load_street_tile(path, core):
 		data=dict(conn.execute("SELECT key,value FROM metadata"))
 		if data.get("schema_version")!="1" or data.get("crs")!="EPSG:31256":
 			raise ValueError(f"Nicht unterstützte Straßenraumkachel {path}")
+		if data.get("strassenraum_regel_version")!=STREET_CLASSIFICATION_VERSION:
+			raise ValueError(f"Straßenraumkachel aus veralteter FMZK-Klassifikation: {path}")
 		row=conn.execute("SELECT geom FROM street").fetchone()
 		if row is None:
 			raise ValueError(f"Straßenraum-Maske leer: {path}")
