@@ -161,6 +161,56 @@ Vorherige Ausgaben müssen **nicht gelöscht** werden. Ein vollständiger
 neuer Wien-Eingabelauf wurde nach der Anpassung **noch nicht
 verifiziert**.
 
+## Kernfreie FMZK-Kacheln am Wiener Stadtrand (16.10.2026)
+
+Nach erfolgreicher Bearbeitung der Kachel x+000009_y+000333
+(1455 FMZK-Features, 34 Kataster-Treffer) trat beim vorbereiteten
+FMZK-Zuschnitt x+000015_y+000333 (20 Features) der Fehler
+"Keine FMZK-Kernflächen vorhanden" auf.
+
+Das bedeutet **nicht**, dass der FMZK-Download leer oder defekt
+ist: Die Extraktion hat 20 gültige Features geliefert, aber nach
+der aktuellen V0-Straßenraumregel muss ein Grundstück zunächst
+eine FMZK-Kernfläche aus 21/23/24/25/33/39 schneiden, bevor seine
+BEV-nfl-Flächen für andere FMZK-Klassen herangezogen werden.
+
+Neue Behandlung von kachelgroßen Rand-/Halo-Ausschnitten:
+
+- Die gesamte lokale FMZK-Extraktion wird wie zuvor anhand ihres
+  Manifests eingelesen und auf gültige Polygonflächen geprüft.
+- Enthält **der gesamte Ausschnitt inklusive Halo** keine einzige
+  Straßenkernklasse, werden **keine BEV-Kacheln geladen**. Stattdessen
+  wird ein nachvollziehbarer Kataster-Nullbericht mit dem Kennzeichen
+  kein_fmzk_kern_im_ausschnitt und dem Hash der tatsächlich
+  eingelesenen FMZK-Datei geschrieben. Grundstücke = 0, BEV-Tiles = 0.
+- Nur bei einem passend geprüften Kataster-Nullbericht wird die
+  Straßenraumkachel explizit mit 0 m² erzeugt. Die
+  Methoden-/FMZK-/Berichts-Prüfsummen bleiben beim Wiederaufnehmen
+  verbindlich; ein echter Kern, insbesondere Klasse 25, darf
+  **nicht** durch den Nullfall übersprungen werden.
+- Die Nullfläche bedeutet **keine positive Straßenraumzuordnung nach
+  unserer V0-Regel**, nicht den amtlichen Nachweis, dass überhaupt
+  keine Verkehrsfläche im Gebiet existiert. Bestehende Nicht-Kern-
+  FMZK-Flächen werden nicht als positiv klassifiziert.
+- Die globale GIP-Indexierung und die bisher erfolgreichen
+  FMZK-/Katasterkacheln bleiben vollständig erhalten. Die
+  V0-Flächenbilanz zählt auch Nullkacheln als erfolgreich
+  bearbeitete AOI-Kacheln.
+
+Nächster Fortsetzungsschritt:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_analyze_kataster.py' -v
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_kataster.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from inputs --until inputs
+~~~
+
+Ein vollständiger realer Wien-Eingabelauf unter der neuen
+Nullkern-Regel ist noch nicht verifiziert.
+
 ## Pfade und Parameter
 
 | Element | Standard |
