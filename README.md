@@ -3,6 +3,16 @@
 
 ## Stand 15.10.2026 – Wienweite Ausführung vorbereitet
 
+**Neue Klassifikationsregel:** `F_KLASSE=25` (`Gehweg, Radweg`)
+gehört ab sofort zum vorläufigen versiegelten Straßenraumkern
+(**21/23/24/25/33/39**), nicht zu den privaten Kontextflächen.
+Die Kataster-Auswahl muss deshalb neu durchgeführt werden;
+bisherige Alsergrund-Straßenraum-, GIP-Partitions- und
+Begrünungsergebnisse gehören zur **alten Regelversion** und sind
+nicht direkt mit neu berechneten Werten vergleichbar.
+Verifizierte BEV-Rohkacheln und FMZK-Originaldateien bleiben verwendbar,
+aber alte abgeleitete Kachel-Caches werden gezielt zurückgewiesen.
+
 Der **Alsergrund-Pilot** mit 586 eindeutigen regulären GIP-IDs (FOW=3)
 hat Bodenbegrünung (FMZK 58/69) und GRM2023-WMS-Baumschicht vollständig
 berechnet und seine metrische Flächenbilanz geprüft.
@@ -126,7 +136,7 @@ Die Straßenraum-Analyse ist absichtlich **eine Sichtung**, keine automatische Z
 **Ergebnisse nur lokal** in `data/processed/street_space/`:
 
 - `strassenraum_kern.geojson`: geometrische Vereinigung der sicher erkennbaren öffentlichen Verkehrsflächen (Klassen **21 Fahrbahn, 23 Gehsteig, 24 Fußgängerzone, 33 ruhender Verkehr, 39 sonstige Verkehrsfläche**), WGS84.
-- `strassenraum_pruefung.geojson`: einzelne Kernflächen, sämtliche Grün-Kandidaten **58/69**, unklare Flächen der **Klasse 59** und **private Kontextflächen 25/26/51**. Jede Geometrie hat `rolle`, `status` und relevante Kenngrößen. Andere FMZK-Klassen werden nicht exportiert.
+- `strassenraum_pruefung.geojson`: einzelne Kernflächen, sämtliche Grün-Kandidaten **58/69**, unklare Flächen der **Klasse 59** und **private Kontextflächen 26/51** und Kernklasse **25**. Jede Geometrie hat `rolle`, `status` und relevante Kenngrößen. Andere FMZK-Klassen werden nicht exportiert.
 - `strassenraum_kandidaten.csv`: pro Grün- bzw. unklarer Fläche Kennzahlen zu Abstand, Grenzkontakt und Umfeldnähe.
 - `strassenraum_bericht.json`: Flächensummen pro Klasse und Lage-Status (jeweils als geometrische Vereinigung), verwendete Schwellen und eventuelle Geometriereparaturen.
 
@@ -143,7 +153,7 @@ Die Randtoleranz/Distanz und Mindestkontaktlänge sind Parameter (`--randtoleran
 
 ### Neu: Mehrseitige Einbettung und Kontakt zu Verkehrsflächenklassen
 
-Für **58/69 (Grün)** und **59 (unklare befestigte Flächen)** wird zusätzlich zur bisherigen Abstandsanalyse gemessen, **an welchen Seiten** sie die Kernklassen 21, 23, 24, 33 und 39 berühren. Die Hauptparameter können angepasst werden:
+Für **58/69 (Grün)** und **59 (unklare befestigte Flächen)** wird zusätzlich zur bisherigen Abstandsanalyse gemessen, **an welchen Seiten** sie die Kernklassen 21, 23, 24, 25, 33 und 39 berühren. Die Hauptparameter können angepasst werden:
 
 ```bash
 .venv/bin/python -m scripts.analyze_street_space
@@ -169,7 +179,7 @@ In `strassenraum_kandidaten.csv` und `strassenraum_pruefung.geojson` stehen `ein
 
 **Wichtig:**
 - Auch `grenzt_an_kern` ist **keine Bestätigung**, dass die ganze Fläche öffentlich ist. Insbesondere große private Grundstücke können an Gehsteige grenzen.
-- Klasse **39** wird nach fachlicher Prüfung als öffentlicher Straßenraum-Kern berücksichtigt. Klasse **59** (befestigte Fläche) ist hingegen nicht automatisch öffentliche Verkehrsfläche. Klasse 51 (Innenhof) und private Verkehrsflächen 25/26 bleiben Kontext, keine Kandidaten.
+- Klasse **39** wird nach fachlicher Prüfung als öffentlicher Straßenraum-Kern berücksichtigt. Klasse **59** (befestigte Fläche) ist hingegen nicht automatisch öffentliche Verkehrsfläche. Klasse 25 (`Gehweg, Radweg`) zählt zum Straßenraumkern; Klasse 51 (Innenhof) und Klasse 26 bleiben Kontext, keine Kandidaten.
 - Der Kern ist eine **Teilmenge** des Straßenraums; Verkehrsinseln, sonstige öffentliche Flächen und Grünstreifen sind damit noch nicht vollständig erfasst.
 - Deshalb gibt es bewusst **noch keinen Grünanteil pro Straße** und keine Grünfläche / Kernfläche als vermeintlich gültigen Anteil.
 - Die Ergebnislayer in QGIS öffnen oder in die Kartensammlung importieren. Verdächtige Flächen (z. B. Klasse 59 und große angrenzende Klasse-58-Polygone) anhand des Orthofotos/der FMZK überprüfen. Danach den exakten Straßenraum festlegen.
@@ -232,7 +242,7 @@ In der **Kartensammlung** ist der aktuelle BEV-Kataster als Vector-Tile-Layer ei
 
 Die separate Analyse `scripts/analyze_kataster.py`:
 
-1. Liest den **bisherigen FMZK-Testausschnitt** aus `data/processed/fmzk_test.gpkg` und berechnet den bestehenden Kern **21/23/24/33/39**.
+1. Liest den **bisherigen FMZK-Testausschnitt** aus `data/processed/fmzk_test.gpkg` und berechnet den Straßenraumkern **21/23/24/25/33/39**.
 2. Lädt die BEV-Kacheln auf **Zoomstufe 16**, einschließlich einer zusätzlichen Kachel rings um die Test-BBOX. Die GeoPackage- und Tile-Geometrien werden in **EPSG:31256** verschnitten. Kernflächen mit echtem Flächenschnitt identifizieren getroffene `gst`-Grundstücke anhand **Katastralgemeinde + Grundstücksnummer**.
 3. Verwendet standardmäßig **nur bereits zwischengespeicherte** Antworten der Grundstücks-API. Falls vollständige Nutzungsbilanzen im Cache fehlen, bleibt die Grundstücksklasse **D**, während die in den Kacheln sichtbaren `nfl`-Nutzungsarten lediglich als vorläufiger Hinweis ausgegeben werden. Mit `--details` werden die fehlenden Grundstücksdaten online angefordert; bei HTTP 429/5xx oder Verbindungsproblemen stoppt der Skriptlauf weitere Detailabfragen.
 4. Exportiert die `nfl`-Teilflächen zur Sichtkontrolle. Diese stammen weiterhin nur aus den verwendeten Kacheln und werden für die Klassifizierung **nicht** als vollständiger Flächennachweis verwendet.
@@ -293,7 +303,7 @@ Der getrennte Export verwendet **den vollständigen lokalen FMZK-Testausschnitt*
 
 Daraus entstehen unter `data/processed/street_space/`:
 
-- **`fmzk_strassenraum.geojson`**: Alle FMZK-Kernflächen (Klassen 21/23/24/33/39) sowie die weiteren FMZK-Polygone, die zu mindestens **95 % ihrer Fläche** von den Kataster-Nutzungen 95 (Straßenverkehrsanlagen) oder 65 (Verkehrsrandflächen) gedeckt sind und nicht zu mehr als 5 % eine andere Nutzung überlagern.
+- **`fmzk_strassenraum.geojson`**: Alle FMZK-Kernflächen (Klassen 21/23/24/25/33/39) sowie die weiteren FMZK-Polygone, die zu mindestens **95 % ihrer Fläche** von den Kataster-Nutzungen 95 (Straßenverkehrsanlagen) oder 65 (Verkehrsrandflächen) gedeckt sind und nicht zu mehr als 5 % eine andere Nutzung überlagern.
 - **`fmzk_uebrige_flaechen.geojson`**: Alle übrigen FMZK-Polygone. Diese Kategorie bedeutet **nicht** „privat“ oder „kein öffentlicher Straßenraum“. Teilweise überdeckte oder unklare Polygone bleiben hier und erhalten `grund=teilweise_strassenlage_pruefen` bzw. einen Hinweis auf unvollständige Katasterabdeckung.
 - **`fmzk_aufteilung_bericht.json`**: Anzahl und Fläche beider Gruppen sowie die Zuweisungsgründe und Kenndaten zur Katastermaske.
 
