@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from shapely import to_wkb
-from shapely.geometry import Polygon, box
+from shapely.geometry import GeometryCollection, LineString, Polygon, box
 
 from scripts.analyze_street_space import (
 	analyze, build_review, classify_contact, load_polygons,
@@ -172,6 +172,59 @@ class StreetSpaceTest(unittest.TestCase):
 			data["feature_count"] = 2
 			m.write_text(json.dumps(data))
 			with self.assertRaisesRegex(ValueError, "Feature-Anzahl"):
+				load_polygons(path)
+
+
+	def test_gdal_clip_degenerate_fmzk_163939_is_audited_without_area_loss(self):
+		# ogr2ogr -clipsrc kann Quellpolygone mit reinem Randkontakt
+		# als LineString/leeres Polygon im FMZK-Ausschnitt belassen.
+		# Diese Objekte besitzen exakt keine Polygonfläche.
+		with tempfile.TemporaryDirectory() as tmp:
+			path=make_gpkg(Path(tmp),[
+				(1, 21, self.rectangle(-5, -5, 5, 5)),
+				(163939, 25, LineString([
+					(self.x + 5, self.y - 5),
+					(self.x + 5, self.y + 5)])),
+				(163940, 25, Polygon()),
+				(163941, 69, self.rectangle(5, 0, 5.001, 0.001)),
+			])
+			features,manifest,_clip,events=load_polygons(path)
+			self.assertEqual(manifest["feature_count"],4)
+			self.assertEqual([f[0] for f in features],[1,163941])
+			self.assertEqual([e["id"] for e in events],[163939,163940])
+			self.assertTrue(all(e["status"]=="ausgeschlossen_ohne_flaeche"
+				for e in events))
+			self.assertEqual({e["f_klasse"] for e in events},{25})
+			self.assertAlmostEqual(features[0][3].area,100)
+			self.assertGreater(features[1][3].area,0)
+			self.assertTrue(path.exists())
+
+	def test_zero_area_exclusions_do_not_hide_manifest_drift(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			path=make_gpkg(Path(tmp),[
+				(1, 21, self.rectangle(-5,-5,5,5)),
+				(163939, 25, LineString([
+					(self.x, self.y), (self.x+1,self.y)])),
+			])
+			meta=path.with_suffix(".json")
+			report=json.loads(meta.read_text())
+			report["feature_count"]=1
+			meta.write_text(json.dumps(report))
+			with self.assertRaisesRegex(ValueError,"Feature-Anzahl 2 != Manifest 1"):
+				load_polygons(path)
+
+	def test_positive_area_geometry_collection_does_not_get_discarded(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			path=make_gpkg(Path(tmp),[
+				(1, 21, self.rectangle(-5,-5,5,5)),
+				(2, 25, GeometryCollection([
+					self.rectangle(5,0,10,5),
+					LineString([(self.x+5,self.y+5),
+						(self.x+15,self.y+5)]),
+				])),
+			])
+			with self.assertRaisesRegex(ValueError,
+				"Nicht-Polygon mit positiver Fläche"):
 				load_polygons(path)
 
 	def test_invalid_source_polygon_repairs_logged(self):
