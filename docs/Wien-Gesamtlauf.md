@@ -211,6 +211,57 @@ bash scripts/run-wien-gartenstrassen.sh --from inputs --until inputs
 Ein vollständiger realer Wien-Eingabelauf unter der neuen
 Nullkern-Regel ist noch nicht verifiziert.
 
+## FMZK-GeometryCollection mit Polygonfläche (16.10.2026)
+
+Nach der erfolgreichen Verarbeitung von x+000018_y+000333 und einer
+kernfreien Kachel x-000010_y+000334 (15 FMZK-Features) stoppte die
+FMZK-Vorstufe bei x-000009_y+000334 (161 Features) an
+**FID 782170**, weil der GPKG-Reader eine
+**GeometryCollection mit positiver Fläche** erhielt. Die Ursache
+in der Originalquelle oder beim BBOX-Zuschnitt ist aus dem Log allein
+nicht zu entscheiden.
+
+Die bisherige strenge Blockade wurde auf eine
+flächenkonservierende Normalisierung eingegrenzt:
+
+- Alle Polygon- und MultiPolygon-Bestandteile einer GeometryCollection
+  werden rekursiv erhalten und zu einer Polygongeometrie vereinigt.
+  Linien und Punkte können keinen Flächenbeitrag leisten.
+- **Die ursprüngliche Flächensumme der GeometryCollection und
+  die vereinigte Polygonfläche müssen bis auf rein numerische
+  Toleranz übereinstimmen.** Beispielsweise überlappende Polygonanteile,
+  bei denen die Vereinigung eine kleinere Fläche hätte, bleiben ein
+  Fehler; kein verdeckter positiver Flächenverlust.
+- Auch sehr kleine positive Polygonflächen bleiben erhalten,
+  ausdrücklich **auch für Klasse 25**.
+- Das original extrahierte GeoPackage und die Feature-ID bleiben
+  unverändert. Jedes normalisierte Objekt wird unter
+  fmzk_geometrieereignisse mit Status
+  polygonanteile_aus_geometrycollection, FID, FMZK-Klasse,
+  den ursprünglichen Geometrietypen und beiden Flächenzahlen
+  dokumentiert. Reparaturen ungültiger Geometrie und flächenlose
+  Zuschnittreste werden weiterhin gesondert gezählt.
+- Es erfolgt **keine neue FMZK-Extraktion** und kein allgemeines
+  Unterdrücken von Geometriefehlern.
+
+Zur Prüfung vor der Fortsetzung:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_analyze_street_space.py' -v
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_analyze_kataster.py' -v
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_kataster.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from inputs --until inputs
+~~~
+
+Die reale Geometrie von FID 782170 liegt weiterhin nur im
+lokalen Cache. Sollte ihre Polygonanteilsbilanz abweichen, hält
+der neue Check mit Flächendifferenz ausdrücklich an; ohne diesen
+Befund wird kein Quellkonflikt wegkorrigiert.
+
 ## Pfade und Parameter
 
 | Element | Standard |
