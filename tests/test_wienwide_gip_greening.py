@@ -14,6 +14,7 @@ from shapely.ops import transform
 
 from scripts.wienwide_grid import build_manifest,read_manifest,write_manifest,checksum
 from scripts.wienwide_street import save_street_tile
+from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 from scripts.wienwide_partition import connect_results,write_tile
 from scripts.wienwide_qa_gpkg import export as qa_export
 from scripts.wienwide_gip_greening import run, _compute
@@ -61,7 +62,7 @@ class WienwideGreeningTests(unittest.TestCase):
 		save_street_tile(self.street/self.tile["id"]/"street.sqlite",
 			aoi,{"schema_version":"1","crs":"EPSG:31256",
 				"tile_id":self.tile["id"],
-				"strassenraum_regel_version":"fmzk-core-21-23-24-25-33-39-nfl-95-65-v2",
+				"strassenraum_regel_version":STREET_CLASSIFICATION_VERSION,
 				"fmzk_sha256":checksum(self.fmzk)})
 		self.gip=self.root/"gip.sqlite"
 		with sqlite3.connect(self.gip) as db:
