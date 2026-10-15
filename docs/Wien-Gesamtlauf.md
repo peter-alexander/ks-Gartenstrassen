@@ -63,15 +63,32 @@ kein unvollständiger WFS-Download**.
 Die wienweite Indexierung behandelt innerhalb einer Kachel
 wiederholte GIP_OBJECTIDs so:
 
-- **Exakt gleiche Geometrie und dieselben fachlichen Attribute:** Eine
-  Kopie wird übersprungen; Quellcache und Bericht bleiben unverändert.
-  Die Anzahl wird im SQLite-Index-Metadatenschlüssel
-  duplikate_zusammengefuehrt unter identische_achsen_in_kachel
-  bzw. identische_knoten_in_kachel protokolliert.
-- **Abweichende Geometrie oder fachliche Attribute:** Abbruch mit
-  Kachel-ID, GIP-ID, beiden Feature-Indizes, WFS-IDs und Hinweis
+- **Exakt gleiche Geometrie und dieselben graphrelevanten Attribute:**
+  Eine physische GIP-Achse wird genau einmal übernommen. Bei Achsen
+  darf ausdrücklich nur REG_STRNAME variieren, weil dasselbe Straßenstück
+  mehrere amtliche Routenbezeichnungen haben kann. Die ursprünglichen
+  WFS-IDs und REG_STRNAME-Werte bleiben mitsamt Zahl ihrer
+  Kachelvorkommen in der Index-Tabelle axis_source_variants erhalten.
+  Die Summen stehen in den Metadaten des GIP-Indexes.
+- **Abweichende Geometrie oder andere fachliche Attribute:** Abbruch
+  mit Kachel-ID, GIP-ID, beiden Feature-Indizes, WFS-IDs und Hinweis
   auf den Unterschied. **Keine automatische Auflösung**.
-- Die strengen Vergleiche über Kachelgrenzen bleiben bestehen.
+- Dieselbe Ausnahme für REG_STRNAME gilt kachelübergreifend; alle
+  übrigen graphrelevanten Attribute werden nun auch kachelübergreifend
+  mit der ersten Quelle verglichen. GIP-Graph und Voronoi verwenden
+  nach wie vor genau eine Achse pro gültiger GIP-ID.
+
+**Diagnose für GIP 10026184 (Brunner Straße):** Die Fundstellen aus
+den echten Wien-Caches zeigen zwei deckungsgleiche WFS-Achsen mit
+GIP_OBJECTID 10026184 und identischen Endknoten 10355942/10355873.
+Die einzigen Unterschiede sind WFS-Feature-ID
+STRASSENGRAPHOGD.61196089 / STRASSENGRAPHOGD.61196034 und die
+Routenbezeichnungen B12 / B13a. Jede Variante taucht in zwei
+benachbarten Kacheln auf. Damit liegt genau der erlaubte
+Routenbezeichnungsfall vor; kein geometrischer Konflikt.
+
+Die gesamte Wien-Indexierung wurde nach dieser Änderung noch nicht
+auf den lokalen 489 Kacheln ausgeführt.
 
 Nach git pull --ff-only wird der lokal vollständige Cache direkt
 weiterverwendet:
@@ -91,10 +108,10 @@ Originalgeometrien und Attributen anzeigen:
 	--gip-id 10026184
 ~~~
 
-Erst anhand dieser Fundstellen kann entschieden werden, ob mehrere
-amtliche Features dieselbe ID mit unterschiedlichen Geometrien
-verwenden und eine fachliche Korrektur nötig ist. Die doppelte ID
-**allein beweist nicht**, dass die Geometrien identisch sind.
+Für die Diagnose-ID 10026184 ist dieser Vergleich bereits erfolgt und
+hat die oben beschriebene reine REG_STRNAME-Variante gezeigt. Bei einem
+**weiteren** Konflikt erlaubt derselbe Diagnosebefehl die gezielte
+Untersuchung; Geometrieabweichungen bleiben weiterhin ein Abbruchgrund.
 
 ## Pfade und Parameter
 
