@@ -13,6 +13,7 @@ from scripts.wienwide_street import (
 	save_street_tile,run as street_run,
 )
 from scripts.wienwide_grid import checksum
+from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 
 
 class WienwideKatasterTests(unittest.TestCase):
@@ -130,7 +131,7 @@ class WienwideKatasterTests(unittest.TestCase):
 			"tile_id":"first","aoi_area_m2":10000,
 			"strassenraum_m2":100,
 			"halo_m":75,"fmzk_sha256":checksum(fmzk),
-			"strassenraum_regel_version":"fmzk-core-21-23-24-25-33-39-nfl-95-65-v2",
+			"strassenraum_regel_version":STREET_CLASSIFICATION_VERSION,
 			"kataster_bericht_sha256":checksum(report),
 			"kataster_status":{"bev_cache_sha256":{
 				"16/35000/23000":checksum(source)}},
@@ -179,6 +180,31 @@ class WienwideKatasterTests(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError, "alter Klassifikationsregel"):
 			check_existing_tile(tile,aoi,input_root=self.root/"inputs",
 				output_root=self.root/"out",halo=75,cache_dir=self.cache)
+
+	def test_wienwide_street_includes_class_25_outside_bev_mask(self):
+		inputs=self.root/"inputs"
+		folder=inputs/"first"
+		folder.mkdir(parents=True)
+		(folder/"fmzk.gpkg").write_bytes(b"synthetic fmzk")
+		kat=folder/"kataster"
+		kat.mkdir()
+		(kat/"kataster_bericht.json").write_text(
+			json.dumps(self.report),encoding="utf-8")
+		aoi=box(0,0,100,100)
+		tile={"id":"first","bounds_31256":[0,0,100,100]}
+		fmzk=[(1,21,"Fahrbahn",box(10,10,20,20)),
+			(2,25,"Gehweg, Radweg",box(60,60,80,62))]
+		with patch("scripts.wienwide_street.load_polygons",
+			return_value=(fmzk,self.manifest,box(-50,-50,150,150),[])), patch(
+			"scripts.wienwide_street.read_native_kataster_masks",
+			return_value=(box(10,10,20,20),box(40,40,50,50),{})):
+			result=build_tile(tile,aoi,root=inputs,out=self.root/"output_25",
+				halo=75,cache_dir=self.cache)
+		self.assertAlmostEqual(result["strassenraum_m2"],140)
+		geom=load_street_tile(
+			self.root/"output_25"/"first"/"street.sqlite",aoi)
+		self.assertAlmostEqual(geom.area,140)
+		self.assertAlmostEqual(geom.intersection(box(60,60,80,62)).area,40)
 
 	def test_wienwide_street_build_uses_only_metric_cache(self):
 		inputs=self.root/"inputs"
