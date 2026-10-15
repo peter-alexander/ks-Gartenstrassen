@@ -1,8 +1,28 @@
 # Wiener Gartenstraßen – datenbasierte Bestandsanalyse
 
+
+## Stand 15.10.2026 – Wienweite Ausführung vorbereitet
+
+Der **Alsergrund-Pilot** mit 586 eindeutigen regulären GIP-IDs (FOW=3)
+hat Bodenbegrünung (FMZK 58/69) und GRM2023-WMS-Baumschicht vollständig
+berechnet und seine metrische Flächenbilanz geprüft.
+Der **gesamte Wien-Lauf ist noch nicht ausgeführt**. Die bestehenden
+kachelweisen Module werden über
+[scripts/run-wien-gartenstrassen.sh](scripts/run-wien-gartenstrassen.sh)
+phasenweise für die amtliche Wiener AOI gestartet.
+
+Für die reguläre Veröffentlichung gilt **mindestens 100 m² je
+vollständiger GIP-ID**, nicht pro Kachelfragment. Die Berechnung und das
+QA-GeoPackage bleiben vollständig; der separate
+[Ergebnisexport](scripts/wienwide_result_export.py) liefert eine
+gefilterte CSV und ein über die Kachelgrenzen je GIP-ID vereinigtes
+GeoJSON in WGS84. Alle Details stehen unter
+[Wienweiter Gesamtlauf](docs/Wien-Gesamtlauf.md).
+
+
 Wir suchen anhand nachvollziehbarer Flächen- und später Kronenkennzahlen bestehende Straßenabschnitte, die dem Charakter von Gartenstraßen nahekommen. Die derzeitige Phase ist **Datenvorbereitung und Validierung** – noch keine fertige Gartenstraßen-Klassifikation.
 
-**Aktueller Arbeitsstand (13.10.2026):** Eine erste Aufteilung **aller FMZK-Flächen des Testgebietes** in `fmzk_strassenraum.geojson` und `fmzk_uebrige_flaechen.geojson` ist implementiert und wurde in der Kartensammlung visuell überprüft. Sie sieht im Übersichts- und Detailmaßstab bereits überzeugend aus, ist aber **noch nicht fehlerfrei und keine abschließend validierte bzw. rechtlich verbindliche Straßenraumgrenze**. Für die nächste Analysephase wird die Methode **vorläufig beibehalten**, nicht als endgültig erklärt.
+**Historischer Zwischenstand (13.10.2026):** Eine erste Aufteilung **aller FMZK-Flächen des Testgebietes** in `fmzk_strassenraum.geojson` und `fmzk_uebrige_flaechen.geojson` ist implementiert und wurde in der Kartensammlung visuell überprüft. Sie sieht im Übersichts- und Detailmaßstab bereits überzeugend aus, ist aber **noch nicht fehlerfrei und keine abschließend validierte bzw. rechtlich verbindliche Straßenraumgrenze**. Für die nächste Analysephase wird die Methode **vorläufig beibehalten**, nicht als endgültig erklärt.
 
 **Ausführliche Dokumentation:** [Methodik und Arbeitsstand der FMZK-Kataster-Straßenraumabgrenzung](docs/Methodik-Strassenraum-FMZK-Kataster.md) – Datenquellen, Regeln, Prüfergebnisse, visuelle Kontrolle, bekannte Grenzen und weitere Schritte.
 
@@ -532,8 +552,7 @@ GitHub Actions: [GeoPackage-Code-Tests](https://github.com/peter-alexander/ks-Ga
 1. **Modul 5 – Straßenabschnitte: V0 als vorläufige Arbeitsgrundlage festgelegt (14.10.2026).** Der amtliche GIP-Straßengraph wurde im Testgebiet geprüft (80 Achsen, 47 Knoten). **Maßgebliche Flächenaufteilung bleibt `scripts/assign_gip_section_areas.py` mit kreisförmigen Kreuzungsbereichen von 7 m Radius**, 5 m Voronoi-Stützpunktabstand, 25 m maximalem Achsabstand und FOW 3 für reguläre Abschnitte. Der reale V0-Lauf ergibt **45 zugeordnete Abschnitte mit 43.217,91 m² (92,68 %)** und **3.412,65 m² (7,32 %) gesonderte ungeklärte Flächen**, vor allem Kreuzungen (3.368,09 m²). Die geometrische Gesamtbilanz ist lücken- und überlappungsfrei; **die fachliche Lagezuordnung ist noch nicht vollständig validiert**. Die spätere V1/V1.1/V1.2-Eckpunkt-/Gehsteigkanten-Diagnose ist **vorerst pausiert und nicht Teil der Flächenaufteilung**. Sie bleibt für einen späteren Vergleich mit einem möglicherweise bereits vorhandenen früheren Kreuzungsalgorithmus im Repository erhalten; **keine weitere Eckpunkterkennung bis dahin**. [Modul-5-Methode und offene Punkte](docs/Modul-5-Strassenabschnitte.md).
 
 2. **Modul 6 – integrierte Kennzahlen je Abschnitt implementiert:** Das neue Offline-Skript `scripts/measure_sections.py` ermittelt für jeden V0-Abschnitt Bodenbegrünung und Kronenüberschirmung A/B/C, außerdem dieselben Größen separat für Kreuzungs-/Restflächen. Der geografische Gesamtwert wird gegen die originale Straßenmaske bilanziert. Ausgabe: GeoJSON, CSV und JSON. **Der reale lokale Test ist abgeschlossen: 45 Abschnitte, 0 m² fehlende Straßenfläche und übereinstimmende Gesamtsummen. Die räumliche Zuordnung bleibt fachlich vorläufig.** [Anleitung und Qualitätssicherung](docs/Modul-6-Abschnittskennzahlen.md).
-3. **Wienweite Skalierung – Phasen 1/2 technisch vorbereitet (14.10.2026):** Festes Raster in EPSG:31256, gekachelter FMZK-/Kataster-Straßenraum als metrisches SQLite-WKB, per Kachel geprüfter GIP-WFS-Cache mit globalem Graph und RTree, Voronoi-V0 über Kachelgrenzen sowie Benchmark und Wiederaufnahme. **Noch kein echter Bezirkslauf**; die wienweiten Module A/B/C und die Kartenkachel-Ausgabe folgen danach. [Ablauf für zwei Bezirke und offene Prüfungen](docs/Wienweite-Pipeline.md).
-
+3. **Wienweite Skalierung – Alsergrund technisch erfolgreich (14.10.2026), gesamtes Wien noch offen (15.10.2026):** Festes metrisches Raster, geprüfte GIP- und Kataster-/FMZK-Kacheln, V0-Partition, QA-GeoPackage und die Boden-/GRM-Kennzahlen wurden für Alsergrund erfolgreich berechnet. Für ganz Wien existiert jetzt ein phasenweiser Treiber samt 100-m²-Ausgabefilter; der tatsächliche Stadtlauf und die wienweite Qualitätskontrolle stehen noch aus. [Ausführung](docs/Wien-Gesamtlauf.md).
 4. **Methode D als abgeschlossenes Zwischenergebnis belassen:** D2 **0,20 als Baseline** für Vegetation. Die **Trennung von Baumkronen und sonstiger Vegetation bleibt offen**; derzeit keine weitere D-Optimierung.
 5. **Später fachlich prüfen:** FMZK-Klasse 58 in Modul 3, unsichere Randbereiche und mögliche Fehlzuordnungen von Modul 2. Die Module nur auf Grundlage konkreter Prüffälle verändern.
 
