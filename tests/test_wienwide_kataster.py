@@ -12,6 +12,8 @@ from scripts.wienwide_street import (
 	build_tile,load_street_tile,check_existing_tile,
 	save_street_tile,run as street_run,
 )
+import scripts.analyze_kataster as kat
+from scripts.wienwide_street import verified_empty_core_report
 from scripts.wienwide_grid import checksum
 from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 
@@ -57,6 +59,79 @@ class WienwideKatasterTests(unittest.TestCase):
 			"tiles_abgerufen":[list(t) for t in (tiles or self.tiles)]}
 		(self.kat/"kataster_bericht.json").write_text(
 			json.dumps(self.report),encoding="utf-8")
+
+	def test_empty_fmzk_core_remains_a_valid_zero_area_wien_tile(self):
+		# Reale Randkachel x+000015_y+000333: FMZK-Extraktion
+		# vollständig, aber nach V0 kein Straßenkern im gesamten Halo.
+		input_root=self.root/"inputs"
+		directory=input_root/"x+000015_y+000333"
+		directory.mkdir(parents=True)
+		fmzk=directory/"fmzk.gpkg"
+		fmzk.write_bytes(b"synthetic empty-core FMZK source")
+		features=[
+			(1,69,"Grün",box(10,10,15,15)),
+			(2,26,"Sonstige Fläche",box(30,30,40,40)),
+		]
+		info={"feature_count":2,"bbox_lon_lat":self.bbox}
+		clip=box(-50,-50,150,150)
+		kataster=directory/"kataster"
+		with patch.object(kat,"load_polygons",return_value=(
+			features,info,clip,[])), patch.object(kat,"read_tiles",
+			side_effect=AssertionError("Keine BEV-Anfrage für Nullkern")):
+			result=kat.run(fmzk,kataster,self.cache)
+		self.assertEqual(result["tiles_abgerufen"],[])
+		self.assertTrue(verified_empty_core_report(
+			kataster/"kataster_bericht.json",fmzk,require=True))
+		tile={"id":"x+000015_y+000333","bounds_31256":[0,0,100,100]}
+		aoi=box(0,0,100,100)
+		street_root=self.root/"streets"
+		with patch("scripts.wienwide_street.load_polygons",
+			return_value=(features,info,clip,[])), patch(
+			"scripts.wienwide_street.read_native_kataster_masks",
+			side_effect=AssertionError("Nullkern darf keinen BEV-Reader starten")):
+			stats=build_tile(tile,aoi,root=input_root,out=street_root,
+				halo=75,cache_dir=self.cache)
+		self.assertEqual(stats["strassenraum_m2"],0)
+		self.assertTrue(stats["nachweislich_ohne_strassenraum"])
+		self.assertEqual(stats["zuordnung_anzahl"],{"uebrige":2})
+		path=street_root/tile["id"]/"street.sqlite"
+		self.assertTrue(load_street_tile(path,aoi).is_empty)
+		resume=check_existing_tile(tile,aoi,input_root=input_root,
+			output_root=street_root,halo=75,cache_dir=self.cache)
+		self.assertTrue(resume["cache"])
+		self.assertEqual(resume["area_m2"],0)
+		# Ein veränderter Bericht darf auch bei Nullfläche nicht gelten.
+		report=json.loads((kataster/"kataster_bericht.json").read_text())
+		report["fmzk_sha256"]="tampered"
+		(kataster/"kataster_bericht.json").write_text(json.dumps(report))
+		with self.assertRaisesRegex(ValueError,"inkonsistent"):
+			verified_empty_core_report(kataster/"kataster_bericht.json",
+				fmzk,require=True)
+
+	def test_fake_no_core_report_cannot_override_real_class_25(self):
+		input_root=self.root/"inputs"
+		folder=input_root/"first"
+		folder.mkdir(parents=True)
+		fmzk=folder/"fmzk.gpkg"
+		fmzk.write_bytes(b"synthetic fmzk")
+		kataster=folder/"kataster"
+		kataster.mkdir()
+		no_core={
+			"kein_fmzk_kern_im_ausschnitt":True,
+			"kataster_uebersprungen_ohne_kern":True,
+			"fmzk_kern_klassen":[21,23,24,25,33,39],
+			"fmzk_sha256":checksum(fmzk),
+			"grundstuecke":0,"tiles_abgerufen":[],
+		}
+		(kataster/"kataster_bericht.json").write_text(
+			json.dumps(no_core),encoding="utf-8")
+		features=[(1,25,"Gehweg, Radweg",box(10,10,20,20))]
+		with patch("scripts.wienwide_street.load_polygons",
+			return_value=(features,self.manifest,box(-50,-50,150,150),[])):
+			with self.assertRaisesRegex(ValueError,"widerspricht"):
+				build_tile({"id":"first","bounds_31256":[0,0,100,100]},
+					box(0,0,100,100),root=input_root,
+					out=self.root/"street_bad",halo=75,cache_dir=self.cache)
 
 	def test_native_mvt_preserves_thin_polygon_and_deduplicates_tiles(self):
 		with patch("scripts.wienwide_kataster.read_tiles",
