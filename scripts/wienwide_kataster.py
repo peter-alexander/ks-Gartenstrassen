@@ -56,6 +56,9 @@ def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
 	report = read_json(kataster_dir/"kataster_bericht.json")
 	if report.get("zoom") != ZOOM:
 		raise ValueError("Katasterbericht benötigt Zoomstufe 16")
+	if report.get("fmzk_kern_klassen") != sorted(CORE_CODES):
+		raise ValueError("Katasterbericht mit veralteten FMZK-Kernklassen; "
+			"Katasterstufe unter neuer Ausgabe neu berechnen")
 	bbox = report.get("bbox_lon_lat")
 	expected_bbox = manifest.get("bbox_lon_lat")
 	if (not isinstance(bbox,list) or not isinstance(expected_bbox,list)
