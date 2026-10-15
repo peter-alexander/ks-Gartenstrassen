@@ -23,12 +23,12 @@ from scripts.fmzk_source import FMZK_GROUND_GREEN_CODES, load_polygons
 DEFAULT_SOURCE = Path("data/processed/fmzk_test.gpkg")
 DEFAULT_OUTPUT = Path("data/processed/street_space")
 
-# Sicher erkennbarer Kern öffentlicher Verkehrsflächen – bewusst NICHT
+# Vorläufiger FMZK-Verkehrsflächenkern einschließlich Klasse 25 (Gehweg/Radweg) – NICHT
 # als vollständige Grenze des öffentlichen Straßenraums ausgeben.
 CORE_CODES = frozenset(CORE_CLASSES)
 GREEN_CODES = FMZK_GROUND_GREEN_CODES
 AMBIGUOUS_CODES = frozenset((59,))
-PRIVATE_CONTEXT_CODES = frozenset((25, 26, 51))
+PRIVATE_CONTEXT_CODES = frozenset((26, 51))
 REVIEW_CODES = CORE_CODES | GREEN_CODES | AMBIGUOUS_CODES | PRIVATE_CONTEXT_CODES
 CANDIDATE_CODES = GREEN_CODES | AMBIGUOUS_CODES
 CANDIDATE_FIELDS = (
@@ -38,7 +38,7 @@ CANDIDATE_FIELDS = (
 	"einbettung", "mehrseitiger_kontakt", "gegenueber_verschiedene_klassen",
 	"kontaktklassen", "kontakt_sektoren", "kontakt_rand_pct",
 	"richtung_ungeklaert_m", "kontakt_21_m", "kontakt_23_m",
-	"kontakt_24_m", "kontakt_33_m", "kontakt_39_m",
+	"kontakt_24_m", "kontakt_25_m", "kontakt_33_m", "kontakt_39_m",
 )
 
 
@@ -73,7 +73,7 @@ def build_review(features, *, tolerance_m=0.25, near_m=2.0, min_contact_m=0.5,
 		raise ValueError("Unzulässige Prüfdistanzen")
 	core_shapes = [geom for _, code, _, geom in features if code in CORE_CODES]
 	if not core_shapes:
-		raise ValueError("Keine Kernflächen (21/23/24/33/39) im Testausschnitt")
+		raise ValueError(f"Keine Kernflächen {sorted(CORE_CODES)} im Testausschnitt")
 	core = union_all(core_shapes)
 	if core.is_empty or core.area <= 0:
 		raise ValueError("Vereinigte Kernfläche leer")
