@@ -178,6 +178,105 @@ def connect(path, *, readonly=True):
 	return connection
 
 
+
+# Die kleine GIP-Probe bleibt unverändert streng. Der wienweite Import
+# darf nur tatsächlich identische, innerhalb EINER Kachel wiederholte
+# WFS-Objekte vor dem vorhandenen prepare_graph zusammenfassen.
+# Unterschiedliche Geometrien/Attribute derselben ID bleiben harte Fehler.
+_NON_SEMANTIC_VIEW_FIELDS = frozenset((
+	"wfs_id", "wfs_bbox_nur_huelle",
+	"wfs_bbox_numerischer_randabstand_m", "status",
+))
+
+
+def _source_properties(feature):
+	props = feature["properties"]
+	return {key: value for key, value in props.items()
+		if key not in _NON_SEMANTIC_VIEW_FIELDS}
+
+
+def deduplicate_tile_view(features, *, kind, tile_id):
+	"""Nur nachweislich identische Features derselben Kachel entfernen.
+
+	Nicht bei GIP-ID-Gleichheit allein deduplizieren: verschiedene
+	Teilgeometrien sind eine Dateninkonsistenz und werden NICHT vereinigt.
+	Der ursprüngliche GIP-WFS-Cache bleibt unverändert.
+	"""
+	if kind not in ("achsen", "knoten"):
+		raise ValueError(f"Unbekannter GIP-Layertyp: {kind}")
+	seen = {}
+	unique = []
+	duplicates = 0
+	for index, feature in enumerate(features):
+		props = feature["properties"]
+		gid = str(props["gip_objectid"])
+		if gid not in seen:
+			seen[gid] = (index, feature)
+			unique.append(feature)
+			continue
+		first_index, first = seen[gid]
+		same_attributes = _source_properties(first) == _source_properties(feature)
+		first_geometry = shape(first["geometry"])
+		current_geometry = shape(feature["geometry"])
+		same_geometry = first_geometry.equals_exact(current_geometry, 0)
+		if not (same_attributes and same_geometry):
+			mismatching_keys = sorted(
+				key for key in set(_source_properties(first)) | set(_source_properties(feature))
+				if _source_properties(first).get(key) != _source_properties(feature).get(key)
+			)
+			raise ValueError(
+				f"{tile_id}: GIP-{kind}-ID {gid} mehrfach in derselben Kachel "
+				f"(Features {first_index}/{index}, "
+				f"WFS-IDs {first.get('id')!r}/{feature.get('id')!r}); "
+				f"Attribute abweichend: {mismatching_keys}; "
+				f"Geometrie identisch: {same_geometry}; "
+				"nicht automatisch vereinigen – mit 'diagnose' prüfen"
+			)
+		duplicates += 1
+	return unique, duplicates
+
+
+def diagnose_id(manifest_path, root, gip_id):
+	"""GIP-ID in allen verifizierten Wien-Kachelansichten offline untersuchen."""
+	manifest, _aoi = read_manifest(manifest_path)
+	root = Path(root)
+	occurrences = []
+	gip_id = str(gip_id).strip()
+	if not gip_id:
+		raise ValueError("GIP-ID fehlt")
+	for tile in manifest["tiles"]:
+		folder = root / tile["id"]
+		meta_path = folder / REPORT
+		report = json.loads(meta_path.read_text(encoding="utf-8"))
+		if report.get("tile_id") != tile["id"]:
+			raise ValueError(f"Unpassender GIP-Kachelbericht: {tile['id']}")
+		for kind, filename in (("achsen", AXES), ("knoten", NODES)):
+			source = folder / filename
+			if checksum(source) != report["sha256"][kind]:
+				raise ValueError(f"{tile['id']}: GIP-Cache-Hash abweichend")
+			for index, feature in enumerate(_read_features(source)):
+				props = feature["properties"]
+				if str(props.get("gip_objectid")) != gip_id:
+					continue
+				geom = shape(feature["geometry"])
+				occurrences.append({
+					"tile_id": tile["id"], "layer": kind,
+					"index": index, "wfs_id": feature.get("id"),
+					"name": props.get("name"),
+					"fow": props.get("fow"),
+					"node_from": props.get("node_from"),
+					"node_to": props.get("node_to"),
+					"bbox_4326": list(geom.bounds),
+					"length_degrees": geom.length if kind == "achsen" else None,
+					"geometry_wkt": geom.wkt,
+					"properties": _source_properties(feature),
+				})
+	# Die Diagnose darf Varianten sichtbar machen, nicht bereits filtern.
+	return {"gip_id": gip_id, "vorkommen": len(occurrences),
+		"betroffene_kacheln": sorted({r["tile_id"] for r in occurrences}),
+		"fundstellen": occurrences}
+
+
 def build_index(manifest_path, root, output):
 	"""Zentrale Quelle aller GIP-IDs und Voronoi-Sites mit SQLite-RTree.
 
@@ -238,6 +337,12 @@ def build_index(manifest_path, root, output):
 				folder=root/tile["id"]
 				features_a=_read_features(folder/AXES)
 				features_n=_read_features(folder/NODES)
+				features_a,skipped_a=deduplicate_tile_view(features_a,
+					kind="achsen",tile_id=tile["id"])
+				features_n,skipped_n=deduplicate_tile_view(features_n,
+					kind="knoten",tile_id=tile["id"])
+				duplicates["identische_achsen_in_kachel"]+=skipped_a
+				duplicates["identische_knoten_in_kachel"]+=skipped_n
 				axes,nodes=prepare_graph(features_a,features_n)
 				for item in axes:
 					old=db.execute("SELECT pk,name,fow,node_from,node_to,wkb FROM axes WHERE gip=?",
@@ -344,15 +449,23 @@ def main():
 	b.add_argument("--manifest",type=Path,required=True)
 	b.add_argument("--fragments",type=Path,required=True)
 	b.add_argument("--out",type=Path,required=True)
+	d=sub.add_parser("diagnose",help="Eine GIP-ID in allen lokalen Kacheln prüfen")
+	d.add_argument("--manifest",type=Path,required=True)
+	d.add_argument("--fragments",type=Path,required=True)
+	d.add_argument("--gip-id",required=True)
+
 	args=p.parse_args()
 	try:
 		if args.action=="fetch":
 			result=fetch_all(args.manifest,args.out_dir,max_features=args.max_features,
 				limit_tiles=args.limit_tiles)
-		else:
+		elif args.action=="index":
 			result=build_index(args.manifest,args.fragments,args.out)
-		print(json.dumps({"result":result if args.action=="index"
-			else {"tiles":len(result),"complete":args.limit_tiles is None}},
+		else:
+			result=diagnose_id(args.manifest,args.fragments,args.gip_id)
+		print(json.dumps({"result":
+			{"tiles":len(result),"complete":args.limit_tiles is None}
+			if args.action=="fetch" else result},
 			ensure_ascii=False,indent=2))
 	except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as e:
 		p.exit(1,f"Fehler: {e}\n")
