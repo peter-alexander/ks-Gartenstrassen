@@ -22,6 +22,7 @@ from shapely.wkb import dumps,loads
 from scripts.export_fmzk_strassenraum import (
 	classify_fmzk, STREET_CLASSIFICATION_VERSION,
 )
+from scripts.fmzk_source import NO_AREA_EVENT, REPAIRED_EVENT
 from scripts.wienwide_kataster import read_native_kataster_masks
 from scripts.fmzk_source import load_polygons
 from scripts.wienwide_grid import read_manifest, checksum
@@ -119,7 +120,11 @@ def build_tile(tile, aoi, *, root, out, halo, cache_dir=Path("data/cache/kataste
 		"strassenraum_regel_version":STREET_CLASSIFICATION_VERSION,
 		"nachweislich_ohne_strassenraum":geometry.is_empty,
 		"kataster_bericht_sha256":checksum(kataster/"kataster_bericht.json"),
-		"flaechen_fmzk":len(features),"reparaturen_fmzk":len(repairs),
+		"flaechen_fmzk":len(features),
+		"fmzk_quell_features":manifest["feature_count"],
+		"reparaturen_fmzk":sum(e["status"] == REPAIRED_EVENT for e in repairs),
+		"fmzk_flaechenlos_ausgeschlossen":sum(e["status"] == NO_AREA_EVENT for e in repairs),
+		"fmzk_geometrieereignisse":repairs,
 		"zuordnung_anzahl":dict(Counter(x[0] for x in classified)),
 		"kataster_status":mask_stats,
 		"beschreibung":"Metrische V0-Basis: FMZK-Kern 21/23/24/25/33/39 + nfl 95/65; "
