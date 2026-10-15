@@ -50,7 +50,8 @@ class WienwideKatasterTests(unittest.TestCase):
 
 	def _report(self, *, grundstuecke=1, tiles=None):
 		self.report={
-			"zoom":16,"bbox_lon_lat":self.bbox,
+			"zoom":16,"fmzk_kern_klassen":[21,23,24,25,33,39],
+			"bbox_lon_lat":self.bbox,
 			"grundstuecke":grundstuecke,
 			"tiles_abgerufen":[list(t) for t in (tiles or self.tiles)]}
 		(self.kat/"kataster_bericht.json").write_text(
@@ -73,6 +74,14 @@ class WienwideKatasterTests(unittest.TestCase):
 		self.assertEqual(stats["bev_cache_anzahl"],1)
 		self.assertIn("16/35000/23000",stats["bev_cache_sha256"])
 		self.assertIn("direkt-metrisch",stats["quelle"])
+
+	def test_old_kataster_core_codes_are_rejected(self):
+		self.report.pop("fmzk_kern_klassen")
+		(self.kat/"kataster_bericht.json").write_text(
+			json.dumps(self.report), encoding="utf-8")
+		with self.assertRaisesRegex(ValueError, "veralteten FMZK-Kernklassen"):
+			read_native_kataster_masks(self.kat,self.clip,self.fmzk,
+				self.manifest,self.cache)
 
 	def test_offline_cache_required_even_with_valid_report(self):
 		p=self.cache/"tiles"/"16"/"35000"/"23000.pbf"
@@ -121,6 +130,7 @@ class WienwideKatasterTests(unittest.TestCase):
 			"tile_id":"first","aoi_area_m2":10000,
 			"strassenraum_m2":100,
 			"halo_m":75,"fmzk_sha256":checksum(fmzk),
+			"strassenraum_regel_version":"fmzk-core-21-23-24-25-33-39-nfl-95-65-v2",
 			"kataster_bericht_sha256":checksum(report),
 			"kataster_status":{"bev_cache_sha256":{
 				"16/35000/23000":checksum(source)}},
@@ -155,6 +165,20 @@ class WienwideKatasterTests(unittest.TestCase):
 			check_existing_tile(tile,aoi,input_root=input_root,
 				output_root=output,halo=75,cache_dir=self.cache)
 		self.assertTrue(street.exists())
+
+	def test_resume_rejects_old_method_even_with_unchanged_fmzk(self):
+		aoi=box(0,0,100,100)
+		tile={"id":"first","bounds_31256":[0,0,100,100]}
+		street=self.root/"out"/"first"/"street.sqlite"
+		save_street_tile(street,box(10,10,20,20),{
+			"schema_version":"1","crs":"EPSG:31256",
+			"tile_id":"first","aoi_area_m2":10000,
+			"strassenraum_m2":100,"halo_m":75,
+			"strassenraum_regel_version":"alte-regel",
+		})
+		with self.assertRaisesRegex(ValueError, "alter Klassifikationsregel"):
+			check_existing_tile(tile,aoi,input_root=self.root/"inputs",
+				output_root=self.root/"out",halo=75,cache_dir=self.cache)
 
 	def test_wienwide_street_build_uses_only_metric_cache(self):
 		inputs=self.root/"inputs"
