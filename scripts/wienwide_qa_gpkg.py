@@ -206,6 +206,9 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 				raise ValueError(f"Unbekannte Ergebnis-Kachel {tid}")
 			street=street_root/tid/"street.sqlite"
 			street_sha=checksum(street)
+			from scripts.wienwide_street import load_street_tile
+			core=box(*tile_map[tid]["bounds_31256"]).intersection(aoi)
+			load_street_tile(street,core)  # prüft auch die FMZK-Regelversion
 			if street_sha!=row["street_sha256"]:
 				raise ValueError(f"{tid}: Straßenraum-Quelldatei verändert")
 			street_checks[tid]=street_sha
