@@ -65,9 +65,11 @@ class StreetEmbeddingTest(unittest.TestCase):
 			(1, 21, "Fahrbahn", box(0, 0, 1, 1)),
 			(2, 58, "Grünfläche", box(1, 0, 2, 1)),
 			(3, 39, "Sonstige Verkehrsfläche", box(0, 1, 1, 2)),
+			(4, 25, "Gehweg, Radweg", box(2, 1, 3, 2)),
 		]
 		surfaces = make_contact_surfaces(features)
-		self.assertEqual(set(surfaces), {21, 39})
+		self.assertEqual(set(surfaces), {21, 25, 39})
+		self.assertAlmostEqual(surfaces[25].area, 1)
 		self.assertAlmostEqual(surfaces[21].area, 1)
 		with self.assertRaisesRegex(ValueError, "Keine Straßenkernklassen"):
 			make_contact_surfaces(features[1:2])
