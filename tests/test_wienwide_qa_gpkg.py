@@ -41,7 +41,8 @@ class WienQaGpkgTests(unittest.TestCase):
 		self.street_path=self.street_root/self.tile["id"]/"street.sqlite"
 		save_street_tile(self.street_path,self.aoi,{
 			"schema_version":"1","crs":"EPSG:31256",
-			"tile_id":self.tile["id"]})
+			"tile_id":self.tile["id"],
+			"strassenraum_regel_version":"fmzk-core-21-23-24-25-33-39-nfl-95-65-v2"})
 		self.gip=self.root/"gip.sqlite"
 		with sqlite3.connect(self.gip) as db:
 			db.executescript("""CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT);
