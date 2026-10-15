@@ -106,7 +106,7 @@ for ((i=START;i<=END;i++)); do
 			"$PYTHON" -m scripts.wienwide_street fetch-inputs \
 				--manifest "$MANIFEST" --input-root "$INPUTS" \
 				--fmzk-source "$FMZK" --kataster-cache data/cache/kataster \
-				--max-parcels 1500;;
+				--max-parcels 2500;;
 		street)
 			"$PYTHON" -m scripts.wienwide_street build \
 				--manifest "$MANIFEST" --input-root "$INPUTS" \
