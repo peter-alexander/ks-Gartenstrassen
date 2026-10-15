@@ -113,6 +113,54 @@ hat die oben beschriebene reine REG_STRNAME-Variante gezeigt. Bei einem
 **weiteren** Konflikt erlaubt derselbe Diagnosebefehl die gezielte
 Untersuchung; Geometrieabweichungen bleiben weiterhin ein Abbruchgrund.
 
+## FMZK-Zuschnitt mit flächenlosen Quell-Features (15.10.2026)
+
+Der erste vollständige Wien-Eingabelauf erreichte nach der erfolgreich
+fertiggestellten Kachel x-000007_y+000332 die folgende Kachel
+x-000006_y+000332. Deren FMZK-Zuschnitt enthielt 5784 Features.
+Der nachfolgende Katasterlauf meldete bei FID **163939** eine
+"flächenlose oder nicht-polygonale Geometrie". Aus dem Fehler allein
+ist **nicht belegbar**, ob die betroffene Geometrie bereits im Original
+flächenlos war oder erst beim BBOX-Zuschnitt so wurde.
+
+Der gemeinsame **fmzk_source.load_polygons**-Reader behandelt deshalb
+streng nach dem tatsächlich verbleibenden Areal:
+
+- Polygonale gültige Geometrie mit positiver Fläche wird verarbeitet,
+  **auch wenn die Fläche extrem klein ist** (kein 100-m²-Filter hier).
+- Ungültige Geometrie wird wie bisher mit shapely.make_valid geprüft;
+  eine positiv-flächige reparierte Polygongeometrie wird erhalten.
+- Geometrien, die auch nach etwaiger Reparatur **keine positive
+  Polygonfläche** haben, werden nur von der Berechnung ausgenommen.
+  FID, Klasse, Geometrietyp und Grund erscheinen in der Konsole sowie
+  in den Kataster- und Straßenraum-Berichten unter
+  fmzk_geometrieereignisse. Das FMZK-GeoPackage bleibt unverändert.
+- Positiv-flächige Geometrien mit ungeeigneter Geometriestruktur,
+  verlorene Features gegenüber dem Extraktionsmanifest oder fehlende
+  Klassenattribute führen **weiterhin zum Abbruch**.
+- Die Anzahl der tatsächlich gelesenen **GPKG-Rohfeatures** muss exakt
+  zur ursprünglichen feature_count des Extraktionsmanifests passen.
+  Ohne Flächenbeitrag ausgeschlossene FIDs bleiben einzeln in der
+  Bilanz aufgeführt.
+
+Der erfolgreiche Katasterbericht vor dem Abbruch zeigt **111 x D**.
+Das bedeutet nur, dass keine optionalen vollständigen
+Grundstücks-API-Details abgefragt wurden; die Vektorkacheln mit
+Nutzungsflächen sind trotzdem verfügbar. D ist hier kein Hindernis
+für die Straßenraumvorstufe.
+
+Der unterbrochene Lauf kann mit vorhandenem FMZK-Zuschnitt und
+geprüftem BEV-Cache direkt wiederaufgenommen werden:
+
+~~~bash
+git pull --ff-only
+bash scripts/run-wien-gartenstrassen.sh --from inputs --until inputs
+~~~
+
+Vorherige Ausgaben müssen **nicht gelöscht** werden. Ein vollständiger
+neuer Wien-Eingabelauf wurde nach der Anpassung **noch nicht
+verifiziert**.
+
 ## Pfade und Parameter
 
 | Element | Standard |
