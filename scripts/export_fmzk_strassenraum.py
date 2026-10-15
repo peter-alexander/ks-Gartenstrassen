@@ -68,6 +68,9 @@ def read_kataster_masks(kataster_dir, clip, manifest):
 	report = read_json(kataster_dir / "kataster_bericht.json")
 	if report.get("zoom") != 16:
 		raise ValueError("Katasterdaten müssen von Zoomstufe 16 stammen")
+	if report.get("fmzk_kern_klassen") != sorted(CORE_CODES):
+		raise ValueError("Katasterbericht basiert auf veralteten FMZK-Kernklassen; "
+			"Katasterausgabe für neue Straßenraumregel neu erstellen")
 	bbox = report.get("bbox_lon_lat")
 	if not isinstance(bbox, list) or len(bbox) != 4 or any(
 		abs(float(a) - float(b)) > 1e-8 for a, b in zip(bbox, manifest["bbox_lon_lat"])
