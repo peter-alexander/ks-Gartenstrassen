@@ -149,6 +149,15 @@ def load_polygons(source):
 		raise ValueError("FMZK-Flächenbilanz: unbearbeitete Quell-Features")
 	if not features:
 		raise ValueError(f"FMZK-Ausschnitt {source} enthält keine Flächen")
+	collections = [item["id"] for item in events
+		if item["status"] == COLLECTION_EVENT]
+	if collections:
+		ids = ",".join(map(str, collections[:20]))
+		if len(collections) > 20:
+			ids += ",..."
+		print(f"FMZK-Hinweis: {source}: {len(collections)} "
+			f"GeometryCollections mit erhaltener Polygonfläche, IDs: {ids}; "
+			"Details im Kataster-/Straßenraum-Bericht")
 	excluded = [item["id"] for item in events if item["status"] == NO_AREA_EVENT]
 	if excluded:
 		identifiers = ",".join(map(str, excluded[:20]))
