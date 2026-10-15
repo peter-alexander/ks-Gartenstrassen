@@ -14,7 +14,7 @@ from shapely import union_all
 from shapely.geometry import GeometryCollection, LineString, MultiLineString, Point
 from shapely.prepared import prep
 
-CORE_CLASSES = (21, 23, 24, 33, 39)
+CORE_CLASSES = (21, 23, 24, 25, 33, 39)
 DIRECTIONS = ("O", "NO", "N", "NW", "W", "SW", "S", "SO")
 
 
