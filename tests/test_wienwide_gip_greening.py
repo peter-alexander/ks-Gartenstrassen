@@ -61,6 +61,7 @@ class WienwideGreeningTests(unittest.TestCase):
 		save_street_tile(self.street/self.tile["id"]/"street.sqlite",
 			aoi,{"schema_version":"1","crs":"EPSG:31256",
 				"tile_id":self.tile["id"],
+				"strassenraum_regel_version":"fmzk-core-21-23-24-25-33-39-nfl-95-65-v2",
 				"fmzk_sha256":checksum(self.fmzk)})
 		self.gip=self.root/"gip.sqlite"
 		with sqlite3.connect(self.gip) as db:
