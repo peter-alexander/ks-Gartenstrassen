@@ -195,12 +195,25 @@ def _source_properties(feature):
 		if key not in _NON_SEMANTIC_VIEW_FIELDS}
 
 
-def deduplicate_tile_view(features, *, kind, tile_id):
-	"""Nur nachweislich identische Features derselben Kachel entfernen.
+def _graph_properties(feature, *, kind):
+	"""GIP-Graphattribute ohne WFS-Ansichtsmetadaten und Routennummer.
 
-	Nicht bei GIP-ID-Gleichheit allein deduplizieren: verschiedene
-	Teilgeometrien sind eine Dateninkonsistenz und werden NICHT vereinigt.
-	Der ursprüngliche GIP-WFS-Cache bleibt unverändert.
+	REG_STRNAME bezeichnet eine Straßenroute (z.B. B12 und B13a).
+	Sie kann für genau dieselbe physische GIP-Achse unterschiedlich sein.
+	Die Zuordnung beider Quellen bleibt im Index gesondert erhalten.
+	"""
+	result = _source_properties(feature)
+	if kind == "achsen":
+		result.pop("reg_strname", None)
+	return result
+
+
+def deduplicate_tile_view(features, *, kind, tile_id, audit=None):
+	"""Identische physische Features innerhalb einer Kachel deduplizieren.
+
+	Die einzige erlaubte Abweichung bei Achsen ist REG_STRNAME.
+	Geometrie, Topologie und alle übrigen fachlichen Attribute
+	müssen exakt übereinstimmen; der lokale Quellcache bleibt unverändert.
 	"""
 	if kind not in ("achsen", "knoten"):
 		raise ValueError(f"Unbekannter GIP-Layertyp: {kind}")
@@ -215,14 +228,16 @@ def deduplicate_tile_view(features, *, kind, tile_id):
 			unique.append(feature)
 			continue
 		first_index, first = seen[gid]
-		same_attributes = _source_properties(first) == _source_properties(feature)
+		first_graph_props = _graph_properties(first, kind=kind)
+		current_graph_props = _graph_properties(feature, kind=kind)
+		same_attributes = first_graph_props == current_graph_props
 		first_geometry = shape(first["geometry"])
 		current_geometry = shape(feature["geometry"])
 		same_geometry = first_geometry.equals_exact(current_geometry, 0)
 		if not (same_attributes and same_geometry):
 			mismatching_keys = sorted(
-				key for key in set(_source_properties(first)) | set(_source_properties(feature))
-				if _source_properties(first).get(key) != _source_properties(feature).get(key)
+				key for key in set(first_graph_props) | set(current_graph_props)
+				if first_graph_props.get(key) != current_graph_props.get(key)
 			)
 			raise ValueError(
 				f"{tile_id}: GIP-{kind}-ID {gid} mehrfach in derselben Kachel "
@@ -233,6 +248,9 @@ def deduplicate_tile_view(features, *, kind, tile_id):
 				"nicht automatisch vereinigen – mit 'diagnose' prüfen"
 			)
 		duplicates += 1
+		if (kind == "achsen" and audit is not None
+			and first["properties"].get("reg_strname") != props.get("reg_strname")):
+			audit["routenvarianten_in_kachel"] += 1
 	return unique, duplicates
 
 
@@ -331,18 +349,61 @@ def build_index(manifest_path, root, output):
 				CREATE VIRTUAL TABLE site_spatial USING rtree(pk,minx,maxx,miny,maxy);
 				CREATE INDEX sites_by_axis ON sites(axis_pk);
 				CREATE TABLE node_degrees(gip TEXT PRIMARY KEY,degree INTEGER NOT NULL);
+				-- Amtliche WFS-Feature-IDs und alternative Routenbezeichnungen
+				-- nachvollziehbar erhalten; geometrisch nur eine GIP-Achse.
+				CREATE TABLE axis_source_variants(
+					gip TEXT NOT NULL,
+					wfs_id TEXT NOT NULL,
+					reg_strname TEXT NOT NULL,
+					kachel_vorkommen INTEGER NOT NULL CHECK(kachel_vorkommen >= 1),
+					PRIMARY KEY(gip,wfs_id,reg_strname));
 			""")
 			duplicates=Counter()
+			axis_view_reference={}
 			for tile in manifest["tiles"]:
 				folder=root/tile["id"]
-				features_a=_read_features(folder/AXES)
+				raw_axes=_read_features(folder/AXES)
 				features_n=_read_features(folder/NODES)
-				features_a,skipped_a=deduplicate_tile_view(features_a,
-					kind="achsen",tile_id=tile["id"])
+				features_a,skipped_a=deduplicate_tile_view(raw_axes,
+					kind="achsen",tile_id=tile["id"],audit=duplicates)
 				features_n,skipped_n=deduplicate_tile_view(features_n,
 					kind="knoten",tile_id=tile["id"])
 				duplicates["identische_achsen_in_kachel"]+=skipped_a
 				duplicates["identische_knoten_in_kachel"]+=skipped_n
+				# Die Quellvarianten über ALLE Kacheln erfassen, auch wenn
+				# die physische Achse bereits aus einer anderen Kachel
+				# in der zentralen GIP-Tabelle vorhanden ist.
+				for feature in raw_axes:
+					props=feature["properties"]
+					gid=str(props["gip_objectid"])
+					source_id=str(feature.get("id") or props.get("wfs_id") or "")
+					route=props.get("reg_strname")
+					db.execute("""INSERT INTO axis_source_variants
+						(gip,wfs_id,reg_strname,kachel_vorkommen)
+						VALUES (?,?,?,1)
+						ON CONFLICT(gip,wfs_id,reg_strname) DO UPDATE
+						SET kachel_vorkommen=kachel_vorkommen+1""",
+						(gid,source_id,str(route) if route is not None else ""))
+				# Neben Geometrie/Topologie auch alle weiteren technischen
+				# Graphattribute über Kachelgrenzen hinweg strikt prüfen.
+				# Nur REG_STRNAME darf verschieden sein.
+				for feature in features_a:
+					gid=str(feature["properties"]["gip_objectid"])
+					first=axis_view_reference.get(gid)
+					if first is None:
+						axis_view_reference[gid]=(tile["id"],feature)
+						continue
+					first_tile,reference=first
+					left=_graph_properties(reference,kind="achsen")
+					right=_graph_properties(feature,kind="achsen")
+					identical=shape(reference["geometry"]).equals_exact(
+						shape(feature["geometry"]),0)
+					if left != right or not identical:
+						changed=sorted(key for key in set(left)|set(right)
+							if left.get(key)!=right.get(key))
+						raise ValueError(f"{tile['id']}: GIP-Achse {gid} "
+							f"weicht von {first_tile} ab; Attribute: {changed}; "
+							f"Geometrie identisch: {identical}")
 				axes,nodes=prepare_graph(features_a,features_n)
 				for item in axes:
 					old=db.execute("SELECT pk,name,fow,node_from,node_to,wkb FROM axes WHERE gip=?",
@@ -415,13 +476,21 @@ def build_index(manifest_path, root, output):
 			if site_count==0:
 				raise ValueError("GIP-AOI liefert keine einzige Voronoi-Stützstelle; "
 					"Quellen und Bezugsgebiet prüfen")
+			routes_multiple=db.execute("""SELECT COUNT(*) FROM (
+				SELECT gip FROM axis_source_variants
+				GROUP BY gip HAVING COUNT(DISTINCT reg_strname)>1)""").fetchone()[0]
+			source_variants=db.execute(
+				"SELECT COUNT(*) FROM axis_source_variants").fetchone()[0]
 			stats={
-				"schema_version":SCHEMA,"manifest_sha256":checksum(manifest_path),
+				"schema_version":SCHEMA,"index_schema_version":2,
+				"manifest_sha256":checksum(manifest_path),
 				"tile_count":len(manifest["tiles"]),"fragment_hashes":digests,
 				"achsen":db.execute("SELECT COUNT(*) FROM axes").fetchone()[0],
 				"knoten":db.execute("SELECT COUNT(*) FROM nodes").fetchone()[0],
 				"voronoi_sites":site_count,
 				"duplikate_zusammengefuehrt":dict(duplicates),
+				"achsen_mit_mehreren_reg_strname":routes_multiple,
+				"achsen_quellvarianten":source_variants,
 				"sampling_m":5,"knotenradius_m":7,"max_axis_distance_m":25,
 				"status":"Vollständiger Cache der im AOI-Raster angefragten GIP-WFS-Kacheln; "
 					"noch keine Aussage über amtliche Graphvollständigkeit",
