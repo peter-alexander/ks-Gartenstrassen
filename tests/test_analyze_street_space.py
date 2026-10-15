@@ -213,18 +213,66 @@ class StreetSpaceTest(unittest.TestCase):
 			with self.assertRaisesRegex(ValueError,"Feature-Anzahl 2 != Manifest 1"):
 				load_polygons(path)
 
-	def test_positive_area_geometry_collection_does_not_get_discarded(self):
+	def test_fmzk_782170_collection_preserves_all_polygon_area(self):
+		# GDAL-Clipping: positive Fläche plus angrenzende Randlinie
+		# (und optional weitere Polygone) innerhalb derselben FID.
 		with tempfile.TemporaryDirectory() as tmp:
+			first=self.rectangle(5,0,10,5)
+			second=self.rectangle(10,0,12,5)
 			path=make_gpkg(Path(tmp),[
-				(1, 21, self.rectangle(-5,-5,5,5)),
-				(2, 25, GeometryCollection([
-					self.rectangle(5,0,10,5),
+				(1,21,self.rectangle(-5,-5,5,5)),
+				(782170,25,GeometryCollection([
+					first,
+					second,
 					LineString([(self.x+5,self.y+5),
 						(self.x+15,self.y+5)]),
 				])),
 			])
+			features,manifest,_clip,events=load_polygons(path)
+			self.assertEqual(manifest["feature_count"],2)
+			self.assertEqual([f[0] for f in features],[1,782170])
+			self.assertEqual(len(events),1)
+			self.assertEqual(events[0]["status"],
+				"polygonanteile_aus_geometrycollection")
+			self.assertEqual(events[0]["id"],782170)
+			self.assertEqual(events[0]["f_klasse"],25)
+			self.assertEqual(events[0]["geometry_type"],"GeometryCollection")
+			self.assertAlmostEqual(events[0]["flaeche_original_m2"],35)
+			self.assertAlmostEqual(events[0]["flaeche_polygon_m2"],35)
+			self.assertAlmostEqual(features[1][3].area,35)
+			self.assertEqual(features[1][3].geom_type,"Polygon")
+			self.assertTrue(features[1][3].covers(first))
+			self.assertTrue(features[1][3].covers(second))
+
+	def test_nested_collection_with_small_positive_area_is_preserved(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			tiny=self.rectangle(5,0,5.001,0.001)
+			path=make_gpkg(Path(tmp),[
+				(1,21,self.rectangle(-5,-5,5,5)),
+				(782171,69,GeometryCollection([
+					GeometryCollection([tiny]),
+					LineString([(self.x+5,self.y+5),
+						(self.x+15,self.y+5)]),
+				])),
+			])
+			features,_manifest,_clip,events=load_polygons(path)
+			self.assertEqual(len(features),2)
+			self.assertGreater(features[1][3].area,0)
+			self.assertAlmostEqual(features[1][3].area,tiny.area,delta=1e-12)
+			self.assertEqual(events[0]["status"],
+				"polygonanteile_aus_geometrycollection")
+
+	def test_overlapping_collection_polygon_areas_raise_explicit_error(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			path=make_gpkg(Path(tmp),[
+				(1,21,self.rectangle(-5,-5,5,5)),
+				(782172,25,GeometryCollection([
+					self.rectangle(5,0,15,10),
+					self.rectangle(10,0,20,10),
+				])),
+			])
 			with self.assertRaisesRegex(ValueError,
-				"Nicht-Polygon mit positiver Fläche"):
+				"782172.*Flächenbilanz abweichend"):
 				load_polygons(path)
 
 	def test_invalid_source_polygon_repairs_logged(self):
