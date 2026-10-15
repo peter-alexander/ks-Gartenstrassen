@@ -25,6 +25,7 @@ from shapely.ops import transform
 
 from scripts.analyze_street_space import CORE_CODES, load_polygons
 from scripts.fmzk_source import NO_AREA_EVENT, REPAIRED_EVENT
+from scripts.wienwide_grid import checksum
 
 BASE = "https://kataster.bev.gv.at"
 DEFAULT_SOURCE = Path("data/processed/fmzk_test.gpkg")
@@ -421,10 +422,43 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 		raise ValueError("--refresh setzt --details voraus")
 	features, manifest, clip, geometry_events = load_polygons(source)
 	core_shapes = [geom for _, code, _, geom in features if code in CORE_CODES]
-	if not core_shapes:
-		raise ValueError("Keine FMZK-Kernflächen vorhanden")
-	core = union_all(core_shapes)
 	bbox = manifest["bbox_lon_lat"]
+	if not core_shapes:
+		# Im Wiener Rand-/Halo-Bereich kann ein korrekt extrahierter
+		# FMZK-Ausschnitt ausschließlich Nicht-Kernklassen enthalten.
+		# Nach der derzeitigen 95/65-Methode gibt es ohne Kern kein
+		# Grundstück, dessen BEV-Nutzungen als positiv nachgewiesen
+		# werden könnten. Keine BEV-Daten für eine Nullauswahl laden.
+		report = write_results(Path(output), [], [], [], [], bbox, [])
+		report.update({
+			"kein_fmzk_kern_im_ausschnitt": True,
+			"kataster_uebersprungen_ohne_kern": True,
+			"fmzk_sha256": checksum(source),
+			"fmzk_quell_features": manifest["feature_count"],
+			"fmzk_verwendete_polygone": len(features),
+			"fmzk_flaechenlos_ausgeschlossen": sum(
+				e["status"] == NO_AREA_EVENT for e in geometry_events),
+			"fmzk_repariert": sum(
+				e["status"] == REPAIRED_EVENT for e in geometry_events),
+			"fmzk_geometrieereignisse": geometry_events,
+			"detail_abfragen_online": False,
+			"detail_abbruchgrund": "",
+			"hinweis_kein_kern": (
+				"Vollständig gelesener FMZK-Ausschnitt ohne Klasse aus "
+				f"{sorted(CORE_CODES)}. Nach V0-Kern-/BEV-95/65-Regel "
+				"keine positiv nachgewiesene Straßenfläche; keine "
+				"BEV-Abrufe erforderlich. Keine amtliche Feststellung "
+				"von Nicht-Straßenraum."),
+		})
+		(Path(output) / "kataster_bericht.json").write_text(
+			json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+			encoding="utf-8")
+		print(f"FMZK-Ausschnitt: {len(features)} Polygone, keine "
+			"Straßenkernklassen; leere Katasterauswahl dokumentiert "
+			"(BEV nicht abgefragt).")
+		print(f"Ausgabe: {Path(output).resolve()}")
+		return report
+	core = union_all(core_shapes)
 	parcels, nfl, tiles = read_tiles(bbox, Path(cache), refresh=refresh,
 		offline=offline, max_tiles=max_tiles)
 	keys = [key for key, geometry in sorted(parcels.items())
@@ -438,6 +472,9 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 	)
 	results, polygons, uses = build_results(core, parcels, nfl, clip, details)
 	report = write_results(Path(output), results, polygons, uses, tiles, bbox, failures)
+	report["kein_fmzk_kern_im_ausschnitt"] = False
+	report["kataster_uebersprungen_ohne_kern"] = False
+	report["fmzk_sha256"] = checksum(source)
 	report["fmzk_quell_features"] = manifest["feature_count"]
 	report["fmzk_verwendete_polygone"] = len(features)
 	report["fmzk_flaechenlos_ausgeschlossen"] = sum(
