@@ -22,6 +22,7 @@ from shapely.wkb import dumps,loads
 from scripts.export_fmzk_strassenraum import (
 	classify_fmzk, STREET_CLASSIFICATION_VERSION,
 )
+from scripts.analyze_street_space import CORE_CODES
 from scripts.fmzk_source import NO_AREA_EVENT, REPAIRED_EVENT
 from scripts.wienwide_kataster import read_native_kataster_masks
 from scripts.fmzk_source import load_polygons
@@ -29,6 +30,26 @@ from scripts.wienwide_grid import read_manifest, checksum
 
 TO_LONLAT=Transformer.from_crs("EPSG:31256","EPSG:4326",
 	always_xy=True).transform
+
+
+def verified_empty_core_report(path, fmzk, *, require=False):
+	"""Nur einen echten, zur FMZK-Datei passenden Null-Kern-Cache zulassen."""
+	path, fmzk = Path(path), Path(fmzk)
+	report = json.loads(path.read_text(encoding="utf-8"))
+	empty = report.get("kein_fmzk_kern_im_ausschnitt") is True
+	if not empty:
+		if require:
+			raise ValueError(f"{path}: Katasterbericht bestätigt keine "
+				"nachgewiesen kernfreie FMZK-Kachel")
+		return False
+	if (report.get("fmzk_kern_klassen") != sorted(CORE_CODES)
+		or report.get("fmzk_sha256") != checksum(fmzk)
+		or report.get("grundstuecke") != 0
+		or report.get("tiles_abgerufen") != []
+		or report.get("kataster_uebersprungen_ohne_kern") is not True):
+		raise ValueError(f"{path}: Null-Kern-Bericht inkonsistent "
+			"oder FMZK-Quelldatei geändert")
+	return True
 
 
 def load_street_tile(path, core):
@@ -98,12 +119,32 @@ def build_tile(tile, aoi, *, root, out, halo, cache_dir=Path("data/cache/kataste
 	if not clip.covers(core.buffer(min(halo,20))):
 		raise ValueError(f"{tile['id']}: FMZK-Halo unvollständig; "
 			"größeren Ausschnitt extrahieren")
-	# Nur hier, wienweit: direkt die ursprünglichen BEV-z16-Kacheln
-	# metrisch aus dem verifizierten Offline-Cache lesen.
-	# Keine WGS84-GeoJSON-Rückprojektion bei dünnen nfl-Polygonen.
-	street,other,mask_stats=read_native_kataster_masks(
-		kataster,clip,features,manifest,cache_dir)
+	# Eine vollständige FMZK-Halokachel ohne einzige Kernklasse ist
+	# nach aktueller V0-Regel ein expliziter Nullfall. Kein BEV-Abruf.
+	# Die Dokumentation enthält die geprüfte Quell-Dateiprüfsumme.
+	has_core=any(code in CORE_CODES for _fid,code,_label,_geom in features)
+	report_path=kataster/"kataster_bericht.json"
+	if not has_core:
+		verified_empty_core_report(report_path,fmzk,require=True)
+		street,other=Polygon(),Polygon()
+		mask_stats={
+			"quelle":"kein_fmzk_kern_im_pruefausschnitt",
+			"bev_cache_sha256":{},
+			"betroffene_grundstuecke":0,
+			"hinweis":"Keine positiv nachgewiesene Straßenfläche nach V0; "
+				"keine amtliche Aussage über das Nichtvorhandensein",
+		}
+	else:
+		if verified_empty_core_report(report_path,fmzk):
+			raise ValueError(f"{tile['id']}: Kataster-Nullbericht "
+				"widerspricht tatsächlich vorhandenem FMZK-Kern")
+		# BEV-z16-Kacheln ohne WGS84-GeoJSON-Rückprojektion lesen.
+		street,other,mask_stats=read_native_kataster_masks(
+			kataster,clip,features,manifest,cache_dir)
 	classified=classify_fmzk(features,street,other,minimum_share=.95)
+	if not has_core and any(row[0]=="strassenraum" for row in classified):
+		raise ValueError(f"{tile['id']}: kernfreie FMZK-Kachel "
+			"enthält unerwartete positive Straßenflächen")
 	selected=[geom for target,_props,geom in classified
 		if target=="strassenraum" and geom.intersects(core)]
 	# Alle FMZK/BEV-Quellen müssen zuvor erfolgreich gelesen sein.
@@ -181,8 +222,15 @@ def check_existing_tile(tile, aoi, *, input_root, output_root, halo, cache_dir):
 		raise ValueError(f"{tile['id']}: FMZK-/Katasterquelle "
 			"seit der Berechnung verändert")
 	bev_hashes=masks.get("bev_cache_sha256") if isinstance(masks,dict) else None
-	if not isinstance(bev_hashes,dict) or not bev_hashes:
-		raise ValueError(f"{tile['id']}: ursprüngliche BEV-Cache-Hashes fehlen")
+	if (masks.get("quelle")=="kein_fmzk_kern_im_pruefausschnitt"
+		if isinstance(masks,dict) else False):
+		if (bev_hashes!={} or street_area!=0
+			or json.loads(meta.get("nachweislich_ohne_strassenraum","false")) is not True
+			or not verified_empty_core_report(report,fmzk,require=True)):
+			raise ValueError(f"{tile['id']}: inkonsistenter Null-Straßenraum-Cache")
+	else:
+		if not isinstance(bev_hashes,dict) or not bev_hashes:
+			raise ValueError(f"{tile['id']}: ursprüngliche BEV-Cache-Hashes fehlen")
 	for key,expected in bev_hashes.items():
 		tokens=key.split("/")
 		if len(tokens)!=3 or not all(token.isdigit() for token in tokens):
@@ -232,12 +280,13 @@ def prefetch_tile(tile, *, manifest, aoi, root, source, cache, offline=False,
 	# Grundstücksauswahlen nicht irrtümlich wiederverwenden.
 	kataster_report=kataster/"kataster_bericht.json"
 	if kataster_report.exists():
-		from scripts.analyze_street_space import CORE_CODES
 		cache_report=json.loads(kataster_report.read_text(encoding="utf-8"))
 		if cache_report.get("fmzk_kern_klassen")!=sorted(CORE_CODES):
 			raise ValueError(f"{tile['id']}: Kataster-Cache nutzt alte "
 				"FMZK-Kernklassen; neuen Eingabeordner für geänderte "
 				"Straßenraummethode verwenden")
+		if cache_report.get("kein_fmzk_kern_im_ausschnitt") is True:
+			verified_empty_core_report(kataster_report,fmzk,require=True)
 	if not kataster_report.exists():
 		analyze_kataster(fmzk,kataster,cache,offline=offline,
 			max_tiles=max_tiles,max_parcels=max_parcels)
