@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Alle Polygone des lokalen FMZK-Ausschnitts in zwei GeoJSONs aufteilen.
 
-Straßenraum: FMZK-Kern 21/23/24/33/39 oder Nicht-Kernfläche mit
+Straßenraum: FMZK-Kern 21/23/24/25/33/39 oder Nicht-Kernfläche mit
 mindestens 95 % räumlicher Deckung durch BEV-nfl 95/65 im Testausschnitt.
 Keine rechtliche Aussage über die Öffentlichkeit des Straßenraums.
 """
@@ -28,6 +28,9 @@ DEFAULT_KATASTER = Path("data/processed/kataster")
 DEFAULT_OUTPUT = Path("data/processed/street_space")
 STREET_USAGE_CODES = frozenset((65, 95))
 DEFAULT_MIN_SHARE = 0.95
+# Änderungen der Kernklassen ändern die Straßenraumfläche und invalidieren
+# sämtliche davon abgeleiteten Straßenraum-/GIP-/Begrünungs-Caches.
+STREET_CLASSIFICATION_VERSION = "fmzk-core-21-23-24-25-33-39-nfl-95-65-v2"
 
 
 def read_json(path, *, expect_collection=False):
@@ -223,7 +226,9 @@ def write_two_geojson(classified, source, output_dir, *, mask_stats, minimum_sha
 		"hinweis": "Vorläufige GIS-Zuordnung, kein Nachweis öffentlicher Widmung. 'Uebrige' enthält auch ungeklärte Straßenraumkandidaten.",
 		"quelle_fmzk": str(source),
 		"zeitpunkt": datetime.now(timezone.utc).isoformat(),
-		"regel": "Kernklassen immer Straßenraum; sonst ganze FMZK-Polygone bei hoher Deckung mit nfl 95/65; bei Widersprüchen konservativ übrige.",
+		"regel": "Kernklassen 21/23/24/25/33/39 immer Straßenraum; sonst ganze FMZK-Polygone bei hoher Deckung mit nfl 95/65; bei Widersprüchen konservativ übrige.",
+		"strassenraum_regel_version": STREET_CLASSIFICATION_VERSION,
+		"kern_klassen": sorted(CORE_CODES),
 		"min_strassenanteil": minimum_share,
 		"dateien": {k: str(v) for k, v in files.items()},
 		"fmzk_features_gesamt": len(classified),
