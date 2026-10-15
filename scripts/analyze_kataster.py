@@ -24,7 +24,7 @@ from shapely.geometry import box, mapping, shape
 from shapely.ops import transform
 
 from scripts.analyze_street_space import CORE_CODES, load_polygons
-from scripts.fmzk_source import NO_AREA_EVENT, REPAIRED_EVENT
+from scripts.fmzk_source import NO_AREA_EVENT, REPAIRED_EVENT, COLLECTION_EVENT
 from scripts.wienwide_grid import checksum
 
 BASE = "https://kataster.bev.gv.at"
@@ -440,6 +440,8 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 				e["status"] == NO_AREA_EVENT for e in geometry_events),
 			"fmzk_repariert": sum(
 				e["status"] == REPAIRED_EVENT for e in geometry_events),
+			"fmzk_collections_polygonalisiert": sum(
+				e["status"] == COLLECTION_EVENT for e in geometry_events),
 			"fmzk_geometrieereignisse": geometry_events,
 			"detail_abfragen_online": False,
 			"detail_abbruchgrund": "",
@@ -481,6 +483,8 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 		e["status"] == NO_AREA_EVENT for e in geometry_events)
 	report["fmzk_repariert"] = sum(
 		e["status"] == REPAIRED_EVENT for e in geometry_events)
+	report["fmzk_collections_polygonalisiert"] = sum(
+		e["status"] == COLLECTION_EVENT for e in geometry_events)
 	report["fmzk_geometrieereignisse"] = geometry_events
 	report["detail_abfragen_online"] = online_details
 	report["detail_abbruchgrund"] = disabled_reason
