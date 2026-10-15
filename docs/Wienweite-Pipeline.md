@@ -1,6 +1,6 @@
 # Wienweite Pipeline: vorbereitete Phasen 1 und 2
 
-**Stand 14.10.2026:** Der vollständige **Alsergrund-Pilot** wurde mit 10/10 Straßenraumkacheln, vollständiger GIP-V0-Partition und QA-GeoPackage erfolgreich durchgeführt. Er ist eine **technisch erfolgreiche Bezirksberechnung**, keine unabhängig fachlich validierte Straßengeometrie. Ein vollständiger Lauf für ganz Wien und echte Bezirksmesswerte der neu implementierten FMZK-/GRM-Begrünungsstufe stehen noch aus. Der bisherige kleine Modul-6-Test und seine V0-Daten bleiben unverändert.
+**Stand 15.10.2026:** Der vollständige **Alsergrund-Pilot** ist technisch erfolgreich: 10/10 Straßenraumkacheln, vollständige GIP-V0-Partition, QA-GeoPackage sowie reale FMZK-Bodenbegrünung und GRM2023-WMS-Kronenquoten für 586 reguläre GIP-IDs. Die Lagezuordnung und die WMS-basierte Kronenklassifizierung sind fachlich noch nicht unabhängig validiert. **Ganz Wien wurde noch nicht berechnet.** Der neue phasenweise Wien-Treiber samt 100-m²-Ausgabefilter ist unter [Wien-Gesamtlauf](Wien-Gesamtlauf.md) dokumentiert. Der kleine Modul-6-Test und seine V0-Daten bleiben unverändert.
 
 ## Gleichbleibende Methodik
 
@@ -649,7 +649,7 @@ Anschließend denselben Ablauf mit eigener AOI und getrennten Pfaden für Donaus
 - Der Quellstand muss konsistent sein. Die Katalog-/Daten-SHA werden zwischen Läufen geprüft. Wegen WFS-Änderungen während eines sehr langen Abrufs bleibt eine **zeitliche Snapshot-/Änderungsprüfung vor dem endgültigen Wien-Lauf** erforderlich.
 - Die bisherige Katasteranalyse nutzt BEV-z16 mit Grenzwerten für Kacheln und Grundstücke. Sie muss bei schwierigen Pilotkacheln anhand echter Fälle weiter abgesichert werden.
 - Der Benchmark-Zeitwert bezieht sich **nur auf lokale Voronoi-Partitionierung samt Kachel-Lesen**, **nicht** auf sämtliche FMZK-/BEV-/GIP-Downloads oder Kronenmethoden.
-- Die neuen Module `wienwide_grm2023` und `wienwide_gip_greening` erlauben nun die **kachelweise** GRM-Baumschicht- und FMZK-Bodenbegrünungsauswertung je GIP-ID. **Echte Alsergrund-Messwerte dieser Stufe stehen noch aus**, ebenso unabhängige Prüfungen der Rendererqualität und die wienweite Skalierung; Methoden A/B sind weiterhin nur für bisher vorhandene Testausschnitte verfügbar.
+- Die Module `wienwide_grm2023` und `wienwide_gip_greening` haben die **kachelweise** GRM2023-Baumschicht und FMZK-Bodenbegrünung für Alsergrund bereits real ausgewertet (586 GIP-IDs). Eine unabhängige Prüfung der WMS-Rendererqualität und der gesamte Wien-Lauf stehen noch aus; Methoden A/B sind weiterhin nur für bisher vorhandene Testausschnitte verfügbar.
 - **Keine** fertige Kartenkachel-/MBTiles-Erzeugung oder automatische Gartenstraßen-Klassifizierung in diesem Schritt.
 
 Die bisherigen 45 Testabschnitte und ihre Kennzahlen bleiben unverändert. Rohdaten liegen lokal unter data/ (Git-ignored) und gehören nicht in das öffentliche Repository.
