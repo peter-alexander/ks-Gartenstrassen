@@ -24,6 +24,7 @@ from shapely.geometry import box, mapping, shape
 from shapely.ops import transform
 
 from scripts.analyze_street_space import CORE_CODES, load_polygons
+from scripts.fmzk_source import NO_AREA_EVENT, REPAIRED_EVENT
 
 BASE = "https://kataster.bev.gv.at"
 DEFAULT_SOURCE = Path("data/processed/fmzk_test.gpkg")
@@ -418,7 +419,7 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 		raise ValueError("--offline und --details schließen sich aus")
 	if refresh and not online_details:
 		raise ValueError("--refresh setzt --details voraus")
-	features, manifest, clip, _ = load_polygons(source)
+	features, manifest, clip, geometry_events = load_polygons(source)
 	core_shapes = [geom for _, code, _, geom in features if code in CORE_CODES]
 	if not core_shapes:
 		raise ValueError("Keine FMZK-Kernflächen vorhanden")
@@ -437,6 +438,13 @@ def run(source=DEFAULT_SOURCE, output=DEFAULT_OUTPUT, cache=DEFAULT_CACHE,
 	)
 	results, polygons, uses = build_results(core, parcels, nfl, clip, details)
 	report = write_results(Path(output), results, polygons, uses, tiles, bbox, failures)
+	report["fmzk_quell_features"] = manifest["feature_count"]
+	report["fmzk_verwendete_polygone"] = len(features)
+	report["fmzk_flaechenlos_ausgeschlossen"] = sum(
+		e["status"] == NO_AREA_EVENT for e in geometry_events)
+	report["fmzk_repariert"] = sum(
+		e["status"] == REPAIRED_EVENT for e in geometry_events)
+	report["fmzk_geometrieereignisse"] = geometry_events
 	report["detail_abfragen_online"] = online_details
 	report["detail_abbruchgrund"] = disabled_reason
 	(Path(output) / "kataster_bericht.json").write_text(
