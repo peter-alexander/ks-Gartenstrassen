@@ -262,6 +262,46 @@ lokalen Cache. Sollte ihre Polygonanteilsbilanz abweichen, hält
 der neue Check mit Flächendifferenz ausdrücklich an; ohne diesen
 Befund wird kein Quellkonflikt wegkorrigiert.
 
+## Dichte Kataster-Kachel mit mehr als 1500 Kern-Treffern (16.10.2026)
+
+Der laufende Wiener Eingabedurchgang verarbeitete
+x-000006_y+000335 mit **9785 FMZK-Features** und **689**
+vom Kern getroffenen Grundstücken. Die nächste Kachel
+x-000005_y+000335 enthielt **18673 FMZK-Features**; ihre
+BEV-z16-Auswahl umfasst **1587 Kerngrundstücke**, bei
+ursprünglich maximal **1500** zulässigen Treffern.
+
+Dies ist eine absichtliche Ressourcenschutzgrenze, **kein
+Geometrie- oder Katasterfehler**. Da die Wiener
+1-km-Rasterkacheln mit 75-m-Halo bereits festliegen, kann der
+einzelne Ausschnitt nicht ohne Wechsel der Rastermethodik
+verkleinert werden.
+
+Ausschließlich scripts/run-wien-gartenstrassen.sh übergibt
+für die Wien-Phase inputs künftig **maximal 2500** an
+scripts.wienwide_street fetch-inputs; der allgemeine
+Kataster-Pilot bleibt bei **250**. Bestehende räumliche
+und BEV-Kachel-Grenzen bleiben unverändert. Die Option
+--details bleibt ausgeschaltet, sodass daraus **keine neuen
+Grundstücksdetail-API-Anfragen** entstehen. Falls eine weitere
+Wien-Kachel auch 2500 überschreitet, stoppt die Analyse weiterhin
+vor der Detail- und Ergebnisphase mit einem überprüfbaren
+Fehler. Keine unbegrenzte Verarbeitung.
+
+Nach dem Pull wird derselbe geprüfte lokale FMZK-Zuschnitt
+der unterbrochenen Kachel verwendet; die bereits
+fertigen Katasterberichte werden nicht neu berechnet:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_analyze_kataster.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from inputs --until inputs
+~~~
+
+Die reale Verarbeitung der 1587 Grundstücke sowie aller weiteren
+Wien-Kacheln ist nach Änderung des Limits **noch nicht verifiziert**.
+
 ## Pfade und Parameter
 
 | Element | Standard |
@@ -271,7 +311,7 @@ Befund wird kein Quellkonflikt wegkorrigiert.
 | Analyse | data/processed/wienweit/wien/ |
 | Raster | 1000 m, Halo 75 m |
 | GIP-V0 | Stützpunkte 5 m, Knotenradius 7 m, maximaler Achsabstand 25 m, regulär FOW=3 |
-| Kataster | 1500 Grundstücke je Analyse-Kachel als technisches Schutzlimit |
+| Kataster | 2500 vom FMZK-Kern getroffene Grundstücke je Wien-Analysekachel als explizites technisches Schutzlimit (lokaler Pilot weiterhin 250) |
 | GRM-GetMap | 0,5 s Pause zwischen neuen Abrufen |
 | Ergebnisfilter | Globale GIP-Abschnittsfläche ab 100 m² |
 
