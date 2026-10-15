@@ -19,7 +19,9 @@ from shapely import union_all
 from shapely.geometry import box, Polygon
 from shapely.wkb import dumps,loads
 
-from scripts.export_fmzk_strassenraum import classify_fmzk
+from scripts.export_fmzk_strassenraum import (
+	classify_fmzk, STREET_CLASSIFICATION_VERSION,
+)
 from scripts.wienwide_kataster import read_native_kataster_masks
 from scripts.fmzk_source import load_polygons
 from scripts.wienwide_grid import read_manifest, checksum
@@ -112,12 +114,13 @@ def build_tile(tile, aoi, *, root, out, halo, cache_dir=Path("data/cache/kataste
 		"tile_id":tile["id"],"aoi_area_m2":core.area,
 		"strassenraum_m2":geometry.area,
 		"halo_m":halo,"fmzk_sha256":checksum(fmzk),
+		"strassenraum_regel_version":STREET_CLASSIFICATION_VERSION,
 		"nachweislich_ohne_strassenraum":geometry.is_empty,
 		"kataster_bericht_sha256":checksum(kataster/"kataster_bericht.json"),
 		"flaechen_fmzk":len(features),"reparaturen_fmzk":len(repairs),
 		"zuordnung_anzahl":dict(Counter(x[0] for x in classified)),
 		"kataster_status":mask_stats,
-		"beschreibung":"Metrische V0-Basis: FMZK-Kern + nfl 95/65; "
+		"beschreibung":"Metrische V0-Basis: FMZK-Kern 21/23/24/25/33/39 + nfl 95/65; "
 			"95%-Regel unverändert; ohne amtliche Widmungsprüfung",
 	}
 	save_street_tile(path,geometry,statistics,allow_empty=geometry.is_empty)
@@ -145,6 +148,9 @@ def check_existing_tile(tile, aoi, *, input_root, output_root, halo, cache_dir):
 	uri="file:"+quote(str(path.resolve()),safe="/")+"?mode=ro"
 	with sqlite3.connect(uri,uri=True) as conn:
 		meta=dict(conn.execute("SELECT key,value FROM metadata"))
+	if meta.get("strassenraum_regel_version")!=STREET_CLASSIFICATION_VERSION:
+		raise ValueError(f"{tile['id']}: Straßenraum-Cache mit alter Klassifikationsregel; "
+			"neue Ausgabe unter neuem Arbeitsverzeichnis berechnen")
 	if (meta.get("schema_version")!="1"
 		or meta.get("crs")!="EPSG:31256"
 		or meta.get("tile_id")!=tile["id"]):
@@ -215,8 +221,17 @@ def prefetch_tile(tile, *, manifest, aoi, root, source, cache, offline=False,
 	if not fmzk.exists():
 		extract(source,fmzk,bbox)
 	# Mit Cache und ausdrücklich gesetzten Kachel-/Grundstückslimits
-	# keine unbeschränkten Abrufe.
-	if not (kataster/"kataster_bericht.json").exists():
+	# keine unbeschränkten Abrufe. Alte, ohne Klasse 25 erstellte
+	# Grundstücksauswahlen nicht irrtümlich wiederverwenden.
+	kataster_report=kataster/"kataster_bericht.json"
+	if kataster_report.exists():
+		from scripts.analyze_street_space import CORE_CODES
+		cache_report=json.loads(kataster_report.read_text(encoding="utf-8"))
+		if cache_report.get("fmzk_kern_klassen")!=sorted(CORE_CODES):
+			raise ValueError(f"{tile['id']}: Kataster-Cache nutzt alte "
+				"FMZK-Kernklassen; neuen Eingabeordner für geänderte "
+				"Straßenraummethode verwenden")
+	if not kataster_report.exists():
 		analyze_kataster(fmzk,kataster,cache,offline=offline,
 			max_tiles=max_tiles,max_parcels=max_parcels)
 	return {"tile":tile["id"],"fmzk":str(fmzk),"kataster":str(kataster)}
