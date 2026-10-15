@@ -348,6 +348,7 @@ def write_results(output, results, parcels_geojson, nfl_geojson, tiles, bbox, fa
 		"stand_auswertung": datetime.now(timezone.utc).isoformat(),
 		"bbox_lon_lat": list(bbox),
 		"zoom": ZOOM,
+		"fmzk_kern_klassen": sorted(CORE_CODES),
 		"tiles_abgerufen": [list(tile) for tile in tiles],
 		"grundstuecke": len(results),
 		"klassen": dict(sorted(tally.items())),
