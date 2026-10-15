@@ -36,6 +36,19 @@ class FmzkStreetExportTest(unittest.TestCase):
 		for feature, (_, _, geom) in zip(features, output):
 			self.assertEqual(feature[3], geom)
 
+	def test_class_25_is_paved_street_even_without_cadastral_street_mask(self):
+		street = box(0, 0, 2, 2)
+		other = box(10, 0, 20, 10)
+		output = classify_fmzk([
+			(1, 25, "Gehweg, Radweg", box(12, 2, 18, 5)),
+			(2, 26, "Private Verkehrsfläche", box(12, 5, 18, 8)),
+			(3, 69, "Grünfläche", box(12, 8, 18, 9)),
+		], street, other)
+		self.assertEqual([part[0] for part in output],
+			["strassenraum", "uebrige", "uebrige"])
+		self.assertEqual(output[0][1]["grund"], "fmzk_kern")
+		self.assertEqual(output[0][1]["pruefhinweis"], "kern_abweichung_zum_kataster")
+
 	def test_conflicting_kataster_codes_not_assumed_road(self):
 		# Konflikte zwischen 95 und anderen Nutzungen sind keine
 		# zuverlässige Grundlage für eine positive Zuordnung.
@@ -64,7 +77,8 @@ class FmzkStreetExportTest(unittest.TestCase):
 					"kgez": "01002", "gnr": "100", "ns": code, "vollstaendig": False},
 					"geometry": to_geojson(geometry)}
 			(folder / "kataster_bericht.json").write_text(json.dumps({
-				"zoom": 16, "bbox_lon_lat": manifest["bbox_lon_lat"], "grundstuecke": 1}))
+				"zoom": 16, "fmzk_kern_klassen": [21,23,24,25,33,39],
+				"bbox_lon_lat": manifest["bbox_lon_lat"], "grundstuecke": 1}))
 			(folder / "kataster_grundstuecke.geojson").write_text(json.dumps({
 				"type": "FeatureCollection", "features": [parcel]}))
 			(folder / "kataster_nfl_ausschnitt.geojson").write_text(json.dumps({
