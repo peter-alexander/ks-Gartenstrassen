@@ -59,14 +59,14 @@ class StreetSpaceTest(unittest.TestCase):
 			(5, 58, "Grünfläche", self.rectangle(-5, 30, 5, 35)),
 			(6, 59, "Befestigte Fläche", self.rectangle(-10, -7, -5, -4)),
 			(7, 51, "Innenhof", self.rectangle(6, 5, 12, 9)),
-			(8, 25, "Privater Gehweg", self.rectangle(6, 10, 12, 12)),
+			(8, 25, "Gehweg, Radweg", self.rectangle(6, 10, 12, 12)),
 			(9, 11, "Gebäude", self.rectangle(6, 13, 12, 20)),
 			(10, 39, "Sonstige Verkehrsfläche", self.rectangle(20, -2, 24, 2)),
 		]
 
 	def test_green_nearby_is_only_candidate_not_confirmed_street(self):
 		review = build_review(self.sample_features())
-		self.assertEqual(round(review["core"].area, 4), 256.0)
+		self.assertEqual(round(review["core"].area, 4), 268.0)
 		items = {c["id"]: c for c in review["candidates"]}
 		self.assertEqual(items[3]["status"], "grenzt_an_kern")
 		self.assertAlmostEqual(items[3]["abstand_kern_m"], 0)
@@ -79,6 +79,7 @@ class StreetSpaceTest(unittest.TestCase):
 		self.assertNotIn(8, items)
 		self.assertNotIn(10, items)
 		self.assertEqual(next(props for props, geom in review["features"] if props["id"] == 10)["rolle"], "kern")
+		self.assertEqual(next(props for props, geom in review["features"] if props["id"] == 8)["rolle"], "kern")
 		self.assertNotIn(9, [props["id"] for props, geom in review["features"]])
 		self.assertEqual(next(props for props, geom in review["features"] if props["id"] == 7)["rolle"], "privat_kontext")
 
@@ -117,8 +118,8 @@ class StreetSpaceTest(unittest.TestCase):
 			path = make_gpkg(folder, records)
 			report = analyze(path, folder / "review")
 			self.assertEqual(report["features_gesamt"], len(records))
-			self.assertEqual(report["kern_klassen"], [21, 23, 24, 33, 39])
-			self.assertAlmostEqual(report["kern_union_m2"], 256)
+			self.assertEqual(report["kern_klassen"], [21, 23, 24, 25, 33, 39])
+			self.assertAlmostEqual(report["kern_union_m2"], 268)
 			self.assertTrue(report["kandidaten_flächen_sind_keine_bestätigten_strassenflächen"])
 			self.assertTrue((folder / "review" / "strassenraum_kandidaten.csv").exists())
 			review = json.loads((folder / "review" / "strassenraum_pruefung.geojson").read_text())
