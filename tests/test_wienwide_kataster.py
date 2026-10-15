@@ -32,7 +32,8 @@ class WienwideKatasterTests(unittest.TestCase):
 			f.parent.mkdir(parents=True,exist_ok=True)
 			f.write_bytes(b"cached source, offline test")
 		self.bbox=[16.35,48.20,16.36,48.21]
-		self.manifest={"bbox_lon_lat":self.bbox}
+		self.manifest={"bbox_lon_lat":self.bbox,
+			"feature_count":3}
 		self.clip=box(0,0,100,100)
 		self.fmzk=[(1,21,"Straßenkern",box(10,10,20,20)),
 			(2,69,"Zusatzfläche",box(30,10,35,20)),
@@ -270,12 +271,14 @@ class WienwideKatasterTests(unittest.TestCase):
 		fmzk=[(1,21,"Fahrbahn",box(10,10,20,20)),
 			(2,25,"Gehweg, Radweg",box(60,60,80,62))]
 		with patch("scripts.wienwide_street.load_polygons",
-			return_value=(fmzk,self.manifest,box(-50,-50,150,150),[])), patch(
+			return_value=(fmzk,{**self.manifest,
+				"feature_count":len(fmzk)},box(-50,-50,150,150),[])), patch(
 			"scripts.wienwide_street.read_native_kataster_masks",
 			return_value=(box(10,10,20,20),box(40,40,50,50),{})):
 			result=build_tile(tile,aoi,root=inputs,out=self.root/"output_25",
 				halo=75,cache_dir=self.cache)
 		self.assertAlmostEqual(result["strassenraum_m2"],140)
+		self.assertEqual(result["fmzk_quell_features"],len(fmzk))
 		geom=load_street_tile(
 			self.root/"output_25"/"first"/"street.sqlite",aoi)
 		self.assertAlmostEqual(geom.area,140)
@@ -307,6 +310,7 @@ class WienwideKatasterTests(unittest.TestCase):
 		native.assert_called_once()
 		self.assertEqual(native.call_args.args[0],kat)
 		self.assertEqual(native.call_args.args[-1],self.cache)
+		self.assertEqual(result["fmzk_quell_features"],len(self.fmzk))
 		self.assertAlmostEqual(result["strassenraum_m2"],150+.008,
 			delta=.001)  # 100 m² Kern + 50 m² Zusatz + 0,008 m² Rand
 		stored=load_street_tile(
