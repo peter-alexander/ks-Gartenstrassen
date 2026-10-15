@@ -26,6 +26,7 @@ from shapely.wkb import loads
 
 from scripts.fmzk_source import FMZK_GROUND_GREEN_CODES,load_polygons
 from scripts.wienwide_grid import read_manifest,checksum
+from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 from scripts.wienwide_partition import report_results
 from scripts.wienwide_grm2023 import read_mask as read_grm
 from scripts.wienwide_gip import connect as connect_gip
@@ -127,6 +128,8 @@ def _compute(manifest_path,gip_index,street_root,input_root,
 			with closing(sqlite3.connect(f"file:{street.resolve()}?mode=ro",
 				uri=True)) as street_db:
 				metadata=_read_meta(street_db,"metadata")
+				if metadata.get("strassenraum_regel_version")!=STREET_CLASSIFICATION_VERSION:
+					raise ValueError(f"{tid}: Straßenraum aus veralteter FMZK-Regelversion")
 				if metadata.get("fmzk_sha256")!=fmzk_sha:
 					raise ValueError(f"{tid}: FMZK seit Straßenraumberechnung verändert")
 			features,extraction,clip,_repairs=load_polygons(fmzk)
