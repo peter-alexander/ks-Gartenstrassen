@@ -51,6 +51,51 @@ bash scripts/run-wien-gartenstrassen.sh --from measure --until benchmark
 
 **--from** und **--until** begrenzen die **ausgeführten Schritte**, nicht den geografischen Untersuchungsraum. Nach einem Abbruch kann die betroffene Phase wiederholt werden; bestehende vollständige Gesamtdateien werden nicht überschrieben. Geänderte Quellhashes, unvollständige Caches oder unzulässige Geometrien sind zu prüfen, nicht stillschweigend zu ignorieren.
 
+## GIP-WFS-Duplikate beim Wien-Lauf (15.10.2026)
+
+Der erste reale Wien-Lauf erzeugte die AOI **414,87 km² / 489 Kacheln**
+und lud alle **489/489** GIP-Kacheln in **8 min 21 s inklusive
+anschließendem fehlgeschlagenen Indexversuch**. Bei der ersten
+Indexierung wurde die mehrfach vorhandene Achsen-ID **10026184**
+innerhalb einer Kachel festgestellt. Das ist ein **Indexkonflikt,
+kein unvollständiger WFS-Download**.
+
+Die wienweite Indexierung behandelt innerhalb einer Kachel
+wiederholte GIP_OBJECTIDs so:
+
+- **Exakt gleiche Geometrie und dieselben fachlichen Attribute:** Eine
+  Kopie wird übersprungen; Quellcache und Bericht bleiben unverändert.
+  Die Anzahl wird im SQLite-Index-Metadatenschlüssel
+  duplikate_zusammengefuehrt unter identische_achsen_in_kachel
+  bzw. identische_knoten_in_kachel protokolliert.
+- **Abweichende Geometrie oder fachliche Attribute:** Abbruch mit
+  Kachel-ID, GIP-ID, beiden Feature-Indizes, WFS-IDs und Hinweis
+  auf den Unterschied. **Keine automatische Auflösung**.
+- Die strengen Vergleiche über Kachelgrenzen bleiben bestehen.
+
+Nach git pull --ff-only wird der lokal vollständige Cache direkt
+weiterverwendet:
+
+~~~bash
+bash scripts/run-wien-gartenstrassen.sh --from gip-index --until gip-index
+~~~
+
+Tritt bei GIP-ID 10026184 weiterhin ein Konflikt auf, lassen sich
+sämtliche Vorkommen **ohne neue WFS-Anfragen** mit den gecachten
+Originalgeometrien und Attributen anzeigen:
+
+~~~bash
+.venv/bin/python -m scripts.wienwide_gip diagnose \
+	--manifest data/processed/wienweit/wien/raster.json \
+	--fragments data/processed/wienweit/wien/gip_fragmente \
+	--gip-id 10026184
+~~~
+
+Erst anhand dieser Fundstellen kann entschieden werden, ob mehrere
+amtliche Features dieselbe ID mit unterschiedlichen Geometrien
+verwenden und eine fachliche Korrektur nötig ist. Die doppelte ID
+**allein beweist nicht**, dass die Geometrien identisch sind.
+
 ## Pfade und Parameter
 
 | Element | Standard |
