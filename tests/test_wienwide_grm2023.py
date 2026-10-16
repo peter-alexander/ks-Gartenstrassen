@@ -2,6 +2,7 @@
 from io import BytesIO
 import json
 import math
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -147,7 +148,7 @@ class WienwideGrm2023Tests(unittest.TestCase):
 		self.assertEqual(stats["baum_pixel"],1)
 		self.assertAlmostEqual(geom.area,.25,delta=1e-6)
 		self.assertEqual(build(self.manifest,self.root_cache)["fertige_kacheln"],1)
-		with __import__("sqlite3").connect(mask_path(self.root_cache,self.tile)) as db:
+		with sqlite3.connect(mask_path(self.root_cache,self.tile)) as db:
 			info=dict(db.execute("SELECT key,value FROM metadata"))
 		self.assertEqual(info["transparente_pixel_ausserhalb_aoi"],"1")
 		rebuilt,_=read_mask(self.root_cache,self.tile,
