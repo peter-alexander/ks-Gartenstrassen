@@ -54,12 +54,34 @@ def _verified_wgs84(geom, wgs84, gid, repair_events):
 		or not repaired.is_valid):
 		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
 			f"({reason}); keine gültige polygonale Reparatur")
+	back_repair_reason=None
+	back_repair_delta=None
 	try:
 		back=transform(METRIC,repaired)
-		if back.is_empty or not back.is_valid:
-			raise ValueError("Rückprojektion nicht gültig")
-		if not all(math.isfinite(v) for v in back.bounds):
-			raise ValueError("Rückprojektion nicht endlich")
+		if back.is_empty or not all(math.isfinite(v) for v in back.bounds):
+			raise ValueError("Rückprojektion leer oder nicht endlich")
+		if not back.is_valid:
+			# Nur der Kontrollgeometrie helfen: EPSG:4326 ist an
+			# dieser Stelle bereits gültig und bleibt UNVERÄNDERT.
+			# Winzige WGS84-Ringe können bei der Rückprojektion
+			# wieder in eine ungültige metrische Ringtopologie
+			# kollabieren. Nie direkt aus dieser ungültigen Fläche
+			# die GIS-Differenzen bestimmen.
+			back_repair_reason=explain_validity(back)
+			raw_back_area=back.area
+			back_verified=polygonal_part(make_valid(back))
+			if (back_verified is None or back_verified.is_empty
+				or not isinstance(back_verified,(Polygon,MultiPolygon))
+				or not back_verified.is_valid):
+				raise ValueError("Rückprojektion nicht polygonal reparierbar: "
+					+ back_repair_reason)
+			back_repair_delta=back_verified.area-raw_back_area
+			if (not math.isfinite(back_repair_delta)
+				or abs(back_repair_delta)>max(.01,geom.area*1e-6)):
+				raise ValueError("Rückprojektion verändert bei "
+					f"Kontrollreparatur Fläche um {back_repair_delta:+.9f} m² "
+					f"({back_repair_reason})")
+			back=back_verified
 		area_delta=back.area-geom.area
 		outside=back.difference(geom).area
 		missing=geom.difference(back).area
@@ -93,6 +115,8 @@ def _verified_wgs84(geom, wgs84, gid, repair_events):
 		"gip_id":gid,
 		"geos_grund":reason,
 		"methode":"make_valid nur auf WGS84-Publikationsgeometrie",
+		"rueckprojektion_pruefgeometrie_geos_grund":back_repair_reason,
+		"rueckprojektion_pruefgeometrie_reparatur_delta_m2":back_repair_delta,
 		"flaechenabweichung_nach_rueckprojektion_m2":area_delta,
 		"zusaetzlich_m2":outside,
 		"fehlend_m2":missing,
