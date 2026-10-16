@@ -577,6 +577,51 @@ Die reale GEOS-Geometrie dieser Kachel ist weiterhin nur
 im lokalen Wien-Cache vorhanden. Falls beide Rekonstruktionswege
 scheitern, ist die nächste Maßnahme eine gezielte Quellgeometrie-
 diagnose, nicht das Aufweichen der Flächenprüfungen.
+## Diagnose der systematisch fehlenden Voronoi-Fläche (16.10.2026)
+
+Die Wiederaufnahme von partition an Kachel x+000008_y+000350
+und GIP 10466577 zeigte: Der direkte Schnitt lieferte eine
+topologisch ungültige Geometrie (Nested shells); make_valid
+würde um 1200,880698 m² aus dem verfügbaren Straßenraum
+hinausgreifen. Der explizite Einzelzellen-Weg sowie alle
+Präzisionsstufen von 10^-9 bis 10^-6 m sind ebenfalls um
+ca. 1200,880845 m² **unvollständig**. Die Abweichung ist
+praktisch unabhängig vom Präzisionsraster und kann nicht als
+Rundungstoleranz behandelt werden. Der harte Abbruch ist richtig.
+
+Vor einer weiteren fachlichen Geometriekorrektur steht nun eine
+**reproduzierbare lokale Diagnose aus den bestehenden Caches**.
+Sie hält die tatsächliche verbleibende Straßenmaske exakt nach
+den bereits abgearbeiteten GIP-Achsen fest, gemeinsam mit allen
+Einzel-Voronoi-Zellen der konkreten Achse und deren Union.
+Die produktive Partitionierung und aufteilung.sqlite werden
+nicht verändert; auch GIP-Index und Street-Original-WKB bleiben
+unangetastet.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_pipeline.py' -v
+.venv/bin/python -m scripts.diagnose_wien_voronoi \
+	--tile-id x+000008_y+000350 \
+	--gip-id 10466577 \
+	--out data/processed/wienweit/wien/diagnose-voronoi-10466577.zip
+~~~
+
+Das ZIP speichert native EPSG:31256-WKB-Geometrien als
+wkb/*.wkb und diagnose.json: ursprüngliche Voronoi-Einzelzellen,
+deren Vereinigung, den echten vorverteilten Straßenraumrest,
+direkten Schnitt, separate Einzelschnitte, numerische
+Präzisionsschnitte und die ermittelten Fehlflächen.
+Die Diagnose listet außerdem flächenmäßig auffällige
+Einzelzellen und Quellprüfsummen. Sie ist auf genau diesen
+einen GIP-Abschnitt und diesen einen Kachelzustand begrenzt.
+
+Erst anhand dieses konkreten geometrischen Befunds wird
+entschieden, ob der Fehler schon in einer Voronoi-Einzelzelle,
+der gruppierten Zellenvereinigung, der Restmaske oder einer
+GEOS-Overlay-Operation entsteht. Es werden weder Quellbereiche
+still verworfen noch 1200 m² pauschal neu zugeordnet.
 ## Pfade und Parameter
 
 | Element | Standard |
