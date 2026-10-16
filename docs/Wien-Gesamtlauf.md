@@ -954,6 +954,92 @@ der Quellcode führt **keinen** Geometrieexport und keine
 zusätzliche Fachklassifikation durch. Ein zweiter Aufruf mit
 einem bereits vorhandenen ZIP-Pfad wird sicher abgewiesen.
 Die vorhandenen Ausgaben bleiben unverändert.
+## WGS84 GIP 10023323: Ursachenbefund aus Original-WKB und eng begrenzte Ausgabe-Normalisierung
+
+Die vollständige, read-only erstellte Diagnose-ZIP für GIP
+`10023323` wurde untersucht. Sie enthält **ein** originales
+EPSG:31256-Fragment (FID 28649, MultiPolygon), aufgeteilt in
+**vier** geometrische Teilpolygone. Gesamtfläche
+**638,111419394619 m²**, Grenzlänge **231,373390 m**.
+
+Das dritte Polygon (Teilpolygon-Index 2, nullbasiert)
+ist ein tatsächlich im Original metrisch als gültig
+eingestuftes, aber numerisch kollabiertes Dreieck mit:
+
+- Fläche **2,333480630944962 × 10^-13 m²**;
+- Polygonumfang **0,6130202683 m**;
+- den praktisch identischen Punkten
+  `(-8771.310688095295,345139.10842805094)` und
+  `(-8771.310688095296,345139.10842805094)`.
+
+Nach der unveränderten WGS84-Transformation hat dieses
+Teilpolygon **exakt Fläche 0**, weil die beiden Punkte auf
+dieselben WGS84-Koordinaten gerundet werden. `make_valid`
+wandelt es in eine Linie, die beim rein polygonalen GeoJSON-
+Export wegfällt. **Diese etwa 30 cm lange flächenlose Linie**
+erklärt die gemessene Grenzabweichung **0,2964237907 m**,
+obwohl der Flächenunterschied nur etwa **0,000002585 m²**
+beträgt. Die übrigen drei Teilpolygone bleiben als
+flächenhafte Geometrien erhalten.
+
+**Entscheidung:** Keine Erhöhung der 1-cm-Grenztoleranz.
+Stattdessen ist für den **Publikationsweg allein** die
+streng begrenzte Funktion `_collapsed_wgs84_parts` ergänzt:
+
+- Sie greift nur, wenn die vollständige WGS84-Ausgabe
+  ohnehin ungültig ist und die metrischen und WGS84-
+  MultiPolygon-Komponenten 1:1 korrespondieren.
+- Ein Teilpolygon darf nur entfallen, wenn es metrisch
+  **maximal 1 × 10^-9 m²** Fläche und **maximal 1 m**
+  Umfang hat, in WGS84 ungültig ist, dort **exakt 0 Fläche**
+  besitzt und sein `make_valid` **keine Polygonfläche**
+  mehr enthält (also tatsächlich nur Linie/Punkt ist).
+- Die Summe der entfallenen metrischen Teilflächen
+  darf **1 × 10^-9 m²** nicht überschreiten. Zumindest
+  ein gültiger polygonaler Teil muss erhalten bleiben.
+- Nur die so gefilterte, gültige Publikationsgeometrie
+  wird direkt nach WGS84 transformiert. Die WGS84-Ausgabe
+  darf dadurch keine zusätzlichen ungültigen Flächen erhalten.
+- Der unveränderte metrische Gesamtabschnitt bleibt in
+  CSV/GPKG und allen Messwerten bestehen. Für die
+  abschließende metrische Kontrollprojektion wird
+  die explizit protokollierte, um die numerisch
+  kollabierte Nullfläche bereinigte **Publikationsquelle**
+  herangezogen. Für deren verbliebene Flächen gelten
+  unverändert die Flächen-, Differenz- und
+  1-cm-Grenzprüfungen.
+- Der Prüfbericht dokumentiert jedes absichtlich
+  nur im GeoJSON entfallene Teilpolygon mit Teilindex,
+  Quellfläche, Umfang, Bounds und WGS84-Fehlergrund.
+  Ebenfalls enthalten: Grenzabweichung gegen die
+  verbliebene Publikationsquelle **und zusätzlich gegen
+  den unveränderten metrischen Gesamtabschnitt**.
+
+Ein lokaler Test mit den echten ZIP-WKBs ergab vor dem
+Code-Commit für den um genau diese Kollapskomponente
+bereinigten Abschnitt: WGS84 **gültig**, metrisch
+zurückprojiziert (nach bereits vorhandenem kontrolliertem
+make_valid) nur **0,001038 m** Grenzabweichung zur
+gefilterten Publikationsquelle. Der alte Wert gegen
+das unveränderte Original bleibt ca. 0,296424 m
+und wird **nicht verschwiegen**.
+
+Die Regressionen enthalten einen synthetischen
+Nachbau dieses tatsächlich beobachteten Rundungsfalls,
+Gegenbeispiele für nicht kollabierte und lange Teile
+und einen optionalen Test mit dem echten ZIP:
+
+~~~bash
+git pull --ff-only
+WIEN_EXPORT_DIAG_ZIP=data/processed/wienweit/wien/diagnose-export-wgs84.zip \
+	.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_result_export.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from export --until export
+~~~
+
+Die Tests und der reale Export müssen noch lokal
+bestätigt werden; die vorangegangene Diagnose ersetzt
+keine erfolgreiche Wiederholung des gesamten Publikationslaufs.
 ## Pfade und Parameter
 
 | Element | Standard |
