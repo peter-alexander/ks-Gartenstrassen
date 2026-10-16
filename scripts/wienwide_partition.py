@@ -108,7 +108,7 @@ def _check_overlay_intersection(candidate, left, right, label):
 	GEOS kann bei gültigen Quellpolygonen ein falsches Ergebnis
 	für (left - candidate) ∩ right liefern (Wien: +1200,88 m²).
 	Deshalb werden zwei unabhängig aufgerasterte Kontrollschnitte
-	samt der Flächenaufteilung A = (A\B) + (A∩B) geprüft.
+	samt der Flächenaufteilung A = (A minus B) + (A Schnitt B) geprüft.
 	Die Zellenrekonstruktion bleibt ungerundet.
 	"""
 	if not left.is_valid or not right.is_valid:
@@ -148,15 +148,14 @@ def _check_overlay_intersection(candidate, left, right, label):
 			# 0,01-m²-Toleranz verschwinden lassen.
 			tolerance=max(1e-8,
 				min(.01,max(candidate.area,reference.area)*1e-6))
+			missing=reference.difference(candidate,grid_size=grid).area
 			measures={
 				"ausserhalb_voronoi_zellen_m2":
 					candidate.difference(left,grid_size=grid).area,
 				"ausserhalb_uebrigem_strassenraum_m2":
 					candidate.difference(right,grid_size=grid).area,
-				"fehlend_von_voronoi_zellen_m2":
-					reference.difference(candidate,grid_size=grid).area,
-				"fehlend_vom_uebrigen_strassenraum_m2":
-					reference.difference(candidate,grid_size=grid).area,
+				"fehlend_von_voronoi_zellen_m2":missing,
+				"fehlend_vom_uebrigen_strassenraum_m2":missing,
 				"zusaetzlich_gegen_kontrollschnitt_m2":
 					candidate.difference(reference,grid_size=grid).area,
 			}
