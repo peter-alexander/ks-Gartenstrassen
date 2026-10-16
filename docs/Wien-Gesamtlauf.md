@@ -791,6 +791,70 @@ transparente Pixel **innerhalb der Stadtgrenze** enthält,
 stoppt der Bau ausdrücklich erneut mit der entsprechenden
 Zeile/Pixelnummer. Vor einer Klassenzuordnung muss die
 GRM-WMS-Abdeckung dann fachlich geklärt werden.
+## Export: metrisch gültige, aber nach WGS84 ungültige GIP-Geometrie (16.10.2026)
+
+Der Wien-Gesamtlauf hat die 489 GRM-Maskenkacheln und danach die
+vollständige abschnittsbezogene Begrünungsmessung für **24.937**
+FOW=3-GIP-IDs erfolgreich abgeschlossen: 36.304.778,546 m²
+Abschnittsfläche, davon 3.076.089,652 m² Bodenbegrünung (8,473 %)
+und 4.541.527,726 m² WMS-Baumschicht (12,509 %).
+
+Der anschließende 100-m²-GeoJSON-Export meldete für
+**GIP 10023274**: `WGS84-Geometrie ungültig`.
+Zu diesem Zeitpunkt war die ursprüngliche, nach GIP-ID
+vereinigte Geometrie im metrischen **EPSG:31256 bereits
+gültig und flächenbilanziert**. Der Fehler trat erst durch
+die Transformation zu **EPSG:4326** auf.
+
+Bei Polygongrenzen mit vielen kurzen Segmenten kann eine
+rechnerische Transformation ungültige Ringtopologie
+erzeugen. Ohne die Original-WKB von GIP 10023274 ist die
+genaue GEOS-Ursache noch nicht nachgewiesen. Deshalb wird
+der Quellraum nicht verändert und es gibt keine pauschale
+make_valid-Behandlung ohne Nachweis.
+
+**Geändertes Exportverfahren:**
+
+- Gültiges WGS84 bleibt exakt so wie bisher.
+- Nur bei ungültigem WGS84: Reparatur der polygonalen
+  Bestandteile der **Publikationsgeometrie** mit make_valid.
+  GIP-Abschnitte, Flächenmetriken und das Quell-GeoPackage
+  bleiben unverändert.
+- Rücktransformation in EPSG:31256 und Vergleich mit
+  der ursprünglich gültigen, vollständig vereinigten GIP-Geometrie.
+- Die korrigierte Geometrie muss gültig, nicht leer und
+  metrisch flächentreu sein: zulässige Gesamtflächenänderung
+  max(0,01 m², 10^-6 × Abschnittsfläche).
+- Zusätzliche und fehlende Flächen werden unabhängig
+  anhand von Geometrie-Differenzen geprüft. Je zulässig
+  höchstens max(0,01 m², 0,003 m × ursprüngliche Grenzlänge).
+  Die längenbezogene Komponente berücksichtigt die auch
+  bei gültigem Hin-/Rücktransformieren unvermeidliche
+  Millimeterabweichung an jeder Grenzkante.
+- Die maximale Verschiebung der metrischen Grenzlinien
+  darf **0,01 m** nicht überschreiten.
+- Jede freigegebene WGS84-Korrektur wird mit GIP-ID,
+  GEOS-Gültigkeitsfehler, fehlender/zusätzlicher Fläche,
+  Grenzverschiebung und Toleranzen im
+  `export_bericht.json` unter `wgs84_projection_repairs`
+  protokolliert; auch die Anzahl wird ausgewiesen.
+- Wenn irgendeine Prüfung nicht bestanden wird,
+  bricht der Export weiter ab und verwirft seine
+  temporäre Ausgabe. Bereits fertige Eingaben bleiben erhalten.
+
+Regressionstests prüfen akzeptierten, flächentreuen
+Randkantenfehler, unveränderte gültige Geometrie,
+verbotene Verschiebung und großen Flächenverlust.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_result_export.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from export --until export
+~~~
+
+Die reale Wirkung auf GIP 10023274 ist erst durch
+die lokalen Originalgeometrien beim erneuten Export bestätigt.
 ## Pfade und Parameter
 
 | Element | Standard |
