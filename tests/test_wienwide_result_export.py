@@ -8,13 +8,14 @@ import unittest
 from unittest.mock import patch
 
 from shapely.geometry import box, Polygon
+from shapely import make_valid
 from shapely.affinity import translate
 from shapely.ops import transform
 
 from scripts.wienwide_qa_gpkg import gpkg_blob
 from scripts.wienwide_gip_greening import CSV_COLUMNS
 from scripts.wienwide_result_export import (
-	WGS84,_verified_wgs84,export,
+	WGS84,METRIC,_verified_wgs84,export,
 )
 
 
@@ -112,6 +113,103 @@ class WienwideResultExportTests(unittest.TestCase):
 		self.assertLess(audit[0]["zusaetzlich_m2"],
 			audit[0]["differenztoleranz_m2"])
 		self.assertEqual(metric.area,10000)
+
+	def test_too_few_points_only_in_inverse_projection_is_audited(self):
+		# Reale GEOS-Ursache beim Wien-Export: Rückprojektion einer
+		# gültigen WGS84-Reparatur kann einen auf einen Punkt
+		# kollabierten Innenring enthalten. Dieser ist nur in der
+		# metrischen Prüfrepräsentation heilbar, nicht in den Daten.
+		metric,_valid,invalid=self._invalid_wgs84_boundary_repetition()
+		real_transform=transform
+		injected=[]
+		def malformed_inverse(projection,polygon):
+			projected=real_transform(projection,polygon)
+			if projection is METRIC:
+				self.assertTrue(projected.is_valid)
+				center=projected.representative_point()
+				point=(center.x,center.y)
+				with_hole=Polygon(projected.exterior.coords,
+					holes=[[point,point,point,point]])
+				self.assertFalse(with_hole.is_valid)
+				self.assertAlmostEqual(with_hole.area,projected.area)
+				injected.append(with_hole)
+				return with_hole
+			return projected
+		audit=[]
+		with patch("scripts.wienwide_result_export.transform",
+			side_effect=malformed_inverse):
+			result=_verified_wgs84(metric,invalid,"10023323",audit)
+		self.assertEqual(len(injected),1)
+		self.assertTrue(result.is_valid)
+		self.assertEqual(len(audit),1)
+		self.assertIn("Too few points",audit[0]
+			["rueckprojektion_pruefgeometrie_geos_grund"])
+		self.assertAlmostEqual(audit[0]
+			["rueckprojektion_pruefgeometrie_reparatur_delta_m2"],0,
+			delta=1e-6)
+		self.assertLess(audit[0]["grenzverschiebung_m"],.01)
+		self.assertEqual(metric.area,10000)
+
+	def test_inverse_projection_repair_must_not_shift_spatial_location(self):
+		# Eine gültige WGS84-Geometrie darf nicht deshalb freigegeben
+		# werden, weil die zurückprojizierte Prüfgeometrie nur
+		# syntaktisch gültig gemacht werden konnte.
+		metric,_valid,invalid=self._invalid_wgs84_boundary_repetition()
+		real_transform=transform
+		def shifted_invalid_inverse(projection,polygon):
+			projected=real_transform(projection,polygon)
+			if projection is METRIC:
+				shifted=translate(projected,xoff=2)
+				center=shifted.representative_point()
+				point=(center.x,center.y)
+				return Polygon(shifted.exterior.coords,
+					holes=[[point,point,point,point]])
+			return projected
+		audit=[]
+		with patch("scripts.wienwide_result_export.transform",
+			side_effect=shifted_invalid_inverse):
+			with self.assertRaisesRegex(ValueError,
+				"Reparatur nicht metrisch flächentreu"):
+				_verified_wgs84(metric,invalid,"10023323",audit)
+		self.assertEqual(audit,[])
+
+	def test_inverse_projection_non_polygonal_repair_remains_error(self):
+		metric,_valid,invalid=self._invalid_wgs84_boundary_repetition()
+		real_transform=transform
+		def invalid_inverse(projection,polygon):
+			projected=real_transform(projection,polygon)
+			if projection is METRIC:
+				center=projected.representative_point()
+				point=(center.x,center.y)
+				return Polygon(projected.exterior.coords,
+					holes=[[point,point,point,point]])
+			return projected
+		from shapely.geometry import Point
+		actual_make_valid=make_valid
+		def broken_inverse_repair(geometry):
+			if geometry.geom_type=="Polygon" and not geometry.is_valid:
+				# WGS84-Fehler muss regulär behoben werden; erst
+				# an der metrischen Kontrollgeometrie Point liefern.
+				if geometry.area>9999:
+					return Point(0,0)
+			return actual_make_valid(geometry)
+		# Eindeutige Rolle statt Größe prüfen: Erstes make_valid
+		# repariert das WGS84-Polygon, zweites ist absichtlich
+		# keine Polygonfläche.
+		call=[0]
+		def second_result_point(geometry):
+			call[0]+=1
+			return actual_make_valid(geometry) if call[0]==1 else Point(0,0)
+		audit=[]
+		with patch("scripts.wienwide_result_export.transform",
+			side_effect=invalid_inverse), patch(
+			"scripts.wienwide_result_export.make_valid",
+			side_effect=second_result_point):
+			with self.assertRaisesRegex(ValueError,
+				"nicht polygonal reparierbar"):
+				_verified_wgs84(metric,invalid,"10023323",audit)
+		self.assertEqual(call,[2])
+		self.assertEqual(audit,[])
 
 	def test_invalid_wgs84_rejects_shifted_repair(self):
 		metric,valid,invalid=self._invalid_wgs84_boundary_repetition()
