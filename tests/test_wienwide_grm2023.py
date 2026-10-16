@@ -14,7 +14,7 @@ from shapely.ops import transform
 
 from scripts.wienwide_grid import build_manifest,write_manifest,read_manifest
 from scripts.wienwide_grm2023 import (
-	build,chunks,decode_chunk,fetch,mask_path,read_mask,
+	build,chunks,decode_chunk,fetch,mask_path,read_mask,verify_chunk,
 )
 
 
@@ -80,6 +80,55 @@ class WienwideGrm2023Tests(unittest.TestCase):
 			self.assertEqual(fetch(self.manifest,self.root_cache,
 				pause_s=0)["neu_geladen"],0)
 		self.assertEqual(build(self.manifest,self.root_cache)["fertige_kacheln"],1)
+
+	def test_wienwide_requests_exceed_legacy_global_limit_but_still_cache(self):
+		# Drei Kacheln mit je einem Bild überschreiten künstlich die
+		# Grenze 2: Diese darf NICHT mehr für die gesamte AOI gelten.
+		# Pro Kachel bleibt nur ein kleines, sicher begrenztes Bild.
+		tiles=[{**self.tile,"id":f"test_kachel_{n}"}
+			for n in range(3)]
+		manifest={"tiles":tiles}
+		png=self._png()
+		def one_chunk(tile,aoi):
+			return [(self.name,self.geo,self.url)]
+		with patch("scripts.wienwide_grm2023.MAX_CHUNKS",2), patch(
+			"scripts.wienwide_grm2023.read_manifest",
+			return_value=(manifest,self.aoi)), patch(
+			"scripts.wienwide_grm2023.chunks",
+			side_effect=one_chunk), patch(
+			"scripts.wienwide_grm2023.parse_capabilities",
+			return_value={"unterstuetzte_srs":["EPSG:31256"]}), patch(
+			"scripts.wienwide_grm2023.request_bytes",
+			side_effect=[b"cap",png,png,png]) as net, patch(
+			"scripts.wienwide_grm2023.sleep") as wait:
+			result=fetch(self.manifest,self.root_cache,pause_s=.5)
+			self.assertEqual(result["kacheln"],3)
+			self.assertEqual(result["wms_bilder"],3)
+			self.assertEqual(result["neu_geladen"],3)
+			self.assertEqual(net.call_count,4)  # 1 Caps + 3 GetMap
+			self.assertEqual(wait.call_count,2)
+			for tile in tiles:
+				verify_chunk(self.root_cache,tile,
+					self.name,self.geo,self.url)
+		with patch("scripts.wienwide_grm2023.MAX_CHUNKS",2), patch(
+			"scripts.wienwide_grm2023.read_manifest",
+			return_value=(manifest,self.aoi)), patch(
+			"scripts.wienwide_grm2023.chunks",
+			side_effect=one_chunk), patch(
+			"scripts.wienwide_grm2023.request_bytes",
+			side_effect=AssertionError("Geprüfter Cache muss offline bleiben")):
+			resumed=fetch(self.manifest,self.root_cache,pause_s=0)
+		self.assertEqual(resumed["wms_bilder"],3)
+		self.assertEqual(resumed["neu_geladen"],0)
+
+	def test_wms_request_limit_remains_enforced_within_a_tile(self):
+		# Eine 1000-m-Vollkachel braucht vier 500-m-GetMaps;
+		# ein bewusst niedriger Kachelgrenzwert muss sie abweisen.
+		large={"id":"synthetisch","bounds_31256":[0,0,1000,1000]}
+		with patch("scripts.wienwide_grm2023.MAX_CHUNKS",2):
+			with self.assertRaisesRegex(ValueError,
+				"Zu viele GRM-Anfragen je Kachel"):
+				chunks(large,box(0,0,1000,1000))
 
 	def test_invalid_color_aborts_without_fake_zero_mask(self):
 		self._fetch(self._png(corrupt=True))
