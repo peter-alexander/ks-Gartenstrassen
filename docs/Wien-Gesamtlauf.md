@@ -683,6 +683,54 @@ Shapely-2.1.2/GEOS-3.13.1-Umgebung reproduziert und
 mit beiden Kontrollrastern geprüft. Ob der vollständige
 lokale Wiener Partitionierungslauf nach dieser Änderung
 erfolgreich endet, ist noch nicht bestätigt.
+## Wienweiter GRM-GetMap-Abruf: Umfangskontrolle (16.10.2026)
+
+Nach erfolgreichem Abschluss von street, partition und qa mit
+jeweils 489/489 Kacheln stoppte grm-fetch **vor dem ersten Abruf**:
+
+> Fehler: Zu viele WMS-Anfragen: kleinere AOI verwenden
+
+Ursache war die doppelte Nutzung von MAX_CHUNKS=1200:
+einmal **je Rasterkachel** (Sicherheitslimit) und versehentlich
+noch einmal als **globales Limit** für den gesamten Wien-Lauf.
+Eine 1000-m-Rasterkachel wird in maximal vier GetMap-Bilder
+zu 500 × 500 m bei 0,5 m/Pixel unterteilt; bei 489 Kacheln
+sind theoretisch bis zu 1956 Bilder vorgesehen. Am Wiener
+Außenrand können vollständige 500-m-Teilbilder entfallen.
+
+**Korrektur:** Die globale Schranke entfällt. Weiterhin gelten:
+
+- höchstens MAX_CHUNKS GetMap-Teilbilder **je** Analyse-Kachel;
+- gültige metrische 0,5-m-Pixelraster und maximal 2048 × 2048
+  Pixel beziehungsweise 3.000.000 Pixel je Teilbild;
+- maximal 15 MB GetMap-Antwort je Abruf;
+- PNG-Format und Pixelabmessungen müssen dem Abruf entsprechen;
+- geordnete, vollständige AOI-Kernabdeckung je Analyse-Kachel;
+- getrennte PNG+JSON-Caches mit Rasterparametern, GetMap-URL
+  und SHA-256 jeder Quelldatei; bestehende Caches werden
+  streng geprüft und nie still überschrieben;
+- 0,5 Sekunden Pause **zwischen tatsächlichen neuen GetMap-Abrufen**;
+- Wiederaufnahme nach Unterbrechung ohne erneutes Laden bereits
+  geprüfter PNG-Dateien.
+
+Vor dem Herunterladen gibt das Programm die geplante Gesamtzahl
+der WMS-Bilder aus. Die Anzahl allein wird nicht mehr als
+vermeintlicher Hinweis auf ein zu großes Arbeitsgebiet gewertet.
+Ein neuer Offline-Test prüft drei synthetische Kacheln gegen
+ein künstliches Gesamtlimit von zwei Bildern und bestätigt
+Cache-Reuse und weiterhin strenge Einzelkachelgrenzen.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_grm2023.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from grm-fetch --until grm-fetch
+~~~
+
+Die wienweite Datenabdeckung ist erst bestätigt, nachdem
+**grm-fetch** vollständig beendet ist und anschließend
+**grm-build** sämtliche Original-PNGs einschließlich der
+neun RGB-Klassen auf Gültigkeit geprüft hat.
 ## Pfade und Parameter
 
 | Element | Standard |
