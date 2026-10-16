@@ -9,6 +9,7 @@ from contextlib import closing
 from datetime import datetime,timezone
 import json
 import math
+import re
 from pathlib import Path
 import sqlite3
 from urllib.parse import quote
@@ -29,6 +30,22 @@ DEFAULT_CSV=DEFAULT_ROOT/"begruenung_grm/gip_abschnitte_begruenung.csv"
 DEFAULT_GPKG=DEFAULT_ROOT/"begruenung_grm/gip_abschnitte_begruenung.gpkg"
 DEFAULT_REPORT=DEFAULT_ROOT/"wgs84_export_vorpruefung.json"
 DEFAULT_ZIP=DEFAULT_ROOT/"wgs84_export_fehlstellen.zip"
+
+# GEOS validation diagnostics use lon/lat when failure is in EPSG:4326.
+GEOS_COORD=re.compile(
+	r"geometry component\[([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\]"
+)
+
+
+def _error_point(message):
+	match=GEOS_COORD.search(message)
+	if not match:
+		return None,None
+	lon,lat=map(float,match.groups())
+	if not (math.isfinite(lon) and math.isfinite(lat)
+		and 15.5<lon<17.5 and 47.5<lat<49):
+		return None,None
+	return lon,lat
 
 
 def _inspect_group(gid,fragments,reported_area):
@@ -158,8 +175,9 @@ def scan(csv_path=DEFAULT_CSV,gpkg_path=DEFAULT_GPKG,
 				for entry in evidence:
 					gid=entry["gip_id"]
 					try:
+						lon,lat=_error_point(entry["fehler"])
 						records[gid]=_diagnose_one(archive,gid,
-							_read_gip(gpkg_path,gid),None,None,3)
+							_read_gip(gpkg_path,gid),lon,lat,10)
 					except Exception as exc:
 						records[gid]={"diagnose_fehler":str(exc)}
 				archive.writestr("diagnose.json",json.dumps({
