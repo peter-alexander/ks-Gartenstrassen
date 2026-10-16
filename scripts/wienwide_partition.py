@@ -273,7 +273,7 @@ def _empty_tile_stats():
 
 
 def split_tile(street, core, sites, axes, nodes,
-	*, radius=7, max_distance=25):
+	*, radius=7, max_distance=25, diagnostic=None):
 	"""Identische Semantik zu V0, Voronoi-Sites aus globalem Index.
 
 	Voraussetzung: halo >= max_distance + 5 + 7. Schnitt erfolgt
@@ -315,6 +315,8 @@ def split_tile(street, core, sites, axes, nodes,
 		for pk in sorted(by_axis):
 			axis=axes[pk]
 			owner_cells=union_all(by_axis[pk])
+			if diagnostic is not None:
+				diagnostic(axis,owner_cells,remaining,by_axis[pk],mask,core)
 			candidate=_voronoi_intersection(owner_cells,remaining,
 				by_axis[pk],f"Voronoi {axis['id']}",repair_events)
 			if candidate is None:
