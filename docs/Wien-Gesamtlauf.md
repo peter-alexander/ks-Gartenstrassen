@@ -1103,6 +1103,108 @@ vor einer weiteren Codeänderung anhand echter Geometrie
 untersucht werden. Eine fachliche Freigabe von Polygonen
 mit Grenzabweichungen über 1 cm wird aus dem Scan
 **nicht** abgeleitet.
+## WGS84-Vorprüfung komplett: 76 Fehler, Präzisionsnormalisierung der Veröffentlichung (16.10.2026)
+
+Die vollständige schreibgeschützte Vorprüfung vor dem Wien-Export
+ergab aus 24.937 Mess-GIP-IDs nach dem 100-m²-Filter
+**24.306** Veröffentlichungs-IDs. **24.230** bestanden die
+aktuelle Prüfung, **76** scheiterten und **150** gesonderte
+WGS84-Korrekturereignisse waren bereits akzeptiert.
+Fehlertypen unter den 76: **57** `Too few points`,
+**12** `Ring Self-intersection` und **7** `Self-intersection`.
+Die erste Diagnose-ZIP enthält die vollständigen Original-WKB
+von **25** der 76 Fehler, 51 stehen nur im JSON-Bericht.
+
+Bei allen 25 WKBs wurde die Originalgeometrie direkt untersucht.
+Die Fälle sind nicht nur einzelne isolierte Mikro-Multipolygon-
+Teile: teilweise gibt es extrem schmale Längsausläufer
+innerhalb größerer gültiger metrischer Polygone. Einzelne
+Spitzen besitzen fast keine Fläche und dennoch mehrere Meter
+Länge; etwa GIP **10023775** mit zwei flächenlosen
+Einzelteilen zu ca. **3,02 m und 12,14 m Umfang**.
+Der bisherige mikro-Polygon-Filter mit 1 m Maximalumfang
+genügt daher nicht.
+
+**Getestete alternative Behandlung für die Publikation:**
+Ein präziser fester metrischer Koordinatenraster von
+**10 Nanometern (`1e-8 m`)**, mit
+`shapely.set_precision(..., mode='valid_output')`.
+Bei ALLEN 25 untersuchten echten Original-WKBs war danach
+die WGS84-Transformation gültig. Ein lokaler unabhängiger
+Geometrie-Test prüfte außerdem bei allen 25 die metrische
+Rücktransformation, Fläche, fehlende/zusätzliche Fläche
+und verbliebene Grenzverschiebung.
+Die größte betragsmäßige Änderung der metrischen
+Abschnittsgesamtfläche war rund **1,4 × 10^-7 m²**;
+zusätzliche und fehlende Flächen waren jeweils
+**unter 4 × 10^-7 m²**. Die Rückprojektion der
+normalisierten WGS84-Geometrie wich von der normalisierten
+metrischen Basis maximal etwa **1,1 mm** ab.
+
+**Sicherer Fallback in `wienwide_result_export.py`:**
+
+- Der bisherige `_verified_wgs84`-Weg bleibt **vorrangig**;
+  bereits erfolgreich geprüfte WGS84-Ausgaben werden
+  dadurch NICHT umgeschrieben.
+- Nur nach dem konkreten Abbruch `Reparatur nicht metrisch
+  flächentreu` wird zusätzlich die 10-nm-Normalisierung
+  der **Publikationsquelle** versucht. Sie muss mit
+  der unveränderten direkten WGS84-Transformation aus
+  genau demselben originalen metrischen Polygon beginnen.
+- Original-CSV, Original-GeoPackage, originale EPSG:31256-
+  WKB und sämtliche Messwerte bleiben **unverändert**.
+- Die metrische Normalisierung darf jeweils höchstens
+  `max(1e-6 m², Ausgangs-Grenzlänge × 1e-7 m)` an
+  fehlender oder zusätzlicher Fläche verursachen;
+  auch der Nettoflächenunterschied muss darunter liegen.
+  Das ist ein zusätzlicher Schutz, kein Grenzwert für
+  die folgenden metrischen Projektionstests.
+- Nur eine gültige und nicht leere polygonale
+  normalisierte Metrik mit **gültiger WGS84-Transformation**
+  darf verwendet werden. Danach gelten erneut die
+  bisherige Gesamtflächen-, Differenzflächen- und
+  **1-cm-Hausdorff-Grenze** gegen die bereinigte
+  Publikationsquelle.
+- Die Hausdorff-Abweichung zum **unbereinigten Original**
+  wird separat und ungekürzt im Exportbericht protokolliert:
+  denn eine praktisch flächenlose meterweit reichende
+  Spitze kann durch den Raster kollabieren. Der Bericht
+  dokumentiert ebenfalls Rastergröße, entfernte/hinzugefügte
+  Fläche, Flächenbilanz und wiederholte Projektionstests.
+- Scheitert eine dieser Bedingungen, bleibt der Export
+  abgebrochen. Die Original-Fehlermeldung und der Grund
+  für die abgelehnte Zusatznormalisierung werden
+  gemeinsam ausgegeben.
+
+**Wichtig:** Dass die normalisierte Geometrie fast
+flächenidentisch ist, bedeutet NICHT, dass die
+originale metrische Grenzlinie hausdorffgleich bleibt.
+Der Unterschied wird nur für mathematisch innerhalb
+eines 10-nm-Rasters zusammenfallende Strukturen
+zugelassen und ausdrücklich als geometrischer
+Publikationsartefakt ausgewiesen. Der unveränderte
+metrische Messdatensatz ist die maßgebliche
+fachliche Datenbasis.
+
+**Noch keine automatische Freigabe** des kompletten
+24.306-GIP-Wien-Exports: Von den 76 Fällen liegen nur
+25 originale WKBs zur Prüfung vor. Nach den Tests
+unbedingt erst die unabhängige Komplett-Vorprüfung
+mit **neuen Berichtspfaden** wiederholen:
+
+~~~bash
+git pull --ff-only
+WIEN_EXPORT_FEHLSTELLEN_ZIP=data/processed/wienweit/wien/wgs84_export_fehlstellen.zip \
+	.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_result_export.py' -v
+.venv/bin/python -m scripts.scan_wien_export \
+	--report data/processed/wienweit/wien/wgs84_export_vorpruefung_praezision.json \
+	--zip data/processed/wienweit/wien/wgs84_export_fehlstellen_praezision.zip
+~~~
+
+Auch wenn der Scan anschließend null Fehler meldet,
+bleibt der eigentliche GeoJSON-Export ein separater
+bewusst erst danach auszuführender Schritt.
 ## Pfade und Parameter
 
 | Element | Standard |
