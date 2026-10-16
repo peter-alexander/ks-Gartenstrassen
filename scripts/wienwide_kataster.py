@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from shapely import make_valid, union_all
+from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
 from scripts.analyze_gpkg import polygonal_part
@@ -139,18 +140,28 @@ def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
 				repaired+=1
 			observed[code]+=1
 			parts["strasse" if code in STREET_USAGE_CODES else "sonstige"].append(fragment)
-	if not parts["strasse"] or not parts["sonstige"]:
-		raise ValueError("BEV-nfl benötigt Straßen- und sonstige Nutzungsflächen")
-	street=union_all(parts["strasse"])
-	other=union_all(parts["sonstige"])
+	# Eine vollständig geprüfte Kachel kann ausschließlich nfl-95/65
+	# oder ausschließlich andere nfl-Codes aufweisen. Nur BEIDE
+	# fehlende Masken sind ein Daten-/Zuordnungsproblem.
+	if not parts["strasse"] and not parts["sonstige"]:
+		raise ValueError("Keine verwertbaren BEV-nfl-Flächen auf den "
+		"ausgewählten Kerngrundstücken (Schwelle 0,05 m²); "
+		f"Rohfragmente {len(nfl)}, Kerngrundstücke {len(selected)}")
+	street=union_all(parts["strasse"]) if parts["strasse"] else Polygon()
+	other=union_all(parts["sonstige"]) if parts["sonstige"] else Polygon()
 	if not street.is_valid or not other.is_valid:
 		raise ValueError("Metrische BEV-nfl-Vereinigung ungültig")
+	groups=("beide" if parts["strasse"] and parts["sonstige"]
+		else "nur_strasse" if parts["strasse"] else "nur_sonstige")
 	return street,other,{
 		"quelle":"BEV-nfl-z16-direkt-metrisch-aus-geprueftem-lokalem-Kachelcache",
 		"strassen_codes":sorted(STREET_USAGE_CODES),
 		"nfl_rohfragmente":len(nfl),
 		"nfl_fragmente":sum(observed.values()),
 		"nfl_nutzungen_fragmente":dict(sorted(observed.items())),
+		"nfl_gruppenstatus":groups,
+		"nfl_strassenfragmente":len(parts["strasse"]),
+		"nfl_sonstige_fragmente":len(parts["sonstige"]),
 		"nfl_reparaturen":repaired,
 		"nfl_fragmente_bis_0_05m2_nicht_uebernommen":sum(excluded_tiny.values()),
 		"nfl_kleinfragmente_m2":sum(excluded_tiny_area.values()),
