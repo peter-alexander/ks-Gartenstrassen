@@ -622,6 +622,67 @@ entschieden, ob der Fehler schon in einer Voronoi-Einzelzelle,
 der gruppierten Zellenvereinigung, der Restmaske oder einer
 GEOS-Overlay-Operation entsteht. Es werden weder Quellbereiche
 still verworfen noch 1200 m² pauschal neu zugeordnet.
+## Nachweis: GEOS-Overlay-Geometrie am Persidisweg (16.10.2026)
+
+Die hochgeladene originale Diagnose
+diagnose-voronoi-10466577.zip zur Kachel
+x+000008_y+000350 (GIP 10466577, Persidisweg, EPSG:31256)
+ermöglicht eine **reproduzierbare** Erklärung:
+
+| Originalgeometrie | Fläche |
+| --- | ---: |
+| Restmaske nach früheren GIP-Zuordnungen | 2.096,260363 m² |
+| Vereinigte sieben gültige Voronoi-Zellen | 1.200,880845 m² |
+| Summe ihrer sieben einzelnen gültigen Schnitte mit Restmaske | 0,000146955 m² |
+| Ungültiger direkter GEOS-Gesamtschnitt (Nested shells) | 1.200,880992 m² |
+
+Beide **Ausgangsgeometrien sind gültig**. Der ungerasterte
+GEOS-Gesamtschnitt verletzt jedoch die Mengeneigenschaften:
+Seine angebliche 1200-m²-Fläche befindet sich großteils
+außerhalb der Restmaske. Auch die vorherige vermeintlich
+unabhängige Kontrollformel
+`(owner_cells - candidate).intersection(remaining)`
+lieferte dieselben rund 1.200,88 m² fälschlich als fehlend.
+Das war ein **zweiter GEOS-Overlay-Fehler im Kontrollweg**,
+nicht der Verlust dieser Fläche in der Einzelzellenrekonstruktion.
+
+**Geprüfte Korrektur:** Nur wenn der normale direkte Schnitt
+scheitert, wird weiterhin die ungerundete Einzelzellen-
+Rekonstruktion verwendet. Ihre Vollständigkeit wird
+nun mithilfe **zweier fein gerasterter Kontrollschnitte**
+(1e-9 und 1e-8 Meter) und zweier eigenständiger
+Quellflächenbilanzen überprüft:
+
+- Fläche A = (A minus B) + (A Schnitt B)
+- Fläche B = (B minus A) + (A Schnitt B)
+
+Der Ersatz muss beide Kontrollschnitte geometrisch abdecken
+und darf darüber hinaus keine relevante Zusatzfläche haben.
+Beide Prüfraster müssen sich untereinander einig sein.
+Die zulässige Abweichung ist für echte Kleinstflächen
+nun bis auf 1e-8 m² reduziert, statt sie unbemerkt unter
+der vorherigen pauschalen 0,01-m²-Grenze zu verwerfen.
+Fehlt dieser Nachweis, stoppt die Partition wie bisher.
+Die vollständigen Prüfzahlen der beiden Raster landen im
+SQL-Metadatenfeld geometrie_reparaturen.
+
+**Wichtig:** Die Diagnose-ZIP selbst wird **nicht** ins
+Repository eingecheckt. Der optionale Regressionstest
+verwendet nur die schon lokal vorhandene ZIP:
+
+~~~bash
+git pull --ff-only
+WIEN_VORONOI_DIAG_ZIP=data/processed/wienweit/wien/diagnose-voronoi-10466577.zip \
+	.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_pipeline.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from partition --until partition
+~~~
+
+Die echte WKB-Geometrie wurde separat in einer
+Shapely-2.1.2/GEOS-3.13.1-Umgebung reproduziert und
+mit beiden Kontrollrastern geprüft. Ob der vollständige
+lokale Wiener Partitionierungslauf nach dieser Änderung
+erfolgreich endet, ist noch nicht bestätigt.
 ## Pfade und Parameter
 
 | Element | Standard |
