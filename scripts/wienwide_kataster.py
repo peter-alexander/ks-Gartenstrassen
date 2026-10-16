@@ -16,6 +16,7 @@ from pathlib import Path
 
 from shapely import make_valid, union_all
 from shapely.geometry import Polygon, MultiPolygon
+from shapely.errors import GEOSException
 from shapely.strtree import STRtree
 from shapely.validation import explain_validity
 
@@ -63,7 +64,12 @@ def _validate_nfl_union(merged, fragments, *, group):
 		return merged, None
 	reason = explain_validity(merged)
 	original_area = merged.area
-	repaired = polygonal_part(make_valid(merged))
+	try:
+		repaired = polygonal_part(make_valid(merged))
+	except GEOSException as exc:
+		raise ValueError(f"BEV-nfl-Gruppe {group}: make_valid "
+			f"auf ungültiger Vereinigung fehlgeschlagen ({reason}): "
+			f"{exc}") from exc
 	if (repaired is None or repaired.is_empty or not repaired.is_valid
 		or not isinstance(repaired, (Polygon, MultiPolygon))
 		or not math.isfinite(repaired.area) or repaired.area <= 0):
@@ -82,7 +88,12 @@ def _validate_nfl_union(merged, fragments, *, group):
 	# reparierten Vereinigung enthalten bleiben.
 	uncovered = 0.
 	for index, part in enumerate(fragments):
-		loss = part.difference(repaired).area
+		try:
+			loss = part.difference(repaired).area
+		except GEOSException as exc:
+			raise ValueError(f"BEV-nfl-Gruppe {group}: "
+				f"Quellfragment {index} nicht gegen Reparatur prüfbar: "
+				f"{exc}") from exc
 		if not math.isfinite(loss):
 			raise ValueError(f"BEV-nfl-Gruppe {group}: nicht-endlicher "
 				f"Flächenverlust an Fragment {index}")
