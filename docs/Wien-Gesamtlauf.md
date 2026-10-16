@@ -516,6 +516,67 @@ Die echte Voronoi-Geometrie 10466577 ist nur im lokalen Wiener
 Cache verfügbar; die Reparaturwirkung dort ist noch nicht
 nachgewiesen. Sollte die Flächentreue nicht gesichert sein,
 bricht der Lauf weiterhin mit einer präziseren Meldung ab.
+## Voronoi-GIP 10466577: unzulässiger Ausgriff nach make_valid (16.10.2026)
+
+Bei Wiederaufnahme der Partition stoppt die Kachel
+**x+000008_y+000350** nach 469 erfolgreich gespeicherten Kacheln:
+
+> Voronoi 10466577: Reparatur liegt um 1200,880698 m² außerhalb
+> noch nicht zugeordneter Straßenraum; Nested shells
+
+Die Sicherheitsprüfung hat korrekt verhindert, dass eine
+ungültige GEOS-Schnittgeometrie mittels make_valid zu einer
+flächenmäßig ähnlichen, aber **örtlich falsch zugeordneten**
+Voronoi-Fläche wird. Eine Erhöhung der Toleranz oder blindes
+Abschneiden wäre hier fachlich unzulässig.
+
+**Neuer enger Wiederherstellungsweg in der Partition:**
+
+- Die bisherige exakte Schnittoperation auf der Vereinigung
+  der Voronoi-Zellen bleibt unverändert die erste Wahl.
+- Nur bei Topologie-/Validierungsfehlern wird die Schnittfläche
+  **neu aus den ursprünglichen Voronoi-Einzelzellen** erzeugt.
+  Jede Einzelzelle wird separat mit dem noch unzugeordneten
+  Straßenraum geschnitten; danach werden die gültigen
+  Polygonanteile vereinigt.
+- Erst falls der Einzelzellenweg scheitert, werden dieselben
+  ursprünglichen, gültigen Ausgangsflächen mit Precision-Grids
+  von 10^-9 bis 10^-6 m geschnitten. Es gibt keine pauschale
+  Quellrundung, keine neuen GIP-Stützpunkte und keine andere
+  Straßenraumregel.
+- **Vollständigkeitsbeweis für jedes Alternativergebnis:**
+  Es darf weder Fläche außerhalb der zugehörigen Voronoi-Zellen
+  noch außerhalb der verfügbaren Straßenmaske entstehen.
+  Gleichzeitig muss auch jede Fläche ihrer tatsächlichen
+  geometrischen Schnittmenge im Alternativergebnis enthalten
+  sein. Beide Arten von Abweichungen werden mit derselben
+  numerischen Toleranz max(0,01 m², 10^-8 × kleinere
+  Ausgangsfläche) getrennt getestet.
+- Jeder erfolgreiche Ersatz wird als geometrie_reparaturen
+  im SQLite-Kachelbericht mit GIP-ID, Originalfehler, Methode,
+  Zellenzahl, etwaigem Precision-Grid und allen vier
+  Differenzflächen dokumentiert.
+- Kann die Vollständigkeit nicht nachgewiesen werden, bleibt
+  die Kachel ausdrücklich ungeschrieben; die Fehlermeldung
+  enthält die Gründe aller fehlgeschlagenen Alternativen.
+
+Die bestehenden 469 Partitionsergebnisse in aufteilung.sqlite,
+alle 489 Street-Kacheln, der GIP-Index und sämtliche Originalquellen
+bleiben unverändert. Tests decken akzeptierte exakte
+Einzelzellenrekonstruktion, abgewiesene fehlende oder zusätzliche
+Fläche, Precision-Fallback und normalen unveränderten Betrieb ab.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_pipeline.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from partition --until partition
+~~~
+
+Die reale GEOS-Geometrie dieser Kachel ist weiterhin nur
+im lokalen Wien-Cache vorhanden. Falls beide Rekonstruktionswege
+scheitern, ist die nächste Maßnahme eine gezielte Quellgeometrie-
+diagnose, nicht das Aufweichen der Flächenprüfungen.
 ## Pfade und Parameter
 
 | Element | Standard |
