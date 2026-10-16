@@ -463,6 +463,59 @@ bash scripts/run-wien-gartenstrassen.sh --from street --until street
 
 Die Wirkung für die konkrete Originalgeometrie mit Ring-edge-missing
 ist **noch nicht lokal bestätigt**.
+## Voronoi-Overlay bei GIP 10466577 (16.10.2026)
+
+Nach erfolgreichem Abschluss der Wiener Straßenraumphase (489/489)
+verarbeitete die Partition **469 von 489** Kacheln bis einschließlich
+x+000007_y+000350. Die nächste Kachel brach mit
+**Voronoi 10466577: ungültige polygonale Fläche** ab.
+Der Fehler trat nach Berechnung einer GIP-bezogenen Voronoi-Fläche
+auf, nicht beim Download oder beim Straßenraumaufbau.
+
+Vorher gab die Polygonvalidierung auch bei **geringfügigen
+topologischen Overlay-Artefakten** sofort einen Fehler aus.
+Die neue Behandlung ist bewusst enger als eine allgemeine
+Bereinigung von GIP-Geometrien:
+
+- Eine gültige Fläche wird unverändert übernommen.
+- Nur falls ein **nach dem Overlay** erzeugtes Polygon
+  topologisch ungültig ist, wird shapely.make_valid auf dessen
+  polygonalen Bestandteile angewandt. Fehlende oder ungültige
+  Nullflächen werden nicht stillschweigend als leer akzeptiert.
+- Vorher-/Nachher-Flächen müssen bis auf höchstens
+  max(0,01 m², 1e-8 × Ausgangsfläche) übereinstimmen.
+- Insbesondere bei einem Voronoi-Zuschnitt muss die reparierte
+  Fläche weiterhin **innerhalb der Voronoi-Zellen der GIP-Achse**
+  und **innerhalb des noch nicht zugeordneten Straßenraums** liegen.
+  Analog bleiben reparierte Achsabstands- und Exklusiv-Schnitte
+  in beiden ursprünglichen Schnittpartnern.
+- Eine großflächige Selbstüberschneidung, ein größerer Flächenverlust
+  oder eine Verletzung dieser Herkunftsgrenzen führen zum Abbruch.
+- Jede erfolgreiche Reparatur wird im stats_json der
+  SQLite-Tabelle tiles unter geometrie_reparaturen mit GIP-ID,
+  GEOS-Befund, Ausgangs-/Ergebnisfläche, Flächendifferenz,
+  geprüften Außenseitenflächen und Toleranz protokolliert.
+- Die bestehende Kachel-Flächenbilanz prüft weiterhin
+  Überlagerung, Fehlfläche und Fläche außerhalb der Straßenmaske.
+  GIP-Zuordnung, FOW=3, Stützpunktabstand 5 m, Knotenradius 7 m,
+  Achsabstand 25 m und das globale Site-Verzeichnis bleiben gleich.
+
+Die bereits erstellten 469 Partitionsergebnisse bleiben in
+data/processed/wienweit/wien/aufteilung.sqlite und werden bei
+der Fortsetzung nur nach unveränderten Straßenraum-Quellprüfsummen
+wiederverwendet. Die 489 street.sqlite-Eingaben bleiben unverändert.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_pipeline.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from partition --until partition
+~~~
+
+Die echte Voronoi-Geometrie 10466577 ist nur im lokalen Wiener
+Cache verfügbar; die Reparaturwirkung dort ist noch nicht
+nachgewiesen. Sollte die Flächentreue nicht gesichert sein,
+bricht der Lauf weiterhin mit einer präziseren Meldung ab.
 ## Pfade und Parameter
 
 | Element | Standard |
