@@ -14,7 +14,8 @@ from shapely.ops import transform
 
 from scripts.wienwide_grid import build_manifest,write_manifest,read_manifest
 from scripts.wienwide_grm2023 import (
-	build,chunks,decode_chunk,fetch,mask_path,read_mask,verify_chunk,
+	_verify_transparent_outside_aoi,build,chunks,decode_chunk,fetch,
+	mask_path,read_mask,verify_chunk,
 )
 
 
@@ -129,6 +130,81 @@ class WienwideGrm2023Tests(unittest.TestCase):
 			with self.assertRaisesRegex(ValueError,
 				"Zu viele GRM-Anfragen je Kachel"):
 				chunks(large,box(0,0,1000,1000))
+
+	def test_transparent_white_outside_actual_aoi_is_not_nodata_inside(self):
+		# Durch transparent=TRUE gerenderter WMS-Hintergrund am
+		# Bezirksrand, aber innerhalb der AOI ein bekanntes GRM-RGB.
+		with Image.new("RGBA",(500,500),(235,235,235,255)) as image:
+			image.putpixel((0,0),(255,255,255,0))
+			image.putpixel((self.px,self.py),(56,168,0,255))
+			buf=BytesIO()
+			image.save(buf,format="PNG")
+		self._fetch(buf.getvalue())
+		geom,stats=decode_chunk(
+			self.root_cache/"png"/self.tile["id"]/(self.name+".png"),
+			self.geo,label="transparenter Außenrand",core=self.aoi)
+		self.assertEqual(stats["transparente_pixel_ausserhalb_aoi"],1)
+		self.assertEqual(stats["baum_pixel"],1)
+		self.assertAlmostEqual(geom.area,.25,delta=1e-6)
+		self.assertEqual(build(self.manifest,self.root_cache)["fertige_kacheln"],1)
+		with __import__("sqlite3").connect(mask_path(self.root_cache,self.tile)) as db:
+			info=dict(db.execute("SELECT key,value FROM metadata"))
+		self.assertEqual(info["transparente_pixel_ausserhalb_aoi"],"1")
+		rebuilt,_=read_mask(self.root_cache,self.tile,
+			manifest=self.manifest,aoi=self.aoi)
+		self.assertAlmostEqual(rebuilt.area,.25,delta=.001)
+
+	def test_transparent_white_inside_aoi_aborts_without_zero_mask(self):
+		with Image.new("RGBA",(500,500),(235,235,235,255)) as image:
+			image.putpixel((self.px,self.py),(255,255,255,0))
+			buf=BytesIO()
+			image.save(buf,format="PNG")
+		self._fetch(buf.getvalue())
+		with self.assertRaisesRegex(ValueError,
+			"transparentes WMS-Weiß innerhalb Wiener AOI"):
+			build(self.manifest,self.root_cache)
+		self.assertFalse(mask_path(self.root_cache,self.tile).exists())
+
+	def test_transparency_checks_pixel_footprint_not_only_center(self):
+		# Die transparente Zelle [1,2]x[3,4] trifft die
+		# AOI [0.9,1.1]x[2.9,3.1] an einem 0,1x0,1-m-Eck.
+		# Ihr Zentrum (1.5,3.5) liegt außerhalb: Mittelpunkt-
+		# Tests würden diese echte Lücke übersehen.
+		geo={"bbox":[0,0,4,4],"width":4,"height":4}
+		pixels=[(235,235,235,255)]*16
+		pixels[1]=(255,255,255,0)
+		with self.assertRaisesRegex(ValueError,"innerhalb Wiener AOI"):
+			_verify_transparent_outside_aoi(pixels,geo,
+				box(.9,2.9,1.1,3.1),label="Grenzpixel")
+		self.assertEqual(
+			_verify_transparent_outside_aoi(pixels,geo,
+				box(0,0,1,1),label="außerhalb AOI"),1)
+
+	def test_partial_alpha_and_unknown_transparent_rgb_still_abort(self):
+		for color in ((56,168,0,128),(0,0,0,0),
+				(255,255,255,100),(25,25,25,255)):
+			with self.subTest(color=color):
+				with Image.new("RGBA",(500,500),(235,235,235,255)) as image:
+					image.putpixel((0,0),color)
+					buf=BytesIO()
+					image.save(buf,format="PNG")
+				png=self.root/f"bad-{color[0]}-{color[3]}.png"
+				png.write_bytes(buf.getvalue())
+				with self.assertRaisesRegex(ValueError,
+					"unbekannte/transparente WMS-Farben"):
+					decode_chunk(png,self.geo,label="falsche Farbe",
+						core=self.aoi)
+
+	def test_transparency_without_aoi_is_not_silently_accepted(self):
+		with Image.new("RGBA",(500,500),(235,235,235,255)) as image:
+			image.putpixel((0,0),(255,255,255,0))
+			buf=BytesIO()
+			image.save(buf,format="PNG")
+		png=self.root/"without-aoi.png"
+		png.write_bytes(buf.getvalue())
+		with self.assertRaisesRegex(ValueError,
+			"Transparenz ohne gültige AOI"):
+			decode_chunk(png,self.geo,label="fehlende AOI")
 
 	def test_invalid_color_aborts_without_fake_zero_mask(self):
 		self._fetch(self._png(corrupt=True))
