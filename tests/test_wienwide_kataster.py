@@ -152,6 +152,76 @@ class WienwideKatasterTests(unittest.TestCase):
 		self.assertIn("16/35000/23000",stats["bev_cache_sha256"])
 		self.assertIn("direkt-metrisch",stats["quelle"])
 
+	def test_native_mvt_only_other_nfl_preserves_fmzk_core(self):
+		# Die BEV-Quelle kann auf einer Kachel nur Nicht-95/65 enthalten.
+		# FMZK-Kernklasse 21 bleibt trotzdem Straßenraum.
+		from scripts.export_fmzk_strassenraum import classify_fmzk
+		nfl=[({"ns":52},box(10,10,30,30))]
+		with patch("scripts.wienwide_kataster.read_tiles",
+			return_value=(self.parcels,nfl,self.tiles)) as read:
+			street,other,stats=read_native_kataster_masks(
+				self.kat,self.clip,self.fmzk,self.manifest,self.cache)
+		read.assert_called_once_with(self.bbox,self.cache,offline=True,
+			max_tiles=120)
+		self.assertTrue(street.is_empty)
+		self.assertTrue(street.is_valid)
+		self.assertAlmostEqual(other.area,400)
+		self.assertEqual(stats["nfl_gruppenstatus"],"nur_sonstige")
+		self.assertEqual(stats["nfl_strassenfragmente"],0)
+		self.assertEqual(stats["nfl_sonstige_fragmente"],1)
+		self.assertEqual(stats["betroffene_grundstuecke"],1)
+		self.assertEqual(stats["bev_cache_anzahl"],1)
+		self.assertEqual(stats["strassenmaske_m2"],0)
+		self.assertAlmostEqual(stats["sonstige_maske_m2"],400)
+		classified=classify_fmzk(self.fmzk,street,other)
+		self.assertEqual(classified[0][0],"strassenraum")
+		self.assertEqual(classified[0][1]["grund"],"fmzk_kern")
+		self.assertEqual(classified[1][0],"uebrige")
+
+	def test_native_mvt_only_street_nfl_can_extend_fmzk_street(self):
+		# Ohne sonstige nfl-Flächen ist eine volle 95/65-Deckung
+		# weiterhin ein positiver Nachweis für Nicht-Kern-FMZK.
+		from scripts.export_fmzk_strassenraum import classify_fmzk
+		nfl=[({"ns":95},box(10,10,20,20)),
+			({"ns":65},box(30,10,35,20))]
+		with patch("scripts.wienwide_kataster.read_tiles",
+			return_value=(self.parcels,nfl,self.tiles)):
+			street,other,stats=read_native_kataster_masks(
+				self.kat,self.clip,self.fmzk,self.manifest,self.cache)
+		self.assertAlmostEqual(street.area,150)
+		self.assertTrue(other.is_empty)
+		self.assertTrue(other.is_valid)
+		self.assertEqual(stats["nfl_gruppenstatus"],"nur_strasse")
+		self.assertEqual(stats["nfl_strassenfragmente"],2)
+		self.assertEqual(stats["nfl_sonstige_fragmente"],0)
+		self.assertEqual(stats["sonstige_maske_m2"],0)
+		classified=classify_fmzk(self.fmzk,street,other)
+		self.assertEqual(classified[0][0],"strassenraum")
+		self.assertEqual(classified[1][0],"strassenraum")
+		self.assertEqual(classified[1][1]["grund"],
+			"nfl_95_65_hohe_deckung")
+
+	def test_native_mvt_without_usable_nfl_on_selected_parcels_aborts(self):
+		# nfl außerhalb der Kerngrundstücke darf nicht als vollständig
+		# geprüfte 0-m²-Straßenmaske interpretiert werden.
+		nfl=[({"ns":52},box(90,90,100,100))]
+		with patch("scripts.wienwide_kataster.read_tiles",
+			return_value=(self.parcels,nfl,self.tiles)):
+			with self.assertRaisesRegex(ValueError,
+				"Keine verwertbaren BEV-nfl-Flächen"):
+				read_native_kataster_masks(self.kat,self.clip,self.fmzk,
+					self.manifest,self.cache)
+
+	def test_native_mvt_only_tiny_nfl_does_not_hide_missing_usage(self):
+		# Die Schutzschwelle 0,05 m² für BEV-Fragmente bleibt erhalten.
+		nfl=[({"ns":95},box(11,11,11.01,12))]
+		with patch("scripts.wienwide_kataster.read_tiles",
+			return_value=(self.parcels,nfl,self.tiles)):
+			with self.assertRaisesRegex(ValueError,
+				"Keine verwertbaren BEV-nfl-Flächen"):
+				read_native_kataster_masks(self.kat,self.clip,self.fmzk,
+					self.manifest,self.cache)
+
 	def test_old_kataster_core_codes_are_rejected(self):
 		self.report.pop("fmzk_kern_klassen")
 		(self.kat/"kataster_bericht.json").write_text(
