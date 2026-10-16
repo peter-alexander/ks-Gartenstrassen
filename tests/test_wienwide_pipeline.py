@@ -233,6 +233,8 @@ class WienPipelineTests(unittest.TestCase):
 		self.assertIn("Einzelzellen",audit[0]["methode"])
 		self.assertEqual(audit[0]["voronoi_einzelzellen"],2)
 		self.assertEqual(audit[0]["precision_grid_m"],None)
+		self.assertIn("außerhalb noch nicht zugeordneter Straßenraum",
+			audit[0]["originalfehler"])
 		self.assertLess(audit[0]["pruefung"]
 			["ausserhalb_uebrigem_strassenraum_m2"],1e-8)
 		self.assertLess(audit[0]["pruefung"]
@@ -304,6 +306,8 @@ class WienPipelineTests(unittest.TestCase):
 		self.assertEqual(calls,[1e-9])
 		self.assertEqual(audit[0]["precision_grid_m"],1e-9)
 		self.assertIn("Präzisionsraster",audit[0]["methode"])
+		self.assertIn("außerhalb noch nicht zugeordneter Straßenraum",
+			audit[0]["originalfehler"])
 
 	def test_valid_voronoi_overlay_does_not_invoke_fallback(self):
 		cells=[box(0,0,50,100),box(50,0,100,100)]
