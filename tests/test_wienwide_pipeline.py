@@ -21,6 +21,7 @@ from scripts.wienwide_gip import (
 	connect as connect_gip,
 )
 from scripts.wienwide_street import save_street_tile, load_street_tile
+from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 from scripts.wienwide_partition import (
 	_polygon, graph_context, split_tile, run as partition_run, report_results,
 )
@@ -137,7 +138,8 @@ class WienPipelineTests(unittest.TestCase):
 	def test_gip_conflict_aborts_without_committing_sqlite(self):
 		self._fragments(conflicting=True)
 		idx=self.root/"bad.sqlite"
-		with self.assertRaisesRegex(ValueError,"Konflikt"):
+		with self.assertRaisesRegex(ValueError,
+			"GIP-Achse 11 weicht von .* ab; Attribute: \\['name'\\]"):
 			build_index(self.plan_file,self.gip_root,idx)
 		self.assertFalse(idx.exists())
 
@@ -464,7 +466,9 @@ class WienPipelineTests(unittest.TestCase):
 			save_street_tile(out,empty,{"schema_version":"1",
 				"crs":"EPSG:31256"})
 		save_street_tile(out,empty,{"schema_version":"1",
-			"crs":"EPSG:31256","nachweislich_ohne_strassenraum":True},
+			"crs":"EPSG:31256",
+			"strassenraum_regel_version":STREET_CLASSIFICATION_VERSION,
+			"nachweislich_ohne_strassenraum":True},
 			allow_empty=True)
 		loaded=load_street_tile(out,self.aoi)
 		self.assertTrue(loaded.is_empty)
@@ -490,7 +494,8 @@ class WienPipelineTests(unittest.TestCase):
 			if street.area<=0:continue
 			path=street_root/tile["id"]/"street.sqlite"
 			save_street_tile(path,street,{"schema_version":"1",
-				"crs":"EPSG:31256","tile_id":tile["id"]})
+				"crs":"EPSG:31256","tile_id":tile["id"],
+				"strassenraum_regel_version":STREET_CLASSIFICATION_VERSION})
 			self.assertAlmostEqual(load_street_tile(path,core).area,street.area)
 		output=self.root/"out.sqlite"
 		partial=partition_run(self.plan_file,gip,street_root,output,
