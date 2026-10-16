@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from shapely import union_all
-from shapely.geometry import box
-from scripts.wienwide_kataster import read_native_kataster_masks
+from shapely.geometry import box, Polygon
+from scripts.wienwide_kataster import read_native_kataster_masks, _validate_nfl_union
 from scripts.wienwide_street import (
 	build_tile,load_street_tile,check_existing_tile,
 	save_street_tile,run as street_run,
@@ -221,6 +221,84 @@ class WienwideKatasterTests(unittest.TestCase):
 				"Keine verwertbaren BEV-nfl-Flächen"):
 				read_native_kataster_masks(self.kat,self.clip,self.fmzk,
 					self.manifest,self.cache)
+
+	def test_invalid_merged_nfl_repaired_without_losing_any_source_area(self):
+		# Synthetischer GEOS-Selbstkontakt: richtige Rechteckfläche,
+		# aber ungültige Ringkontur nach der Gesamtvereinigung.
+		original=box(0,0,10,10)
+		invalid=Polygon([(0,0),(10,0),(10,10),(0,10),
+			(0,0),(0,5),(0,0)])
+		self.assertFalse(invalid.is_valid)
+		self.assertEqual(invalid.area,original.area)
+		repaired,event=_validate_nfl_union(invalid,[original],
+			group="strasse")
+		self.assertTrue(repaired.is_valid)
+		self.assertTrue(repaired.equals(original))
+		self.assertAlmostEqual(event["flaechendifferenz_m2"],0)
+		self.assertAlmostEqual(event["nicht_abgedeckte_quellfragmente_m2"],0)
+		self.assertEqual(event["fragmente"],1)
+		self.assertEqual(event["gruppe"],"strasse")
+
+	def test_invalid_nfl_union_with_large_area_change_is_not_repaired(self):
+		# Verdoppelt umlaufender Polygonring: make_valid würde
+		# 100 m² wegwerfen; das ist ein Quellkonflikt.
+		invalid=Polygon([(0,0),(10,0),(10,10),(0,10),
+			(0,0),(10,0),(10,10),(0,10),(0,0)])
+		self.assertFalse(invalid.is_valid)
+		self.assertAlmostEqual(invalid.area,200)
+		with self.assertRaisesRegex(ValueError,
+			"Reparatur würde vereinigte Fläche"):
+			_validate_nfl_union(invalid,[box(0,0,10,10)],
+				group="sonstige")
+
+	def test_invalid_nfl_union_cannot_hide_uncovered_source_fragment(self):
+		# Gleiche Gesamtfläche genügt nicht: ein übersehener
+		# BEV-Quellteil außerhalb der reparierten Geometrie stoppt.
+		invalid=Polygon([(0,0),(10,0),(10,10),(0,10),
+			(0,0),(0,5),(0,0)])
+		outside=box(10,0,11,1)
+		with self.assertRaisesRegex(ValueError,
+			"Reparatur verliert .*Quellfragmente"):
+			_validate_nfl_union(invalid,[box(0,0,10,10),outside],
+				group="strasse")
+
+	def test_valid_nfl_union_is_kept_without_repair_event(self):
+		valid=union_all([box(0,0,10,10),box(8,8,12,12)])
+		repaired,event=_validate_nfl_union(valid,
+			[box(0,0,10,10),box(8,8,12,12)],group="strasse")
+		self.assertIsNone(event)
+		self.assertTrue(repaired.equals(valid))
+		self.assertAlmostEqual(repaired.area,112)
+
+	def test_native_mvt_union_repair_event_is_in_kataster_stats(self):
+		# Eins-zu-eins-Quelle wird nicht verändert; nur die
+		# ungültige simulierte BEV-Vereinigung wird repariert.
+		source_union=union_all
+		nfl=[({"ns":95},box(10,10,20,20)),
+			({"ns":95},box(10,10,20,20)),
+			({"ns":52},box(40,10,50,20))]
+		invalid=Polygon([(10,10),(20,10),(20,20),(10,20),
+			(10,10),(10,15),(10,10)])
+		self.assertFalse(invalid.is_valid)
+		def union_for_test(items):
+			if len(items)==2:
+				return invalid
+			return source_union(items)
+		with patch("scripts.wienwide_kataster.read_tiles",
+			return_value=(self.parcels,nfl,self.tiles)), patch(
+			"scripts.wienwide_kataster.union_all",
+			side_effect=union_for_test):
+			street,other,stats=read_native_kataster_masks(
+				self.kat,self.clip,self.fmzk,self.manifest,self.cache)
+		self.assertTrue(street.is_valid)
+		self.assertTrue(other.is_valid)
+		self.assertAlmostEqual(street.area,100)
+		self.assertAlmostEqual(other.area,100)
+		self.assertEqual(len(stats["nfl_vereinigungsreparaturen"]),1)
+		self.assertEqual(stats["nfl_vereinigungsreparaturen"][0]["gruppe"],
+			"strasse")
+		self.assertEqual(stats["bev_cache_anzahl"],1)
+		self.assertIn("16/35000/23000",stats["bev_cache_sha256"])
 
 	def test_old_kataster_core_codes_are_rejected(self):
 		self.report.pop("fmzk_kern_klassen")
