@@ -410,6 +410,59 @@ Falls die Flächenbilanz nicht erhalten werden kann, erscheint
 eine präzisere Fehlermeldung mit Gruppe und Abweichung;
 in diesem Fall keine weitere automatische Reparatur.
 
+## GEOS-Ausnahme schon während der BEV-Union (16.10.2026)
+
+Die Wiener Straßenraumphase erreichte **239/489**. Danach brach die
+GEOS-Vereinigung noch vor der bisherigen Gültigkeitskontrolle ab:
+
+> TopologyException: Ring edge missing at 10091.849205025215 340087.48499677476
+
+Die erste Reparatur der ungültigen, aber bereits erzeugten Union
+(Kachel 114; GEOS: Nested shells) war dagegen erfolgreich und
+wurde mit maximal 0,000002 m² nicht abgedeckter Quellfläche protokolliert.
+Die FMZK-Kleinstreste bei Kacheln 194 und 220 wurden ebenfalls
+regelkonform mit Quell-ID dokumentiert.
+
+**Neuer, ausschließlich bei GEOSException aktiver Schutzpfad:**
+
+- Zunächst bleibt die exakte union_all-Vereinigung unverändert.
+- Scheitert sie durch einen GEOS-Topologiefehler, werden feste
+  Precision-Grid-Größen von 1e-9, 1e-8, 1e-7 und 1e-6 Metern
+  nacheinander getestet. Die Quellen selbst werden nicht verändert.
+- Jeder mögliche Ersatz muss ein gültiges Polygon ergeben. Nur wenn
+  erforderlich, greift zusätzlich die bereits vorhandene Prüfung
+  einer make_valid-Reparatur.
+- **Quellabdeckung:** Jedes Originalfragment wird mit difference
+  gegen den Ersatz geprüft. Der gesamte fehlende Flächenanteil darf
+  maximal max(0,01 m², 1e-8 × Maskenfläche) betragen.
+- **Zusatzflächenkontrolle:** Von der Ersatzmaske werden die
+  ursprünglichen Polygonfragmente in Blöcken abgezogen. Falls ein
+  Block ebenfalls eine GEOS-Ausnahme auslöst, wird er rekursiv
+  halbiert bis zu den einzelnen Quellfragmenten. Eine verbleibende
+  nicht belegte Fläche über der gleichen Toleranz führt zum Abbruch.
+- Unterhalb der 0,05-m²-Schwellengröße verworfene Rohfragmente
+  bleiben ausgeschlossen; **beibehaltene sehr dünne positive
+  Flächen dürfen nicht durch die Reparatur verloren gehen**.
+- Nur ein vollständig nachgewiesener Kandidat wird ausgegeben und
+  als nfl_vereinigungsreparaturen mit ursprünglichem GEOS-Fehler,
+  Nutzungsgruppe, Grid, Toleranzen und beiden Abweichungsflächen
+  in der Straßenraum-Metadatenbank dokumentiert.
+- Fehlgeschlagene Versuche werden **nicht** als Ergebnis gespeichert;
+  sie führen zu einem ValueError mit Kachel-ID, Nutzungsgruppe und
+  allen getesteten Präzisionsstufen. Die 239 bereits erstellten
+  Kacheln und alle 489 FMZK-/BEV-Eingaben bleiben bestehen.
+
+Nach dem Pull zunächst nur die Tests und die Phase street starten:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_kataster.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from street --until street
+~~~
+
+Die Wirkung für die konkrete Originalgeometrie mit Ring-edge-missing
+ist **noch nicht lokal bestätigt**.
 ## Pfade und Parameter
 
 | Element | Standard |
