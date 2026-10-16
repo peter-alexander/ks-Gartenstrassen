@@ -94,7 +94,47 @@ def verify_chunk(root,tile,name,geo,url):
 	return png,report
 
 
-def decode_chunk(png,geo,*,label):
+def _verify_transparent_outside_aoi(pixels,geo,core,*,label):
+	"""WMS-Hintergrund (transparentes Weiß) nur AUSSERHALB Wien erlauben.
+
+	Ganzes 0,5-m-Pixelquadrat gegen die echte AOI schneiden.
+	Ein Mittelpunkt-Test wäre an der Verwaltungsgrenze zu schwach.
+	"""
+	if core is None or core.is_empty or not core.is_valid:
+		raise ValueError(f"{label}: Transparenz ohne gültige AOI "
+			"nicht als fehlende Baumschicht klassifizieren")
+	x0,y0,x1,y1=geo["bbox"]
+	width,height=geo["width"],geo["height"]
+	dx=(x1-x0)/width
+	dy=(y1-y0)/height
+	relevant=core.intersection(box(x0,y0,x1,y1))
+	if relevant.is_empty or relevant.area<=0:
+		raise ValueError(f"{label}: WMS-Teilbild liegt außerhalb der AOI")
+	transparent=(255,255,255,0)
+	count=0
+	for row in range(height):
+		start=None
+		for x in range(width+1):
+			is_nodata=x<width and pixels[row*width+x]==transparent
+			if is_nodata:
+				count+=1
+				if start is None:
+					start=x
+			elif start is not None:
+				pixel_run=box(x0+start*dx,y1-(row+1)*dy,
+					x0+x*dx,y1-row*dy)
+				if (pixel_run.intersects(relevant)
+					and pixel_run.intersection(relevant).area>1e-9):
+					raise ValueError(f"{label}: transparentes WMS-Weiß "
+						"innerhalb Wiener AOI; kein nachgewiesener "
+						f"GRM-Klassenwert (Zeile {row}, Pixel "
+						f"{start} bis {x-1}); Baumschicht nicht "
+						"als Null klassifizieren")
+				start=None
+	return count
+
+
+def decode_chunk(png,geo,*,label,core=None):
 	payload=Path(png).read_bytes()
 	if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
 		raise ValueError(f"{label}: WMS-Antwort ist kein PNG")
@@ -104,21 +144,28 @@ def decode_chunk(png,geo,*,label):
 		src.load()
 		pixels=list(src.convert("RGBA").getdata())
 	freq=Counter(pixels)
+	nodata=(255,255,255,0)
 	unknown={str(rgb):n for rgb,n in freq.items()
-		if rgb[3]!=255 or rgb[:3] not in CATEGORIES}
+		if rgb!=nodata and (rgb[3]!=255 or rgb[:3] not in CATEGORIES)}
 	if unknown:
 		raise ValueError(f"{label}: unbekannte/transparente WMS-Farben: "
 			f"{list(unknown.items())[:8]}")
-	count=sum(n for rgb,n in freq.items() if rgb[:3]==TREE_RGB)
+	transparent=freq.get(nodata,0)
+	if transparent:
+		checked=_verify_transparent_outside_aoi(pixels,geo,core,label=label)
+		if checked!=transparent:
+			raise ValueError(f"{label}: WMS-Transparenzzählung widersprüchlich")
+	stats_base={"farben":{str(rgb):n for rgb,n in freq.items()},
+		"transparente_pixel_ausserhalb_aoi":transparent}
+	count=sum(n for rgb,n in freq.items()
+		if rgb[:3]==TREE_RGB and rgb[3]==255)
 	if not count:
-		return Polygon(),{"baum_pixel":0,"baumschicht_m2":0,
-			"farben":{str(rgb):n for rgb,n in freq.items()}}
+		return Polygon(),{"baum_pixel":0,"baumschicht_m2":0,**stats_base}
 	geom,stats=polygonize_tree_pixels(pixels,
 		width=geo["width"],height=geo["height"],bbox=geo["bbox"])
 	if count!=stats["baum_pixel"]:
 		raise ValueError(f"{label}: Pixelzählung widersprüchlich")
-	return geom,{"baum_pixel":count,"baumschicht_m2":geom.area,
-		"farben":{str(rgb):n for rgb,n in freq.items()}}
+	return geom,{"baum_pixel":count,"baumschicht_m2":geom.area,**stats_base}
 
 
 def fetch(manifest_path,root,*,pause_s=.4):
@@ -229,15 +276,18 @@ def build(manifest_path,root):
 		parts=[]
 		digests={}
 		tree_pixels=0
+		outside_transparent_pixels=0
+		core=box(*tile["bounds_31256"]).intersection(aoi)
 		for name,geo,url in chunks(tile,aoi):
 			png,_=verify_chunk(root,tile,name,geo,url)
-			geom,stats=decode_chunk(png,geo,label=f"{tile['id']}/{name}")
+			geom,stats=decode_chunk(png,geo,
+				label=f"{tile['id']}/{name}",core=core)
 			tree_pixels+=stats["baum_pixel"]
+			outside_transparent_pixels+=stats["transparente_pixel_ausserhalb_aoi"]
 			digests[name]=checksum(png)
 			if not geom.is_empty:
 				parts.append(geom)
 		merged=union_all(parts) if parts else Polygon()
-		core=box(*tile["bounds_31256"]).intersection(aoi)
 		if not merged.is_valid:
 			raise ValueError(f"{tile['id']}: GRM-Baumschichtvereinigung ungültig")
 		clipped=merged.intersection(core)
@@ -256,7 +306,9 @@ def build(manifest_path,root):
 					"manifest_sha256":checksum(manifest_path),
 					"png_sha256":json.dumps(digests,sort_keys=True),
 					"baumschicht_m2":repr(clipped.area),
-					"baum_pixel":str(tree_pixels)}
+					"baum_pixel":str(tree_pixels),
+					"transparente_pixel_ausserhalb_aoi":
+						str(outside_transparent_pixels)}
 				db.executemany("INSERT INTO metadata VALUES (?,?)",data.items())
 			temp.replace(path)
 		except BaseException:
@@ -264,7 +316,8 @@ def build(manifest_path,root):
 			raise
 		completed.append(tile["id"])
 		print(f"GRM {i}/{len(manifest['tiles'])} {tile['id']}: "
-			f"{clipped.area:.1f} m², {tree_pixels} Baumpixel")
+			f"{clipped.area:.1f} m², {tree_pixels} Baumpixel, "
+			f"{outside_transparent_pixels} transparente Pixel außerhalb AOI")
 	return {"fertige_kacheln":len(completed)}
 
 
