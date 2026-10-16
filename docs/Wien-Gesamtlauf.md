@@ -1237,8 +1237,8 @@ tippecanoe --version
 command -v pmtiles || true
 .venv/bin/python -m scripts.build_wien_pmtiles
 
-# Für den bereits vorhandenen Zoom-12–17-Build: gesicherter Neubau
-# mit Minzoom 8 und unverändertem Maxzoom 17:
+# Vorhandene Zoom-12–17-Datei ohne Sicherung überschreiben:
+# Minzoom 8, Maxzoom unverändert 17:
 .venv/bin/python -m scripts.build_wien_pmtiles --replace
 ~~~
 
@@ -1280,13 +1280,17 @@ Erst anschließend entstehen die endgültige `.pmtiles`-
 Datei und ein Manifest mit SHA-256-Prüfsummen,
 Quell-GIP-Anzahl, Zoomstufen und Werkzeugversion.
 Vorhandene PMTiles-Ausgaben werden ohne ausdrückliches `--replace` nicht überschrieben.
-Für einen gesicherten Neubau bleiben die bestehenden Ausgaben während
-Berechnung und QA erhalten. Erst nach bestandenen Prüfungen werden
-PMTiles und Manifest nach `gartenstrassen_wien.previous.pmtiles`
-bzw. `pmtiles_bericht.previous.json` verschoben und durch die
-neuen Dateien ersetzt. Schlägt der Austausch fehl, wird das alte Paar
-zurückgestellt. Bereits vorhandene `.previous`-Sicherungen werden
-niemals stillschweigend überschrieben.
+Mit `--replace` wird das neue Archiv zunächst vollständig separat in
+der temporären Datei erzeugt, geprüft und gehasht. Bis dahin bleibt
+das vorhandene PMTiles unverändert. Nach erfolgreicher Prüfung werden
+Manifest und PMTiles durch direkte Dateiumbenennungen ersetzt.
+**Es werden keine Sicherungskopien, `.previous`-Dateien oder Versionen
+der früheren PMTiles-Datei angelegt.** Die letzte Umbenennung ist
+die des fertig geprüften PMTiles-Archivs. Falls diese fehlschlägt,
+wird der vorherige kleine JSON-Bericht aus dem Arbeitsspeicher
+wiederhergestellt; die ursprüngliche PMTiles-Datei bleibt erhalten.
+Die beiden Umbenennungen sind jeweils atomar, aber nicht als
+gemeinsamer Transaktionsschritt atomar.
 
 **Wichtige fachliche Grenzen:**
 
@@ -1313,7 +1317,8 @@ Der erste lokale PMTiles-Build wurde am 16.10.2026 mit
 Tippecanoe 2.49.0 erfolgreich erstellt: 24.306 Quell-Features,
 Zoom 12–17, 31.180.788 Bytes. Für den Debug-Einsatz
 wurde anschließend der Build auf **Zoom 8–17** umgestellt;
-der Neuaufbau ist lokal mit `--replace` auszuführen.
+der lokale Neubau mit direktem Überschreiben und ohne Sicherung
+erfolgt mit `--replace`.
 Die erzeugten Geodaten liegen absichtlich nicht im Git-Repository. Die Kartenintegration
 erfolgt erst nach Sichtprüfung von Dateigröße,
 Tile-Grenzen, Hover-Kennung, Attributen und Ladezeiten.
