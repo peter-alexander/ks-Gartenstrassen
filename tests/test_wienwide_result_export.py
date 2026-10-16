@@ -5,12 +5,17 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
-from shapely.geometry import box
+from shapely.geometry import box, Polygon
+from shapely.affinity import translate
+from shapely.ops import transform
 
 from scripts.wienwide_qa_gpkg import gpkg_blob
 from scripts.wienwide_gip_greening import CSV_COLUMNS
-from scripts.wienwide_result_export import export
+from scripts.wienwide_result_export import (
+	WGS84,_verified_wgs84,export,
+)
 
 
 class WienwideResultExportTests(unittest.TestCase):
@@ -71,6 +76,65 @@ class WienwideResultExportTests(unittest.TestCase):
 					(gip_id, geom, flaeche_m2, gip_gesamt_m2)
 					VALUES (?,?,?,?)""",
 					(gid, gpkg_blob(geom), geom.area, total))
+
+	def _invalid_wgs84_boundary_repetition(self):
+		# Reale Projektion einer metrisch gültigen Fläche; eine
+		# doppelt durchlaufene Grenzkante erzeugt einen
+		# topologischen WGS84-Fehler ohne zusätzliche Flächen.
+		metric=box(8000,350000,8100,350100)
+		normal=transform(WGS84,metric)
+		points=list(normal.exterior.coords)
+		start,second=points[:2]
+		middle=((start[0]+second[0])/2,
+			(start[1]+second[1])/2)
+		invalid=Polygon(points+[middle,start])
+		self.assertFalse(invalid.is_valid)
+		return metric,normal,invalid
+
+	def test_valid_wgs84_remains_unchanged_without_repair(self):
+		metric,valid,_invalid=self._invalid_wgs84_boundary_repetition()
+		audit=[]
+		result=_verified_wgs84(metric,valid,"10023274",audit)
+		self.assertIs(result,valid)
+		self.assertEqual(audit,[])
+
+	def test_invalid_wgs84_small_edge_artifact_only_repairs_output(self):
+		metric,_valid,invalid=self._invalid_wgs84_boundary_repetition()
+		audit=[]
+		result=_verified_wgs84(metric,invalid,"10023274",audit)
+		self.assertTrue(result.is_valid)
+		self.assertFalse(result.is_empty)
+		self.assertEqual(len(audit),1)
+		self.assertEqual(audit[0]["gip_id"],"10023274")
+		self.assertLess(audit[0]["grenzverschiebung_m"],.01)
+		self.assertLess(audit[0]["fehlend_m2"],
+			audit[0]["differenztoleranz_m2"])
+		self.assertLess(audit[0]["zusaetzlich_m2"],
+			audit[0]["differenztoleranz_m2"])
+		self.assertEqual(metric.area,10000)
+
+	def test_invalid_wgs84_rejects_shifted_repair(self):
+		metric,valid,invalid=self._invalid_wgs84_boundary_repetition()
+		shifted=translate(valid,xoff=.0001)  # mehrere Meter
+		audit=[]
+		with patch("scripts.wienwide_result_export.make_valid",
+			return_value=shifted):
+			with self.assertRaisesRegex(ValueError,
+				"Reparatur nicht metrisch flächentreu"):
+				_verified_wgs84(metric,invalid,"10023274",audit)
+		self.assertEqual(audit,[])
+
+	def test_invalid_wgs84_rejects_lost_area(self):
+		metric,valid,invalid=self._invalid_wgs84_boundary_repetition()
+		removed=box(valid.bounds[0],valid.bounds[1],
+			(valid.bounds[0]+valid.bounds[2])/2,valid.bounds[3])
+		audit=[]
+		with patch("scripts.wienwide_result_export.make_valid",
+			return_value=removed):
+			with self.assertRaisesRegex(ValueError,
+				"Reparatur nicht metrisch flächentreu"):
+				_verified_wgs84(metric,invalid,"10023274",audit)
+		self.assertEqual(audit,[])
 
 	def test_one_global_section_kept_even_when_both_tiles_below_threshold(self):
 		out = self.root / "published"
