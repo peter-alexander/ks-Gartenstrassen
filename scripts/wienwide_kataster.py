@@ -121,6 +121,115 @@ def _validate_nfl_union(merged, fragments, *, group):
 	return repaired, event
 
 
+def _subtract_nfl_sources(remaining, fragments, *, group):
+	"""Exakt die ursprünglichen Polygonanteile aus der Kandidatenmaske abziehen.
+
+	Kleine Blöcke vermeiden den ursprünglichen globalen GEOS-Fehler.
+	Bei einem Fehler wird nur dieser Block weiter unterteilt; es
+	wird nichts verworfen und keine Quelle gerundet.
+	"""
+	if remaining.is_empty or not fragments:
+		return remaining
+	if len(fragments) == 1:
+		mask = fragments[0]
+	else:
+		try:
+			mask = union_all(fragments)
+		except GEOSException:
+			mid = len(fragments) // 2
+			remaining = _subtract_nfl_sources(
+				remaining, fragments[:mid], group=group)
+			return _subtract_nfl_sources(
+				remaining, fragments[mid:], group=group)
+	try:
+		return remaining.difference(mask)
+	except GEOSException as exc:
+		if len(fragments) == 1:
+			raise ValueError(f"BEV-nfl-Gruppe {group}: die "
+				"Flächentreue eines Präzisionsversuchs kann "
+				f"nicht geprüft werden: {exc}") from exc
+		mid = len(fragments) // 2
+		remaining = _subtract_nfl_sources(
+			remaining, fragments[:mid], group=group)
+		return _subtract_nfl_sources(
+			remaining, fragments[mid:], group=group)
+
+
+def _union_nfl_group(fragments, *, group):
+	"""Normal exakt vereinigen; nur nach GEOS-Fehler engste Präzision testen.
+
+	Nie ohne beidseitige Kontrolle gegen JEDES ursprüngliche
+	Polygon zurückgeben. Toleranz begrenzt nur numerische Artefakte,
+	nicht die erlaubte Mindestgröße der Quellfragmente.
+	"""
+	try:
+		merged = union_all(fragments)
+	except GEOSException as original_error:
+		# Alle Koordinaten sind Meter in EPSG:31256. Der erste
+		# Versuch rundet höchstens auf den Nanometer-Bereich.
+		# Kein stilles buffer(0) oder Verlust kleiner Polygone.
+		attempts=[]
+		for grid in (1e-9, 1e-8, 1e-7, 1e-6):
+			try:
+				candidate=union_all(fragments,grid_size=grid)
+				candidate,repair=_validate_nfl_union(
+					candidate,fragments,group=group)
+				tolerance=max(.01,candidate.area*1e-8)
+				# Fehlende Quellfläche UND hinzugekommene Fläche
+				# getrennt prüfen: eine Summenbilanz reicht nicht.
+				lost=0.
+				for index,part in enumerate(fragments):
+					loss=part.difference(candidate).area
+					if not math.isfinite(loss):
+						raise ValueError(f"nicht-endlicher Verlust "
+							f"bei Quellfragment {index}")
+					lost+=loss
+					if lost>tolerance:
+						raise ValueError(f"{lost:.6f} m² "
+							"Quellfragmente nicht abgedeckt "
+							f"(Toleranz {tolerance:.6f} m²)")
+				remainder=candidate
+				for start in range(0,len(fragments),64):
+					remainder=_subtract_nfl_sources(
+						remainder,fragments[start:start+64],group=group)
+					if remainder.is_empty:
+						break
+				added=remainder.area
+				if not math.isfinite(added) or added>tolerance:
+					raise ValueError(f"{added:.6f} m² "
+						"zusätzliche Fläche ohne Quellfragment "
+						f"(Toleranz {tolerance:.6f} m²)")
+				event={
+					"gruppe":group,
+					"grund":str(original_error),
+					"fragmente":len(fragments),
+					"methode":"union_all mit kleinstem nachweislich "
+						"flächentreuem precision grid",
+					"precision_grid_m":grid,
+					"union_nachher_m2":candidate.area,
+					"nicht_abgedeckte_quellfragmente_m2":lost,
+					"zusatzflaeche_ohne_quellfragmente_m2":added,
+					"toleranz_m2":tolerance,
+				}
+				if repair is not None:
+					event["zusaetzliche_geometriereparatur"]=repair
+				print(f"BEV-nfl-Hinweis: {group}: "
+					f"GEOS-Unionfehler mit Raster {grid:g} m "
+					"behoben und beidseitig gegen alle "
+					f"{len(fragments)} Quellfragmente geprüft; "
+					f"nicht abgedeckt {lost:.6f} m², "
+					f"zusätzlich {added:.6f} m²; "
+					f"ursprünglicher Fehler: {original_error}")
+				return candidate,event
+			except (GEOSException,ValueError) as exc:
+				attempts.append(f"{grid:g} m: {exc}")
+		raise ValueError(f"BEV-nfl-Gruppe {group}: Union scheitert "
+			"auch bei streng geprüfter Präzisions-Nachbearbeitung; "
+			f"Original: {original_error}; Versuche: "
+			+ " | ".join(attempts)) from original_error
+	return _validate_nfl_union(merged,fragments,group=group)
+
+
 def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
 		cache_dir, *, max_tiles=120):
 	"""Nfl-Masken aus den *ursprünglichen* EPSG:31256-Polygonen.
@@ -231,9 +340,7 @@ def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
 		if not fragments:
 			masks[group]=Polygon()
 			continue
-		merged=union_all(fragments)
-		masks[group],event=_validate_nfl_union(
-			merged,fragments,group=group)
+		masks[group],event=_union_nfl_group(fragments,group=group)
 		if event is not None:
 			union_repairs.append(event)
 	street,other=masks["strasse"],masks["sonstige"]
