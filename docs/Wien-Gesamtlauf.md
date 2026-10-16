@@ -1236,6 +1236,10 @@ tippecanoe --version
 # Optional: prüfen, ob der Protomaps-Verifizierer vorhanden ist:
 command -v pmtiles || true
 .venv/bin/python -m scripts.build_wien_pmtiles
+
+# Für den bereits vorhandenen Zoom-12–17-Build: gesicherter Neubau
+# mit Minzoom 8 und unverändertem Maxzoom 17:
+.venv/bin/python -m scripts.build_wien_pmtiles --replace
 ~~~
 
 **Lokale Ausgaben (bestehender Exportordner):**
@@ -1244,7 +1248,7 @@ command -v pmtiles || true
 - `data/processed/wienweit/wien/veroeffentlichung_100m2/pmtiles_bericht.json`
 
 **Eigenschaften:** Layer-Name `gartenstrassen_wien`, Zoom
-**12 bis 17**, `full-detail` und `low-detail` jeweils 12
+**8 bis 17**, `full-detail` und `low-detail` jeweils 12
 (4096 Tile-Units), maximale Zoomstufe ohne
 Tippecanoe-Linienvereinfachung; die niedrigeren
 Zoomstufen werden für die Darstellung vereinfacht.
@@ -1275,7 +1279,14 @@ zusätzliche Archiv-Strukturprüfung verfügbar war.
 Erst anschließend entstehen die endgültige `.pmtiles`-
 Datei und ein Manifest mit SHA-256-Prüfsummen,
 Quell-GIP-Anzahl, Zoomstufen und Werkzeugversion.
-Vorhandene PMTiles-Ausgaben werden nicht überschrieben.
+Vorhandene PMTiles-Ausgaben werden ohne ausdrückliches `--replace` nicht überschrieben.
+Für einen gesicherten Neubau bleiben die bestehenden Ausgaben während
+Berechnung und QA erhalten. Erst nach bestandenen Prüfungen werden
+PMTiles und Manifest nach `gartenstrassen_wien.previous.pmtiles`
+bzw. `pmtiles_bericht.previous.json` verschoben und durch die
+neuen Dateien ersetzt. Schlägt der Austausch fehl, wird das alte Paar
+zurückgestellt. Bereits vorhandene `.previous`-Sicherungen werden
+niemals stillschweigend überschrieben.
 
 **Wichtige fachliche Grenzen:**
 
@@ -1298,9 +1309,12 @@ Vorhandene PMTiles-Ausgaben werden nicht überschrieben.
   Quellennennung/Attribution vor der externen
   Veröffentlichung fachlich klären, nicht erfinden.
 
-Der erste PMTiles-Build muss lokal ausgeführt werden, weil
-die erzeugten umfangreichen Geodaten absichtlich nicht
-im Git-Repository liegen. Die Kartenintegration
+Der erste lokale PMTiles-Build wurde am 16.10.2026 mit
+Tippecanoe 2.49.0 erfolgreich erstellt: 24.306 Quell-Features,
+Zoom 12–17, 31.180.788 Bytes. Für den Debug-Einsatz
+wurde anschließend der Build auf **Zoom 8–17** umgestellt;
+der Neuaufbau ist lokal mit `--replace` auszuführen.
+Die erzeugten Geodaten liegen absichtlich nicht im Git-Repository. Die Kartenintegration
 erfolgt erst nach Sichtprüfung von Dateigröße,
 Tile-Grenzen, Hover-Kennung, Attributen und Ladezeiten.
 ## Pfade und Parameter
