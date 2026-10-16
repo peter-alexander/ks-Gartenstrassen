@@ -139,8 +139,11 @@ def build_tile(tile, aoi, *, root, out, halo, cache_dir=Path("data/cache/kataste
 			raise ValueError(f"{tile['id']}: Kataster-Nullbericht "
 				"widerspricht tatsächlich vorhandenem FMZK-Kern")
 		# BEV-z16-Kacheln ohne WGS84-GeoJSON-Rückprojektion lesen.
-		street,other,mask_stats=read_native_kataster_masks(
-			kataster,clip,features,manifest,cache_dir)
+		try:
+			street,other,mask_stats=read_native_kataster_masks(
+				kataster,clip,features,manifest,cache_dir)
+		except ValueError as exc:
+			raise ValueError(f"{tile['id']}: {exc}") from exc
 	classified=classify_fmzk(features,street,other,minimum_share=.95)
 	if not has_core and any(row[0]=="strassenraum" for row in classified):
 		raise ValueError(f"{tile['id']}: kernfreie FMZK-Kachel "
