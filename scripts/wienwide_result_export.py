@@ -30,6 +30,51 @@ WGS84 = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transfor
 METRIC = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform
 
 
+def _collapsed_wgs84_parts(metric,wgs84):
+	"""Erkennt nur fast flächenlose metrische Ringe, die in WGS84 Linie werden.
+
+	Kein flächenhafter Teil darf aufgrund geringer Größe verschwinden.
+	Die einzig erlaubten Kandidaten sind METRISCH gültige Polygone
+	mit höchstens 1e-9 m² und höchstens 1 m Umfang, deren eigene
+	WGS84-Projektion ungültig ist und nach make_valid KEINE
+	polygonalen Teile mehr besitzt.
+	"""
+	if not isinstance(metric,MultiPolygon) or not isinstance(wgs84,MultiPolygon):
+		return None,[]
+	if len(metric.geoms)!=len(wgs84.geoms):
+		return None,[]
+	kept=[]
+	dropped=[]
+	for index,(part,projected) in enumerate(zip(metric.geoms,wgs84.geoms)):
+		is_micro=(0<part.area<=1e-9 and 0<part.length<=1.)
+		if is_micro and not projected.is_valid and projected.area==0:
+			converted=make_valid(projected)
+			if converted.is_valid and polygonal_part(converted) is None:
+				dropped.append({
+					"teilpolygon_index":index,
+					"flaeche_m2":part.area,
+					"umfang_m":part.length,
+					"bounds_epsg31256":list(part.bounds),
+					"wgs84_fehler":explain_validity(projected),
+					"wgs84_degenerierter_typ":converted.geom_type,
+				})
+				continue
+		kept.append(part)
+	if not dropped or not kept:
+		return None,[]
+	remaining=MultiPolygon(kept)
+	# Nie eine Quelle mutieren oder durch den Filter eine
+	# ungültige/sich überschneidende Fläche erzeugen.
+	if not remaining.is_valid or remaining.is_empty:
+		raise ValueError("Ausschluss numerischer WGS84-Artefakte "
+			"erzeugt ungültige Polygonfläche")
+	omitted=sum(x["flaeche_m2"] for x in dropped)
+	if (not math.isfinite(omitted) or omitted>1e-9 or
+		abs(metric.area-remaining.area)>1e-9):
+		raise ValueError("Ausschluss numerischer WGS84-Artefakte "
+			"würde zu viel Fläche verändern")
+	return remaining,dropped
+
 def _verified_wgs84(geom, wgs84, gid, repair_events):
 	"""Nur projektionsbedingte Kleinstartefakte in der Ausgabe reparieren.
 
@@ -44,11 +89,35 @@ def _verified_wgs84(geom, wgs84, gid, repair_events):
 	if wgs84.is_valid:
 		return wgs84
 	reason=explain_validity(wgs84)
-	try:
-		repaired=polygonal_part(make_valid(wgs84))
-	except Exception as exc:
-		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
-			f"({reason}); make_valid gescheitert: {exc}") from exc
+	comparison_metric=geom
+	dropped=[]
+	method="make_valid nur auf WGS84-Publikationsgeometrie"
+	repaired=None
+	# Der Wien-GIP 10023323 enthält ein Polygon mit 2.3e-13 m²,
+	# dessen Punkte nach WGS84 zur Linie zusammenfallen. Bei der
+	# allgemeinen make_valid-Reparatur würde dessen 30-cm-Linie
+	# die Hausdorff-Prüfung scheitern lassen, obwohl die Fläche
+	# praktisch Null ist. Nur diesen nachweisbaren Sonderfall
+	# VOR make_valid und nur im Publikationsweg ausschließen.
+	remaining,candidates=_collapsed_wgs84_parts(geom,wgs84)
+	if candidates:
+		try:
+			reprojected=transform(WGS84,remaining)
+			if not reprojected.is_empty and reprojected.is_valid:
+				repaired=reprojected
+				comparison_metric=remaining
+				dropped=candidates
+				method="Nur nach WGS84 zu Linie kollabierte numerische "
+				method+="Teilpolygone im GeoJSON weggelassen"
+		except Exception as exc:
+			raise ValueError(f"{gid}: WGS84-Normalisierung "
+				f"numerischer Teilpolygone fehlgeschlagen: {exc}") from exc
+	if repaired is None:
+		try:
+			repaired=polygonal_part(make_valid(wgs84))
+		except Exception as exc:
+			raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
+				f"({reason}); make_valid gescheitert: {exc}") from exc
 	if (repaired is None or repaired.is_empty
 		or not isinstance(repaired,(Polygon,MultiPolygon))
 		or not repaired.is_valid):
@@ -82,10 +151,10 @@ def _verified_wgs84(geom, wgs84, gid, repair_events):
 					f"Kontrollreparatur Fläche um {back_repair_delta:+.9f} m² "
 					f"({back_repair_reason})")
 			back=back_verified
-		area_delta=back.area-geom.area
-		outside=back.difference(geom).area
-		missing=geom.difference(back).area
-		boundary_shift=geom.boundary.hausdorff_distance(back.boundary)
+		area_delta=back.area-comparison_metric.area
+		outside=back.difference(comparison_metric).area
+		missing=comparison_metric.difference(back).area
+		boundary_shift=comparison_metric.boundary.hausdorff_distance(back.boundary)
 	except Exception as exc:
 		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
 			f"({reason}); metrische Reparaturprüfung fehlgeschlagen: "
@@ -114,7 +183,11 @@ def _verified_wgs84(geom, wgs84, gid, repair_events):
 	repair_events.append({
 		"gip_id":gid,
 		"geos_grund":reason,
-		"methode":"make_valid nur auf WGS84-Publikationsgeometrie",
+		"methode":method,
+		"im_geojson_ausgelassene_degenerierte_teilpolygone":dropped,
+		"urspruengliche_grenzabweichung_m":(
+			geom.boundary.hausdorff_distance(back.boundary)
+			if dropped else boundary_shift),
 		"rueckprojektion_pruefgeometrie_geos_grund":back_repair_reason,
 		"rueckprojektion_pruefgeometrie_reparatur_delta_m2":back_repair_delta,
 		"flaechenabweichung_nach_rueckprojektion_m2":area_delta,
