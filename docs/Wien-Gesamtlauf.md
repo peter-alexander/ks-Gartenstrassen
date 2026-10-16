@@ -302,6 +302,59 @@ bash scripts/run-wien-gartenstrassen.sh --from inputs --until inputs
 Die reale Verarbeitung der 1587 Grundstücke sowie aller weiteren
 Wien-Kacheln ist nach Änderung des Limits **noch nicht verifiziert**.
 
+## Metrische BEV-nfl-Masken mit nur einer Nutzungsgruppe (16.10.2026)
+
+Nach vollständigem Abschluss der 489 Wiener Eingabekacheln wurde
+die Phase street gestartet. Die Straßenraum-Vorstufe erreichte
+Kachel 79/489; unmittelbar danach meldete der metrische
+BEV-z16-Reader: "BEV-nfl benötigt Straßen- und sonstige
+Nutzungsflächen". Die genaue Kachel-ID der gescheiterten
+Folgekachel wurde im Fehlerlog nicht ausgegeben.
+
+Der Reader hatte bisher **beide** Gruppen als zwingende Bedingung
+geprüft. Fachlich sind aber auch nur eine Gruppe enthaltende
+Katasterausschnitte zulässig. Unter Beibehaltung der
+ursprünglichen Straßenraumklassifikation gelten daher:
+
+- BEV-nfl 95/65 vorhanden, sonstige nfl fehlen: die
+  Straßenmaske wird vollständig gelesen; die sonstige Maske ist
+  ein gültiges leeres Polygon. Nicht-Kern-FMZK-Flächen werden
+  weiterhin nur bei mindestens 95 Prozent 95/65-Deckung und
+  höchstens 5 Prozent Gegenbelegung zugeordnet.
+- Sonstige BEV-nfl vorhanden, 95/65 fehlen: die BEV-Straßenmaske
+  ist ein gültiges leeres Polygon. FMZK-Kernklassen
+  21/23/24/25/33/39 bleiben nach V0 trotzdem Straßenraum;
+  ohne 95/65-Nachweis werden keine zusätzlichen Nicht-Kernflächen
+  positiv klassifiziert.
+- **Beide Gruppen fehlen** nach Auswahl der nachgewiesenen
+  Kerngrundstücke und Anwendung der bisherigen
+  0,05-m²-Fragmentgrenze: weiterhin **Abbruch** mit einer
+  aussagekräftigen Meldung. Keine unbelegte Nullmaske.
+- Die komplette BEV-Kachelliste und der Offline-Rohdaten-Cache
+  werden unverändert verifiziert, unbekannte Nutzungscodes führen
+  weiterhin zum Abbruch. Der Bericht des Straßenraumkachel-Caches
+  enthält künftig nfl_gruppenstatus, nfl_strassenfragmente und
+  nfl_sonstige_fragmente neben allen Rohdatenprüfsummen.
+- Die FMZK-Regelversion, die 95-Prozent-Schwelle und die
+  Bearbeitung vorhandener Kachelergebnisse ändern sich nicht.
+  Auch bestehende erfolgreich erstellte street.sqlite-Dateien
+  werden weiterhin nur nach erneuter Provenienzprüfung verwendet.
+
+Tests für beide einseitigen Fälle, den weiter gültigen positiven
+Klassennachweis sowie für völlig fehlende und ausschließlich
+unterhalb der Flächenschwelle liegende nfl-Fragmente liegen in
+tests/test_wienwide_kataster.py.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_kataster.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from street --until street
+~~~
+
+Ein vollständiger realer Wien-Straßenraumlauf nach dieser Änderung
+ist noch nicht bestätigt.
+
 ## Pfade und Parameter
 
 | Element | Standard |
