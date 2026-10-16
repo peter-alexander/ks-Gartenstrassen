@@ -155,7 +155,7 @@ class WienPmtilesTests(unittest.TestCase):
 				side_effect=self._fake_run):
 			return build(self.directory,tippecanoe="tippecanoe",**kwargs)
 
-	def test_replace_creates_previous_backup_and_new_zoom_8_report(self):
+	def test_replace_overwrites_in_place_without_backup_files(self):
 		self._build_mocked()
 		output=self.directory/f"{LAYER}.pmtiles"
 		manifest=self.directory/"pmtiles_bericht.json"
@@ -165,23 +165,23 @@ class WienPmtilesTests(unittest.TestCase):
 		old_report=json.loads(manifest.read_text(encoding="utf-8"))
 		old_report["zoom_min"]=12
 		manifest.write_text(json.dumps(old_report),encoding="utf-8")
-		old_manifest=manifest.read_bytes()
+		previous_manifest=manifest.read_bytes()
 		result=self._build_mocked(replace=True)
 		self.assertTrue(result["ersetzt_bestehendes_archiv"])
 		self.assertEqual(result["zoom_min"],8)
 		self.assertEqual(result["zoom_max"],17)
-		self.assertEqual(
-			(self.directory/f"{LAYER}.previous.pmtiles").read_bytes(),
-			previous_bytes)
-		self.assertEqual(
-			(self.directory/"pmtiles_bericht.previous.json").read_bytes(),
-			old_manifest)
 		self.assertNotEqual(output.read_bytes(),previous_bytes)
+		self.assertNotEqual(manifest.read_bytes(),previous_manifest)
 		self.assertEqual(json.loads(manifest.read_text())["zoom_min"],8)
-		# Auch eine zweite Ersetzung darf die originale Sicherung
-		# niemals stillschweigend überschreiben.
-		with self.assertRaisesRegex(FileExistsError,"Sicherung"):
-			self._build_mocked(replace=True)
+		self.assertFalse(
+			(self.directory/f"{LAYER}.previous.pmtiles").exists())
+		self.assertFalse(
+			(self.directory/"pmtiles_bericht.previous.json").exists())
+		# Wiederholtes Überschreiben ist ohne Sicherungsdatei möglich.
+		self._build_mocked(replace=True)
+		self.assertEqual(json.loads(manifest.read_text())["zoom_min"],8)
+		self.assertFalse(
+			(self.directory/f"{LAYER}.previous.pmtiles").exists())
 
 	def test_failed_rebuild_does_not_touch_previous_archive_or_manifest(self):
 		self._build_mocked()
@@ -208,23 +208,25 @@ class WienPmtilesTests(unittest.TestCase):
 		self.assertFalse(
 			(self.directory/f"{LAYER}.tmp.pmtiles").exists())
 
-	def test_replace_rolls_back_both_files_if_manifest_publish_fails(self):
+	def test_replace_restores_manifest_if_final_archive_swap_fails(self):
 		self._build_mocked()
 		output=self.directory/f"{LAYER}.pmtiles"
 		manifest=self.directory/"pmtiles_bericht.json"
 		before_output=output.read_bytes()
 		before_manifest=manifest.read_bytes()
 		original_replace=Path.replace
-		def fail_manifest_publish(path,target):
-			if path.name=="pmtiles_bericht.json.tmp":
-				raise OSError("Simulierter Fehler beim Austausch des Berichts")
+		def fail_archive_publish(path,target):
+			if path.name==f"{LAYER}.tmp.pmtiles":
+				raise OSError("Simulierter Fehler beim PMTiles-Austausch")
 			return original_replace(path,target)
 		with patch("scripts.build_wien_pmtiles.subprocess.run",
 				side_effect=self._fake_run), patch.object(
 					Path,"replace",autospec=True,
-					side_effect=fail_manifest_publish):
+					side_effect=fail_archive_publish):
 			with self.assertRaisesRegex(OSError,"Simulierter Fehler"):
 				build(self.directory,tippecanoe="tippecanoe",replace=True)
+		# Die alte PMTiles-Datei wurde nie umbenannt oder kopiert.
+		# Nur ihr zugehöriger kleiner Bericht wurde aus RAM restauriert.
 		self.assertEqual(output.read_bytes(),before_output)
 		self.assertEqual(manifest.read_bytes(),before_manifest)
 		self.assertFalse(
