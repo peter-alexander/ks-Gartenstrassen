@@ -11,11 +11,13 @@ Polygonen > 0,05 m². Klassen A–D sind hier NICHT die Grundlage:
 genutzt werden ausschließlich die wirklichen nfl-Klassen 95/65.
 """
 from collections import Counter
+import math
 from pathlib import Path
 
 from shapely import make_valid, union_all
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.strtree import STRtree
+from shapely.validation import explain_validity
 
 from scripts.analyze_gpkg import polygonal_part
 from scripts.analyze_kataster import read_tiles
@@ -42,6 +44,70 @@ def _polygonal(fragment, *, label):
 		raise ValueError(f"{label}: Flächenverlust bei Geometriereparatur "
 			f"{original_area-fragment.area:.6f} m²")
 	return fragment
+
+
+def _validate_nfl_union(merged, fragments, *, group):
+	"""Ungültige Vereinigung nur bei nachgewiesener Flächenerhaltung reparieren.
+
+	Voraussetzung: Jedes nfl-Fragment wurde zuvor als gültiges
+	Polygon geprüft. Auch ein vorübergehend ungültiges GEOS-Union-
+	Ergebnis darf keinen dieser Flächenbeiträge verlieren.
+	"""
+	if merged.is_empty or not math.isfinite(merged.area) or merged.area <= 0:
+		raise ValueError(f"BEV-nfl-Gruppe {group}: vereinigte Fläche "
+			"leer, nicht endlich oder nicht positiv")
+	if merged.is_valid:
+		if merged.geom_type not in ("Polygon", "MultiPolygon"):
+			raise ValueError(f"BEV-nfl-Gruppe {group}: "
+				f"Nicht-Polygon nach Vereinigung ({merged.geom_type})")
+		return merged, None
+	reason = explain_validity(merged)
+	original_area = merged.area
+	repaired = polygonal_part(make_valid(merged))
+	if (repaired is None or repaired.is_empty or not repaired.is_valid
+		or not isinstance(repaired, (Polygon, MultiPolygon))
+		or not math.isfinite(repaired.area) or repaired.area <= 0):
+		raise ValueError(f"BEV-nfl-Gruppe {group}: ungültige Vereinigung "
+			f"nicht polygonal reparierbar ({reason})")
+	# Kleine unvermeidbare Floating-Point-Toleranz, nicht eine
+	# großflächige Generalisierung oder Abrundung von Kleinstflächen.
+	tolerance = max(.01, original_area * 1e-8)
+	difference = repaired.area - original_area
+	if abs(difference) > tolerance:
+		raise ValueError(f"BEV-nfl-Gruppe {group}: Reparatur würde "
+			f"vereinigte Fläche um {difference:+.6f} m² ändern "
+			f"(zulässig {tolerance:.6f} m²; {reason})")
+	# Flächengleichheit allein genügt nicht: prüfen, ob tatsächlich
+	# ALLE ursprünglichen, einzeln gültigen BEV-Fragmente in der
+	# reparierten Vereinigung enthalten bleiben.
+	uncovered = 0.
+	for index, part in enumerate(fragments):
+		loss = part.difference(repaired).area
+		if not math.isfinite(loss):
+			raise ValueError(f"BEV-nfl-Gruppe {group}: nicht-endlicher "
+				f"Flächenverlust an Fragment {index}")
+		uncovered += loss
+		if uncovered > tolerance:
+			raise ValueError(f"BEV-nfl-Gruppe {group}: Reparatur verliert "
+				f"{uncovered:.6f} m² der Quellfragmente "
+				f"(zulässig {tolerance:.6f} m², Fragment {index}; {reason})")
+	event = {
+		"gruppe": group,
+		"grund": reason,
+		"fragmente": len(fragments),
+		"union_vorher_m2": original_area,
+		"union_nachher_m2": repaired.area,
+		"flaechendifferenz_m2": difference,
+		"nicht_abgedeckte_quellfragmente_m2": uncovered,
+		"toleranz_m2": tolerance,
+		"methode": "make_valid und vollstaendige Quellfragment-Kontrolle",
+	}
+	print(f"BEV-nfl-Hinweis: {group}: ungültige Union nach "
+		f"make_valid flächentreu repariert; "
+		f"Delta {difference:+.6f} m², "
+		f"nicht abgedeckt {uncovered:.6f} m²; "
+		f"GEOS: {reason}")
+	return repaired, event
 
 
 def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
@@ -147,10 +213,19 @@ def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
 		raise ValueError("Keine verwertbaren BEV-nfl-Flächen auf den "
 		"ausgewählten Kerngrundstücken (Schwelle 0,05 m²); "
 		f"Rohfragmente {len(nfl)}, Kerngrundstücke {len(selected)}")
-	street=union_all(parts["strasse"]) if parts["strasse"] else Polygon()
-	other=union_all(parts["sonstige"]) if parts["sonstige"] else Polygon()
-	if not street.is_valid or not other.is_valid:
-		raise ValueError("Metrische BEV-nfl-Vereinigung ungültig")
+	union_repairs=[]
+	masks={}
+	for group in ("strasse","sonstige"):
+		fragments=parts[group]
+		if not fragments:
+			masks[group]=Polygon()
+			continue
+		merged=union_all(fragments)
+		masks[group],event=_validate_nfl_union(
+			merged,fragments,group=group)
+		if event is not None:
+			union_repairs.append(event)
+	street,other=masks["strasse"],masks["sonstige"]
 	groups=("beide" if parts["strasse"] and parts["sonstige"]
 		else "nur_strasse" if parts["strasse"] else "nur_sonstige")
 	return street,other,{
@@ -163,6 +238,7 @@ def read_native_kataster_masks(kataster_dir, clip, fmzk_features, manifest,
 		"nfl_strassenfragmente":len(parts["strasse"]),
 		"nfl_sonstige_fragmente":len(parts["sonstige"]),
 		"nfl_reparaturen":repaired,
+		"nfl_vereinigungsreparaturen":union_repairs,
 		"nfl_fragmente_bis_0_05m2_nicht_uebernommen":sum(excluded_tiny.values()),
 		"nfl_kleinfragmente_m2":sum(excluded_tiny_area.values()),
 		"betroffene_grundstuecke":len(selected),
