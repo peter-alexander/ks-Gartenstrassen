@@ -6,8 +6,11 @@ import unittest
 from unittest.mock import patch
 
 from shapely import union_all
+from shapely.errors import GEOSException
 from shapely.geometry import box, Polygon
-from scripts.wienwide_kataster import read_native_kataster_masks, _validate_nfl_union
+from scripts.wienwide_kataster import (
+	read_native_kataster_masks, _validate_nfl_union, _union_nfl_group,
+)
 from scripts.wienwide_street import (
 	build_tile,load_street_tile,check_existing_tile,
 	save_street_tile,run as street_run,
@@ -299,6 +302,73 @@ class WienwideKatasterTests(unittest.TestCase):
 			"strasse")
 		self.assertEqual(stats["bev_cache_anzahl"],1)
 		self.assertIn("16/35000/23000",stats["bev_cache_sha256"])
+
+	def test_geos_exception_in_union_all_tries_verified_minimal_grid(self):
+		# Reproduktion des realen Fehlerwegs: TopologyException
+		# aus union_all selbst, also vor der Gültigkeitsprüfung.
+		first=box(0,0,10,10)
+		thin=box(10,0,10.01,10)  # 0,1 m² muss erhalten bleiben
+		original_union=union_all
+		calls=[]
+		def injected_union(items, **kwargs):
+			calls.append(kwargs.get("grid_size"))
+			if kwargs.get("grid_size") is None:
+				raise GEOSException("TopologyException: Ring edge missing")
+			return original_union(items,**kwargs)
+		with patch("scripts.wienwide_kataster.union_all",
+			side_effect=injected_union):
+			street,event=_union_nfl_group([first,thin],
+				group="strasse")
+		self.assertTrue(street.is_valid)
+		self.assertAlmostEqual(street.area,100.1,delta=1e-8)
+		self.assertLess(thin.difference(street).area,1e-8)
+		self.assertEqual(calls[0],None)
+		self.assertEqual(event["precision_grid_m"],1e-9)
+		self.assertEqual(event["gruppe"],"strasse")
+		self.assertLess(event["nicht_abgedeckte_quellfragmente_m2"],1e-8)
+		self.assertLess(event["zusatzflaeche_ohne_quellfragmente_m2"],1e-8)
+		self.assertIn("Ring edge missing",event["grund"])
+
+	def test_geos_fallback_rejects_missing_source_area(self):
+		first=box(0,0,10,10)
+		second=box(20,0,22,10)
+		def incorrect_union(items, **kwargs):
+			if "grid_size" not in kwargs:
+				raise GEOSException("Ring edge missing")
+			return first  # verliert 20 m² der Quellgeometrie
+		with patch("scripts.wienwide_kataster.union_all",
+			side_effect=incorrect_union):
+			with self.assertRaisesRegex(ValueError,
+				"Union scheitert.*streng geprüfter"):
+				_union_nfl_group([first,second],group="strasse")
+
+	def test_geos_fallback_rejects_added_area(self):
+		first=box(0,0,10,10)
+		def incorrect_union(items, **kwargs):
+			if "grid_size" not in kwargs:
+				raise GEOSException("Ring edge missing")
+			return box(0,0,12,10)  # 20 m² ohne Quellnachweis
+		with patch("scripts.wienwide_kataster.union_all",
+			side_effect=incorrect_union):
+			with self.assertRaisesRegex(ValueError,
+				"Union scheitert.*streng geprüfter"):
+				_union_nfl_group([first],group="sonstige")
+
+	def test_geos_fallback_does_not_discard_small_source_polygon(self):
+		first=box(0,0,10,10)
+		small=box(20,0,20.006,10)  # 0,06 m² > Mindestgrenze
+		original_union=union_all
+		def injected_union(items, **kwargs):
+			if "grid_size" not in kwargs:
+				raise GEOSException("TopologyException: Ring edge missing")
+			return original_union(items,**kwargs)
+		with patch("scripts.wienwide_kataster.union_all",
+			side_effect=injected_union):
+			street,event=_union_nfl_group([first,small],
+				group="strasse")
+		self.assertAlmostEqual(street.area,100.06,delta=1e-8)
+		self.assertLess(small.difference(street).area,1e-8)
+		self.assertIsNotNone(event)
 
 	def test_old_kataster_core_codes_are_rejected(self):
 		self.report.pop("fmzk_kern_klassen")
