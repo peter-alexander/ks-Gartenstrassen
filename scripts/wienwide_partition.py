@@ -15,8 +15,10 @@ from pathlib import Path
 import sqlite3
 from time import perf_counter
 
-from shapely import union_all, voronoi_polygons
-from shapely.geometry import MultiPoint, box
+from shapely import make_valid, union_all, voronoi_polygons
+from shapely.errors import GEOSException
+from shapely.geometry import MultiPoint, Polygon, MultiPolygon, box
+from shapely.validation import explain_validity
 from shapely.wkb import dumps, loads
 
 from scripts.analyze_gpkg import polygonal_part
@@ -28,13 +30,69 @@ SCHEMA = 1
 GROUPS = ("knotenbereich","sonderachse","nicht_zugeordnet")
 
 
-def _polygon(g, label):
+def _polygon(g, label, *, witnesses=(), repair_events=None):
+	"""Topologische Overlay-Artefakte streng flächentreu polygonalisieren.
+
+	Nur eine tatsächlich ungültige Geometrie wird repariert. Gerade
+	Voronoi-Zellen müssen nach der Reparatur innerhalb BEIDER
+	ursprünglichen Schnittpartner liegen (Zelle und Restmaske).
+	"""
 	if g is None or g.is_empty or g.area <= 0:
 		return None
 	poly=polygonal_part(g)
-	if poly is None or not poly.is_valid or poly.is_empty:
-		raise ValueError(f"{label}: ungültige polygonale Fläche")
-	return poly
+	if poly is None or poly.is_empty or poly.area <= 0:
+		raise ValueError(f"{label}: keine positive Polygonfläche")
+	if poly.is_valid:
+		return poly
+	reason=explain_validity(poly)
+	area_before=poly.area
+	try:
+		repaired=polygonal_part(make_valid(poly))
+	except GEOSException as exc:
+		raise ValueError(f"{label}: ungültige polygonale Fläche "
+			f"({reason}); make_valid fehlgeschlagen: {exc}") from exc
+	if (repaired is None or repaired.is_empty
+		or not isinstance(repaired,(Polygon,MultiPolygon))
+		or not repaired.is_valid or not math.isfinite(repaired.area)
+		or repaired.area <= 0):
+		raise ValueError(f"{label}: ungültige polygonale Fläche "
+			f"nicht reparierbar ({reason})")
+	tolerance=max(.01,area_before*1e-8)
+	delta=repaired.area-area_before
+	if abs(delta)>tolerance:
+		raise ValueError(f"{label}: ungültige polygonale Fläche "
+			f"({reason}); Reparatur verändert Fläche um {delta:+.6f} m² "
+			f"(zulässig {tolerance:.6f} m²)")
+	provenance={}
+	for name,original in witnesses:
+		if original is None or not original.is_valid:
+			raise ValueError(f"{label}: Prüfgeometrie {name} ungültig; "
+				"Reparatur nicht verifizierbar")
+		try:
+			outside=repaired.difference(original).area
+		except GEOSException as exc:
+			raise ValueError(f"{label}: Prüfgeometrie {name} "
+				f"nicht überlagerbar: {exc}") from exc
+		if not math.isfinite(outside) or outside>tolerance:
+			raise ValueError(f"{label}: Reparatur liegt um "
+				f"{outside:.6f} m² außerhalb {name} "
+				f"(zulässig {tolerance:.6f} m²; {reason})")
+		provenance[name]=outside
+	event={
+		"kontext":label,"geos_grund":reason,
+		"geometrie_typ":g.geom_type,
+		"flaeche_vorher_m2":area_before,
+		"flaeche_nachher_m2":repaired.area,
+		"differenz_m2":delta,"toleranz_m2":tolerance,
+		"ausserhalb_pruefgeometrien_m2":provenance,
+		"methode":"make_valid, Flaechenbilanz und Schnittraumpruefung",
+	}
+	if repair_events is not None:
+		repair_events.append(event)
+	print(f"Partition-Hinweis: {label}: ungültige Polygonfläche "
+		f"flächentreu repariert; Delta {delta:+.6f} m², "
+		f"GEOS: {reason}")
+	return repaired
 
 
 def _rtree(db, table, bounds):
@@ -84,7 +142,7 @@ def _empty_tile_stats():
 	return {"strassenraum_m2":0., "zugeordnet_m2":0.,
 		"ungeklaert_m2":0.,"fehlend_m2":0.,"overlap_m2":0.,
 		"ausserhalb_m2":0.,"toleranz_m2":.05,
-		"sites":0,"knoten":0}
+		"sites":0,"knoten":0,"geometrie_reparaturen":[]}
 
 
 def split_tile(street, core, sites, axes, nodes,
@@ -99,12 +157,14 @@ def split_tile(street, core, sites, axes, nodes,
 		if street.is_empty or not street.intersects(core):
 			return {},{},_empty_tile_stats()
 		raise ValueError("Straßenmaske oder Kachel ungültig")
-	mask=_polygon(street.intersection(core),"Straßenraum innerhalb Kachel")
+	repair_events=[]
+	mask=_polygon(street.intersection(core),"Straßenraum innerhalb Kachel",
+		repair_events=repair_events)
 	if mask is None:
 		return {},{},_empty_tile_stats()
 	junction=_polygon(union_all([node.buffer(radius,resolution=12)
 		for node in nodes]).intersection(mask) if nodes else None,
-		"Knotenbereich")
+		"Knotenbereich",repair_events=repair_events)
 	remaining=mask.difference(junction) if junction is not None else mask
 	assigned=defaultdict(list)
 	special=[]
@@ -127,17 +187,22 @@ def split_tile(street, core, sites, axes, nodes,
 		# ist nur für numerische Rundungsreste relevant.
 		for pk in sorted(by_axis):
 			axis=axes[pk]
-			candidate=_polygon(union_all(by_axis[pk]).intersection(remaining),
-				f"Voronoi {axis['id']}")
+			owner_cells=union_all(by_axis[pk])
+			candidate=_polygon(owner_cells.intersection(remaining),
+				f"Voronoi {axis['id']}",
+				witnesses=(("Voronoi-Zellen",owner_cells),
+					("noch nicht zugeordneter Straßenraum",remaining)),
+				repair_events=repair_events)
 			if candidate is None:
 				continue
 			near=_polygon(candidate.intersection(
 				axis["geometry"].buffer(max_distance,resolution=8)),
-				f"Achsnähe {axis['id']}")
+				f"Achsnähe {axis['id']}",repair_events=repair_events)
 			if near is None:
 				continue
 			near=_polygon(near.intersection(remaining),
-				f"Exklusive Fläche {axis['id']}")
+				f"Exklusive Fläche {axis['id']}",
+				repair_events=repair_events)
 			if near is None:
 				continue
 			remaining=remaining.difference(near)
@@ -145,14 +210,17 @@ def split_tile(street, core, sites, axes, nodes,
 				assigned[axis["id"]].append(near)
 			else:
 				special.append(near)
-	results={gid:_polygon(union_all(geoms),f"GIP {gid}")
+	results={gid:_polygon(union_all(geoms),f"GIP {gid}",
+		repair_events=repair_events)
 		for gid,geoms in assigned.items()}
 	unresolved={}
 	if junction is not None:
 		unresolved["knotenbereich"]=junction
 	if special:
-		unresolved["sonderachse"]=_polygon(union_all(special),"Sonderachsen")
-	rest=_polygon(remaining,"nicht zugeteilt")
+		unresolved["sonderachse"]=_polygon(union_all(special),"Sonderachsen",
+			repair_events=repair_events)
+	rest=_polygon(remaining,"nicht zugeteilt",
+		repair_events=repair_events)
 	if rest is not None:
 		unresolved["nicht_zugeordnet"]=rest
 	pieces=list(results.values())+list(unresolved.values())
@@ -172,6 +240,7 @@ def split_tile(street, core, sites, axes, nodes,
 		"fehlend_m2":missing,"overlap_m2":overlap,
 		"ausserhalb_m2":outside,"toleranz_m2":limit,
 		"sites":len(sites),"knoten":len(nodes),
+		"geometrie_reparaturen":repair_events,
 	}
 
 
@@ -294,7 +363,10 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None):
 				street=load_street_tile(source,core)
 				sites,axes,nodes=graph_context(gip,tile["bounds_31256"],
 					halo=manifest["halo_m"])
-				results,unknown,stats=split_tile(street,core,sites,axes,nodes)
+				try:
+					results,unknown,stats=split_tile(street,core,sites,axes,nodes)
+				except (ValueError,GEOSException) as exc:
+					raise ValueError(f"{tile['id']}: {exc}") from exc
 				elapsed=perf_counter()-start
 				write_tile(target,tile["id"],sha,results,unknown,stats,elapsed)
 				print(f"{i}/{len(tiles)} {tile['id']}: "
