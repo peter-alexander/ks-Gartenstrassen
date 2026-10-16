@@ -18,7 +18,8 @@ from shapely.ops import transform
 from scripts.wienwide_qa_gpkg import gpkg_blob
 from scripts.wienwide_gip_greening import CSV_COLUMNS
 from scripts.wienwide_result_export import (
-	WGS84,METRIC,_verified_wgs84,_collapsed_wgs84_parts,export,
+	WGS84,METRIC,_verified_wgs84,_verified_wgs84_precision,
+	_collapsed_wgs84_parts,export,
 )
 
 
@@ -187,6 +188,87 @@ class WienwideResultExportTests(unittest.TestCase):
 		self.assertGreater(audit[0]["urspruengliche_grenzabweichung_m"],.29)
 		self.assertLess(abs(audit[0]
 			["flaechenabweichung_nach_rueckprojektion_m2"]),.01)
+
+	def _long_thin_collapse_fixture(self):
+		# Polygon mit 12 m Umfang, aber nur 1.8e-13 m².
+		# Das sind numerisch zusammenfallende Eckpunkte, keine
+		# metrisch sinnvoll abgrenzbare Fläche.
+		tiny=Polygon([
+			(-8765,345145),
+			(-8759,345145.2),
+			(-8759+1e-12,345145.2),
+			(-8765,345145),
+		])
+		main=box(-8800,345100,-8780,345120)
+		metric=MultiPolygon([main,tiny])
+		self.assertTrue(metric.is_valid)
+		self.assertLess(tiny.area,1e-9)
+		self.assertGreater(tiny.length,1)
+		projected=transform(WGS84,metric)
+		self.assertFalse(projected.is_valid)
+		return metric,projected
+
+	def test_long_collapsed_area_is_normalized_only_for_export(self):
+		metric,wgs=self._long_thin_collapse_fixture()
+		original_wkb=metric.wkb
+		repairs=[]
+		result=_verified_wgs84(metric,wgs,"10023775",repairs)
+		self.assertTrue(result.is_valid)
+		self.assertEqual(len(repairs),1)
+		self.assertEqual(repairs[0]["praezisionsraster_m"],1e-8)
+		self.assertIn("10-nm",repairs[0]["methode"])
+		self.assertLess(repairs[0]["normalisierung_fehlend_m2"],1e-6)
+		self.assertLess(repairs[0]["normalisierung_zusaetzlich_m2"],1e-6)
+		self.assertGreater(
+			repairs[0]["normalisierung_grenzverschiebung_original_m"],1.)
+		self.assertLess(repairs[0]["grenzverschiebung_m"],.01)
+		self.assertEqual(original_wkb,metric.wkb)
+		self.assertEqual(len(result.geoms),1)
+
+	def test_precision_normalization_rejects_any_significant_coverage_loss(self):
+		metric,wgs=self._long_thin_collapse_fixture()
+		audit=[]
+		with patch("scripts.wienwide_result_export.set_precision",
+			return_value=translate(metric,xoff=.01)):
+			with self.assertRaisesRegex(ValueError,
+				"verändert Fläche zu stark"):
+				_verified_wgs84_precision(metric,wgs,"10023775",audit)
+		self.assertEqual(audit,[])
+
+	def test_precision_normalization_rejects_modified_wgs84_input(self):
+		metric,wgs=self._long_thin_collapse_fixture()
+		audit=[]
+		malicious=translate(wgs,xoff=.00001)
+		with self.assertRaisesRegex(ValueError,
+			"unveränderte Originaltransformation"):
+			_verified_wgs84_precision(metric,malicious,"10023775",audit)
+		self.assertEqual(audit,[])
+
+	def test_all_original_wkb_evidence_cases_if_available(self):
+		path=os.environ.get("WIEN_EXPORT_FEHLSTELLEN_ZIP")
+		if not path:
+			self.skipTest("25 echte WKBs nur mit WIEN_EXPORT_FEHLSTELLEN_ZIP")
+		with ZipFile(path) as archive:
+			ids=json.loads(archive.read("diagnose.json"))["ids"]
+			self.assertEqual(len(ids),25)
+			for gid in ids:
+				with self.subTest(gip_id=gid):
+					metric=from_wkb(archive.read(
+						f"gip_{gid}/00_original_metric_union.wkb"))
+					wgs=from_wkb(archive.read(
+						f"gip_{gid}/01_wgs84_unveraendert.wkb"))
+					self.assertTrue(metric.is_valid)
+					self.assertFalse(wgs.is_valid)
+					original=metric.wkb
+					audit=[]
+					out=_verified_wgs84(metric,wgs,gid,audit)
+					self.assertTrue(out.is_valid)
+					self.assertEqual(len(audit),1)
+					self.assertEqual(audit[0]["praezisionsraster_m"],1e-8)
+					self.assertLess(audit[0]["grenzverschiebung_m"],.01)
+					self.assertLess(abs(audit[0]
+						["normalisierung_flaechenbilanz_m2"]),1e-5)
+					self.assertEqual(original,metric.wkb)
 
 	def test_valid_wgs84_remains_unchanged_without_repair(self):
 		metric,valid,_invalid=self._invalid_wgs84_boundary_repetition()
