@@ -34,7 +34,7 @@ from scripts.wienwide_grid import checksum,read_manifest
 SCHEMA=1
 PIXEL_M=.5
 CHUNK_M=500
-MAX_CHUNKS=1200
+MAX_CHUNKS=1200  # Sicherheitsgrenze JE Rasterkachel, nicht für ganz Wien
 MAX_REQUEST_BYTES=15_000_000
 
 
@@ -127,8 +127,12 @@ def fetch(manifest_path,root,*,pause_s=.4):
 		raise ValueError("pause_s außerhalb 0–60 s")
 	all_chunks=[(tile,name,geo,url) for tile in manifest["tiles"]
 		for name,geo,url in chunks(tile,aoi)]
-	if len(all_chunks)>MAX_CHUNKS:
-		raise ValueError("Zu viele WMS-Anfragen: kleinere AOI verwenden")
+	# Für Wien (489 Rasterkacheln) sind bei 500-m-Teilbildern bis
+	# zu 4 × 489 GetMap-Aufrufe korrekt. Die sicherheitsrelevante
+	# Grenze MAX_CHUNKS gilt weiterhin innerhalb jeder Kachel.
+	# Gesamtzahl ist eine Fortschrittsangabe, keine Abbruchgrenze.
+	print(f"GRM-Plan: {len(manifest['tiles'])} Kacheln, "
+		f"{len(all_chunks)} WMS-Teilbilder (500 m, 0,5 m/Pixel)")
 	# Prüft vorab den angegebenen amtlichen Layer und das metrische CRS.
 	# Ein vollständig gecachter Lauf benötigt keine Netzverbindung.
 	need_network=any(not chunk_paths(root,tile,name)[0].exists()
@@ -145,7 +149,9 @@ def fetch(manifest_path,root,*,pause_s=.4):
 		if png.exists() or report.exists():
 			verify_chunk(root,tile,name,geo,url)
 			continue
-		if index>1 and pause_s:
+		# Nur zwischen tatsächlichen Netzabrufen drosseln.
+		# Geprüfte Cache-Bilder erzeugen keine WMS-Last.
+		if results and pause_s:
 			sleep(pause_s)
 		payload=request_bytes(url,limit=MAX_REQUEST_BYTES)
 		# WMS-Fehlerseiten werden verworfen; PNG wird streng validiert.
