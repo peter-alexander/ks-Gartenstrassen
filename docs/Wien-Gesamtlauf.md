@@ -1040,6 +1040,69 @@ bash scripts/run-wien-gartenstrassen.sh --from export --until export
 Die Tests und der reale Export müssen noch lokal
 bestätigt werden; die vorangegangene Diagnose ersetzt
 keine erfolgreiche Wiederholung des gesamten Publikationslaufs.
+## Wien-Export: erneuter GIP-Fall und gesamthafte WGS84-Vorprüfung (16.10.2026)
+
+Nach der sehr engen und durch Original-WKB bestätigten Ausnahme
+für GIP 10023323 hat der vollständige Export für
+**GIP 10023775** erneut korrekt abgebrochen:
+
+~~~text
+Too few points in geometry component[16.3850399720429 48.301281942119]
+Flächenänderung: +0.000002428 m², Grenze: 0.010000 m²
+Zusätzlich: 0.116235004 m², fehlend: 0.116232576 m²
+Je Differenzschranke: 0.821692 m²
+Maximale Grenzabweichung: 6.070347 m, Schranke: 0.010 m
+~~~
+
+**Die Ursache dieses neuen Falls ist unbekannt**, solange die
+Original-WKB von 10023775 nicht vorliegt. Ein flächenmäßig
+kleiner, aber sechs Meter langer Ausläufer wäre eine andere
+räumliche Situation als die 0,613-m-Komponente von 10023323.
+Deshalb: keine Vergrößerung der 1-cm-Toleranz und der
+automatischen Nullflächen-Ausnahme.
+
+Um wiederholte abgebrochene Veröffentlichungsversuche zu
+vermeiden, gibt es nun die unabhängige, **schreibgeschützte**
+komplette WGS84-Exportvorprüfung `scripts/scan_wien_export.py`.
+
+- Die Vorprüfung verwendet dieselbe 100-m²-GIP-ID-Filterung
+  und dieselbe CSV/GPKG-Flächen- und Provenienzprüfung
+  wie `wienwide_result_export.py`.
+- Sie iteriert sämtliche ausgewählten GIP-IDs in einem
+  Durchlauf, vereinigt Kachelfragmente in EPSG:31256,
+  projiziert nach EPSG:4326 und ruft
+  **dieselbe** Funktion `_verified_wgs84` auf.
+- Anders als `export` protokolliert sie jeden GIP-Fehler
+  und setzt mit der folgenden ID fort; Fehler werden
+  **nicht** als erfolgreiche Publikation gewertet.
+- Der JSON-Bericht zählt alle untersuchten, bestandenen
+  und fehlgeschlagenen GIP-IDs und nennt **alle** fehlerhaften
+  IDs mit genauer Fehlermeldung und Abschnittsfläche.
+- Bis zu 25 betroffene IDs erhalten zusätzlich Original-WKB,
+  Projektionen, make_valid-Zwischenstände, Differenzflächen
+  und gegebenenfalls 10-m-Fehlerstellen-Ausschnitte in
+  `wgs84_export_fehlstellen.zip`. Das Bericht-JSON weist
+  explizit aus, falls mehr als 25 Fehler vorkommen.
+- Quell-CSV und GeoPackage bleiben unangetastet;
+  die Diagnose legt keine GeoJSON-Publikationsdatei an
+  und ändert keine Grenzwerte. Vorhandene Diagnoseberichte
+  werden nicht überschrieben.
+
+**Zunächst nur die Vorprüfung starten, nicht den Export:**
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_scan_wien_export.py' -v
+.venv/bin/python -m scripts.scan_wien_export
+~~~
+
+Danach den vollständigen JSON-Bericht und die Diagnose-ZIP
+der Fehlstellen analysieren. Insbesondere GIP 10023775 muss
+vor einer weiteren Codeänderung anhand echter Geometrie
+untersucht werden. Eine fachliche Freigabe von Polygonen
+mit Grenzabweichungen über 1 cm wird aus dem Scan
+**nicht** abgeleitet.
 ## Pfade und Parameter
 
 | Element | Standard |
