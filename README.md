@@ -1,6 +1,32 @@
 # Wiener Gartenstraßen – datenbasierte Bestandsanalyse
 
 
+## Stand 16.10.2026 – Wien-Export abgeschlossen, PMTiles-Build vorbereitet
+
+Der vollständige Wien-Lauf hat **24.937** GIP-Abschnitte erfasst.
+Nach dem globalen **100-m²-Mindestflächenfilter** sind **24.306**
+Abschnitte mit zusammen rund **36,274 km²** Abschnittsfläche für
+die reguläre Publikation exportiert. Die vollständige WGS84-
+Exportvorprüfung und der tatsächliche CSV-/GeoJSON-Export sind
+erfolgreich abgeschlossen. **226** erforderliche WGS84-
+Publikationskorrekturen sind im Exportbericht vollständig
+dokumentiert; die metrischen Originalmessungen bleiben unverändert.
+
+Für die interaktive Kartensammlung gibt es ergänzend einen
+**separaten, reproduzierbaren PMTiles-v3-Build** aus dem fertigen
+GeoJSON. Er benötigt Felt/Tippecanoe ab **2.17**, wird lokal
+mit `.venv/bin/python -m scripts.build_wien_pmtiles` gestartet
+und erzeugt den vektorbasierten Layer `gartenstrassen_wien`
+(Zoom 12–17). Ausgangs-GeoJSON, CSV und QA-GeoPackage
+werden nicht geändert. Die PMTiles-Datei ist eine
+zoomabhängige **Visualisierung**, keine metrisch exakte
+Analysequelle. Der lokale PMTiles-Build ist noch auszuführen.
+Ausführliche QA- und Bedienhinweise stehen in
+[Wienweiter Gesamtlauf](docs/Wien-Gesamtlauf.md).
+
+---
+
+**Historischer Stand vor dem Wien-Lauf:**
 ## Stand 15.10.2026 – Wienweite Ausführung vorbereitet
 
 **Neue Klassifikationsregel:** `F_KLASSE=25` (`Gehweg, Radweg`)
