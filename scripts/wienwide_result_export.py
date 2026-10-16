@@ -17,7 +17,7 @@ import sqlite3
 from urllib.parse import quote
 
 from pyproj import Transformer
-from shapely import make_valid, union_all
+from shapely import make_valid, set_precision, union_all
 from shapely.geometry import Polygon, MultiPolygon, mapping
 from shapely.ops import transform
 from shapely.validation import explain_validity
@@ -75,7 +75,7 @@ def _collapsed_wgs84_parts(metric,wgs84):
 			"würde zu viel Fläche verändern")
 	return remaining,dropped
 
-def _verified_wgs84(geom, wgs84, gid, repair_events):
+def _verified_wgs84_baseline(geom, wgs84, gid, repair_events):
 	"""Nur projektionsbedingte Kleinstartefakte in der Ausgabe reparieren.
 
 	EPSG:31256 und alle Messgeometrien bleiben unverändert. Nach
@@ -200,6 +200,138 @@ def _verified_wgs84(geom, wgs84, gid, repair_events):
 	})
 	return repaired
 
+
+# 10 nm: weit unter der Genauigkeit metrischer GIP-Koordinaten,
+# aber oberhalb der Rundungsartefakte in extrem dünnen Polygonen.
+EXPORT_PRECISION_M=1e-8
+
+
+def _verified_wgs84_precision(geom,wgs84,gid,repair_events):
+	"""Kontrollierte Präzisionsnormalisierung NUR in der Publikation.
+
+	set_precision(..., valid_output) entfernt topologisch kollabierte
+	Nullflächen, auch wenn ihre linienartige Ausdehnung mehrere Meter
+	beträgt. Eine bloße Erhöhung der Hausdorff-Grenze wäre nicht sicher:
+	hier müssen ALLE Flächenunterschiede zum ORIGINAL nachgewiesen klein
+	sein; die 1-cm-Grenze gilt weiterhin für jede erhaltene Grenze.
+	"""
+	# Die Fallback-Methode darf nur eine echte Transformation des
+	# unveränderten Quellpolygons korrigieren, keine beliebig übergebene,
+	# reparierte/verschobene WGS84-Geometrie.
+	if not wgs84.equals_exact(transform(WGS84,geom),0):
+		raise ValueError(f"{gid}: WGS84-Normalisierung nur für "
+			"unveränderte Originaltransformation zulässig")
+	normalized=set_precision(geom,EXPORT_PRECISION_M,mode="valid_output")
+	if (normalized.is_empty or not normalized.is_valid
+		or not isinstance(normalized,(Polygon,MultiPolygon))):
+		raise ValueError(f"{gid}: metrische Präzisionsnormalisierung ungültig")
+	normal_limit=max(1e-6,geom.boundary.length*1e-7)
+	original_gain=normalized.difference(geom).area
+	original_loss=geom.difference(normalized).area
+	original_delta=normalized.area-geom.area
+	original_boundary_shift=geom.boundary.hausdorff_distance(
+		normalized.boundary)
+	if (not all(math.isfinite(v) for v in (
+			original_gain,original_loss,original_delta,
+			original_boundary_shift))
+		or original_gain>normal_limit
+		or original_loss>normal_limit
+		or abs(original_delta)>normal_limit):
+		raise ValueError(f"{gid}: metrische Präzisionsnormalisierung "
+			"verändert Fläche zu stark: "
+			f"zusätzlich {original_gain:.9f} m², "
+			f"fehlend {original_loss:.9f} m², "
+			f"Bilanz {original_delta:+.9f} m² "
+			f"(je max {normal_limit:.9f})")
+	projected=transform(WGS84,normalized)
+	if projected.is_empty or not projected.is_valid:
+		raise ValueError(f"{gid}: WGS84-Geometrie bleibt nach "
+			"metrischer Präzisionsnormalisierung ungültig")
+	back=transform(METRIC,projected)
+	inverse_reason=None
+	inverse_delta=None
+	if back.is_empty or not all(math.isfinite(v) for v in back.bounds):
+		raise ValueError(f"{gid}: normalisierte Rückprojektion leer")
+	if not back.is_valid:
+		inverse_reason=explain_validity(back)
+		raw_area=back.area
+		back=polygonal_part(make_valid(back))
+		if (back is None or back.is_empty or not back.is_valid
+			or not isinstance(back,(Polygon,MultiPolygon))):
+			raise ValueError(f"{gid}: normalisierte Rückprojektion "
+				"nicht polygonal reparierbar")
+		inverse_delta=back.area-raw_area
+		if not math.isfinite(inverse_delta) or abs(inverse_delta)>max(
+				.01,normalized.area*1e-6):
+			raise ValueError(f"{gid}: normalisierte Rückprojektion "
+				"verändert bei Reparatur die Fläche zu stark")
+	area_delta=back.area-normalized.area
+	extra=back.difference(normalized).area
+	missing=normalized.difference(back).area
+	shift=normalized.boundary.hausdorff_distance(back.boundary)
+	area_limit=max(.01,geom.area*1e-6)
+	difference_limit=max(.01,normalized.boundary.length*.003)
+	if (not all(math.isfinite(v) for v in
+			(area_delta,extra,missing,shift))
+		or abs(area_delta)>area_limit
+		or extra>difference_limit
+		or missing>difference_limit
+		or shift>.01):
+		raise ValueError(f"{gid}: normalisierte WGS84-Ausgabe "
+			"nicht metrisch flächentreu: "
+			f"Flächenänderung {area_delta:+.9f} m² "
+			f"(max {area_limit:.6f}), zusätzlich {extra:.9f} m², "
+			f"fehlend {missing:.9f} m² "
+			f"(je max {difference_limit:.6f}), "
+			f"Grenzverschiebung {shift:.6f} m (max 0.010)")
+	repair_events.append({
+		"gip_id":gid,
+		"geos_grund":explain_validity(wgs84),
+		"methode":"metrische 10-nm-Präzisionsnormalisierung ausschließlich "
+			"für die WGS84-Publikationsgeometrie",
+		"praezisionsraster_m":EXPORT_PRECISION_M,
+		"urspruengliche_ausgangsflaeche_m2":geom.area,
+		"normalisierte_ausgangsflaeche_m2":normalized.area,
+		"normalisierung_flaechenbilanz_m2":original_delta,
+		"normalisierung_zusaetzlich_m2":original_gain,
+		"normalisierung_fehlend_m2":original_loss,
+		"normalisierung_flaechengrenze_m2":normal_limit,
+		"normalisierung_grenzverschiebung_original_m":
+			original_boundary_shift,
+		"rueckprojektion_pruefgeometrie_geos_grund":inverse_reason,
+		"rueckprojektion_pruefgeometrie_reparatur_delta_m2":inverse_delta,
+		"flaechenabweichung_nach_rueckprojektion_m2":area_delta,
+		"zusaetzlich_m2":extra,
+		"fehlend_m2":missing,
+		"grenzverschiebung_m":shift,
+		"flaechentoleranz_m2":area_limit,
+		"differenztoleranz_m2":difference_limit,
+		"grenzverschiebung_toleranz_m":.01,
+	})
+	return projected
+
+
+def _verified_wgs84(geom,wgs84,gid,repair_events):
+	"""Primär bisherigen Export beibehalten, nur bei Grenzfehlern normalisieren."""
+	baseline_repairs=[]
+	try:
+		result=_verified_wgs84_baseline(geom,wgs84,gid,baseline_repairs)
+	except ValueError as original_exc:
+		if "Reparatur nicht metrisch flächentreu" not in str(original_exc):
+			raise
+		# Numerisch nahezu flächenlose Ausläufer dürfen nicht als
+		# geometrisch echte Meter-Verschiebungen legitimiert werden.
+		# Die zusätzliche Präzisionsmethode wird separat geprüft.
+		try:
+			result=_verified_wgs84_precision(geom,wgs84,gid,repair_events)
+		except Exception as precision_exc:
+			raise ValueError(
+				f"{original_exc}; 10-nm-Normalisierung ebenfalls "
+				f"abgelehnt: {precision_exc}") from precision_exc
+		return result
+	else:
+		repair_events.extend(baseline_repairs)
+		return result
 
 def _rows(path):
 	with Path(path).open(newline="", encoding="utf-8") as source:
