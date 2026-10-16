@@ -355,6 +355,61 @@ bash scripts/run-wien-gartenstrassen.sh --from street --until street
 Ein vollständiger realer Wien-Straßenraumlauf nach dieser Änderung
 ist noch nicht bestätigt.
 
+## Topologisch ungültige BEV-nfl-Vereinigung (16.10.2026)
+
+Nach abgeschlossenem Wien-Inputlauf (489/489) erreichte die
+Straßenraumphase **113/489**; die folgende Kachel stoppte mit
+"Metrische BEV-nfl-Vereinigung ungültig". Die konkrete Kachel
+kann aus der bisherigen Logzeile noch nicht eindeutig benannt werden,
+da die Fehlermeldung bisher keine Kachel-ID enthielt.
+
+Jedes BEV-nfl-Quellfragment wurde nach der unveränderten
+0,05-m²-Schwelle schon einzeln auf Polygonalität und Gültigkeit
+geprüft. Der Abbruch entstand erst, nachdem die Fragmente je
+Nutzungsgruppe (95/65: Straße; andere Codes: sonstige)
+zu einer Gesamtmaske vereinigt wurden.
+
+Die Reparatur erfolgt ausschließlich, **falls diese Gesamtmaske
+topologisch ungültig ist**:
+
+- Der GEOS-Gültigkeitsfehler wird ermittelt. Ein einziges
+  make_valid auf der ungültigen Union ist erlaubt, gefolgt
+  von der Übernahme ihrer polygonalen Bestandteile.
+- Die Fläche vor und nach der Reparatur darf sich höchstens um
+  **max(0,01 m², 10⁻⁸ × Ausgangsfläche)** unterscheiden.
+- Unabhängig von dieser Summenprüfung muss die neue Maske
+  **jedes einzelne originale, gültige Quellfragment** vollständig
+  innerhalb derselben Flächentoleranz überdecken. Auch ein
+  geometrisch verschobener gleich großer Polygonumriss kann
+  dadurch nicht unbemerkt durchgehen.
+- Mehr als diese rein numerische Flächentoleranz verlorene oder
+  zusätzliche Fläche und nicht reparierbare Polygone führen
+  weiterhin zum Abbruch. Kein unkontrolliertes buffer(0),
+  keine Generalisierung und keine neuen Online-Downloads.
+- Erfolgreiche Reparaturen werden als
+  kataster_status.nfl_vereinigungsreparaturen mit BEV-Gruppe,
+  GEOS-Befund, Quellfragmentzahl, alter/neuer Fläche,
+  Differenz, geprüfter nicht abgedeckter Fläche und Toleranz
+  in der Straßenraumkachel dokumentiert.
+- Die weiterhin bestehende originale Quell-PBF-Prüfsumme,
+  FMZK-Klassifikation, 95-%-Zuordnung sowie bestehenden
+  SQLite-Kacheln bleiben unverändert. Künftige
+  Fehlermeldungen im Street-Build enthalten die Kachel-ID.
+
+Vor der Fortsetzung:
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_kataster.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from street --until street
+~~~
+
+Die echte ungültige BEV-Union kann nur der lokale Lauf prüfen.
+Falls die Flächenbilanz nicht erhalten werden kann, erscheint
+eine präzisere Fehlermeldung mit Gruppe und Abweichung;
+in diesem Fall keine weitere automatische Reparatur.
+
 ## Pfade und Parameter
 
 | Element | Standard |
