@@ -1,5 +1,6 @@
 """Regressionen für Wienweite Kachel- und Datenpipeline ohne externe Dienste."""
 from collections import Counter
+from zipfile import ZipFile
 import json
 from pathlib import Path
 import sqlite3
@@ -22,6 +23,7 @@ from scripts.wienwide_gip import (
 	connect as connect_gip,
 )
 from scripts.wienwide_street import save_street_tile, load_street_tile
+from scripts.diagnose_wien_voronoi import capture
 from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 from scripts.wienwide_partition import (
 	_polygon, _voronoi_intersection, graph_context, split_tile,
@@ -202,6 +204,78 @@ class WienPipelineTests(unittest.TestCase):
 				f"Naht oder Zuordnung bei GIP {gid}")
 		for group,geom in unknown:
 			self.assertAlmostEqual(all_unknown[group],geom.area,delta=.05)
+
+	def test_targeted_voronoi_diagnosis_preserves_metric_sources_and_zip(self):
+		# Diagnose nur als lesbares WKB-ZIP: kein GeoJSON-Rundweg
+		# und keine Änderungen an vorhandenen SQLite-Kacheln.
+		origin=box(0,0,100,100)
+		cells=[box(0,0,50,100),box(50,0,100,100)]
+		owner=union_all(cells)
+		remaining=box(0,0,40,100)
+		axis={"id":"10466577","name":"Quellachse","fow":3,
+			"geometry":LineString([(25,10),(25,90)])}
+		out=self.root/"voronoi-10466577.zip"
+		report=capture(out,tile_id="x+000008_y+000350",
+			gid=axis["id"],axis=axis,owner=owner,remaining=remaining,
+			cells=cells,mask=origin,core=origin,
+			street_path=self.plan_file,manifest_path=self.plan_file)
+		self.assertTrue(out.is_file())
+		self.assertEqual(report["gip_id"],"10466577")
+		self.assertEqual(report["anzahl_voronoi_einzelzellen"],2)
+		self.assertEqual(report["geometrien"]["direkter_schnitt"]
+			["flaeche_m2"],4000)
+		self.assertEqual(report["geometrien"]["vereinigung_einzelschnitte"]
+			["flaeche_m2"],4000)
+		self.assertEqual(report["geometrien"]["fehlend_aus_voronoi"]
+			["flaeche_m2"],0)
+		with ZipFile(out) as archive:
+			entries=archive.namelist()
+			self.assertIn("diagnose.json",entries)
+			self.assertIn("wkb/restmaske.wkb",entries)
+			self.assertIn("wkb/voronoi_vereinigung.wkb",entries)
+			self.assertIn("wkb/zellen/00000.wkb",entries)
+			self.assertIn("wkb/einzelschnitte/00000.wkb",entries)
+			from shapely.wkb import loads
+			self.assertTrue(loads(archive.read("wkb/restmaske.wkb"))
+				.equals(remaining))
+			self.assertEqual(json.loads(archive.read("diagnose.json"))
+				["gip_id"],"10466577")
+		self.assertTrue(owner.equals(union_all(cells)))
+		with self.assertRaises(FileExistsError):
+			capture(out,tile_id="x+000008_y+000350",
+				gid=axis["id"],axis=axis,owner=owner,remaining=remaining,
+				cells=cells,mask=origin,core=origin,
+				street_path=self.plan_file,manifest_path=self.plan_file)
+
+	def test_voronoi_diagnostic_callback_sees_preoverlay_remaining(self):
+		# Hook muss den tatsächlichen Restzustand der Partition
+		# genau vor dem einzelnen Voronoi-Overlay bereitstellen.
+		street=box(0,0,100,100)
+		sites=[(1,25,50),(2,75,50)]
+		axes={
+			1:{"id":"10466577","name":"Links","fow":3,
+				"geometry":LineString([(25,20),(25,80)])},
+			2:{"id":"20000000","name":"Rechts","fow":3,
+				"geometry":LineString([(75,20),(75,80)])},
+		}
+		captured=[]
+		class Captured(Exception):
+			pass
+		def visit(axis,owner,remaining,cells,mask,core):
+			captured.append((axis["id"],owner,remaining,len(cells),
+				mask,core))
+			raise Captured()
+		with self.assertRaises(Captured):
+			split_tile(street,street,sites,axes,[],
+				diagnostic=visit)
+		self.assertEqual(len(captured),1)
+		gid,owner,remaining,n,mask,core=captured[0]
+		self.assertEqual(gid,"10466577")
+		self.assertTrue(owner.is_valid)
+		self.assertTrue(remaining.equals(street))
+		self.assertTrue(mask.equals(street))
+		self.assertTrue(core.equals(street))
+		self.assertGreater(n,0)
 
 	def test_voronoi_nested_shells_rebuilds_exact_site_cell_intersections(self):
 		# Der echte Abbruch hatte ~1200 m² außerhalb der noch
