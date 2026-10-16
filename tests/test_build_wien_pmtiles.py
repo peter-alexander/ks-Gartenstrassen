@@ -122,8 +122,8 @@ class WienPmtilesTests(unittest.TestCase):
 		self.assertIn("--no-tile-size-limit",args)
 		self.assertIn("--simplify-only-low-zooms",args)
 		self.assertIn("--no-tiny-polygon-reduction",args)
-		self.assertIn("--minimum-zoom",args)
-		self.assertIn("--maximum-zoom",args)
+		self.assertEqual(args[args.index("--minimum-zoom")+1],"8")
+		self.assertEqual(args[args.index("--maximum-zoom")+1],"17")
 		self.assertEqual(args[-1],
 			str(self.directory/"gip_abschnitte.geojson"))
 		dest=Path(args[args.index("--output")+1])
@@ -138,7 +138,7 @@ class WienPmtilesTests(unittest.TestCase):
 				pmtiles="pmtiles")
 		self.assertEqual(report["input_features"],2)
 		self.assertTrue(report["archive_structural_verify"])
-		self.assertEqual(report["zoom_min"],12)
+		self.assertEqual(report["zoom_min"],8)
 		self.assertEqual(report["zoom_max"],17)
 		self.assertEqual(report["layer"],LAYER)
 		self.assertTrue((self.directory/f"{LAYER}.pmtiles").exists())
@@ -149,6 +149,98 @@ class WienPmtilesTests(unittest.TestCase):
 			(self.directory/"pmtiles_bericht.json").read_text())["input_features"],2)
 		with self.assertRaises(FileExistsError):
 			build(self.directory,tippecanoe="tippecanoe")
+
+	def _build_mocked(self,**kwargs):
+		with patch("scripts.build_wien_pmtiles.subprocess.run",
+				side_effect=self._fake_run):
+			return build(self.directory,tippecanoe="tippecanoe",**kwargs)
+
+	def test_replace_creates_previous_backup_and_new_zoom_8_report(self):
+		self._build_mocked()
+		output=self.directory/f"{LAYER}.pmtiles"
+		manifest=self.directory/"pmtiles_bericht.json"
+		# Altes Archiv und Manifest entsprechen noch Zoom 12–17.
+		previous_bytes=b"PMTiles\x03"+b"old"*60
+		output.write_bytes(previous_bytes)
+		old_report=json.loads(manifest.read_text(encoding="utf-8"))
+		old_report["zoom_min"]=12
+		manifest.write_text(json.dumps(old_report),encoding="utf-8")
+		old_manifest=manifest.read_bytes()
+		result=self._build_mocked(replace=True)
+		self.assertTrue(result["ersetzt_bestehendes_archiv"])
+		self.assertEqual(result["zoom_min"],8)
+		self.assertEqual(result["zoom_max"],17)
+		self.assertEqual(
+			(self.directory/f"{LAYER}.previous.pmtiles").read_bytes(),
+			previous_bytes)
+		self.assertEqual(
+			(self.directory/"pmtiles_bericht.previous.json").read_bytes(),
+			old_manifest)
+		self.assertNotEqual(output.read_bytes(),previous_bytes)
+		self.assertEqual(json.loads(manifest.read_text())["zoom_min"],8)
+		# Auch eine zweite Ersetzung darf die originale Sicherung
+		# niemals stillschweigend überschreiben.
+		with self.assertRaisesRegex(FileExistsError,"Sicherung"):
+			self._build_mocked(replace=True)
+
+	def test_failed_rebuild_does_not_touch_previous_archive_or_manifest(self):
+		self._build_mocked()
+		output=self.directory/f"{LAYER}.pmtiles"
+		manifest=self.directory/"pmtiles_bericht.json"
+		before_output=output.read_bytes()
+		before_manifest=manifest.read_bytes()
+		def failing(args,**kwargs):
+			if args[1]=="--version":
+				return subprocess.CompletedProcess(args,0,
+					stdout="tippecanoe v2.49.0\n",stderr="")
+			Path(args[args.index("--output")+1]).write_bytes(b"partial")
+			raise subprocess.CalledProcessError(1,args)
+		with patch("scripts.build_wien_pmtiles.subprocess.run",
+				side_effect=failing):
+			with self.assertRaises(subprocess.CalledProcessError):
+				build(self.directory,tippecanoe="tippecanoe",replace=True)
+		self.assertEqual(output.read_bytes(),before_output)
+		self.assertEqual(manifest.read_bytes(),before_manifest)
+		self.assertFalse(
+			(self.directory/f"{LAYER}.previous.pmtiles").exists())
+		self.assertFalse(
+			(self.directory/"pmtiles_bericht.previous.json").exists())
+		self.assertFalse(
+			(self.directory/f"{LAYER}.tmp.pmtiles").exists())
+
+	def test_replace_rolls_back_both_files_if_manifest_publish_fails(self):
+		self._build_mocked()
+		output=self.directory/f"{LAYER}.pmtiles"
+		manifest=self.directory/"pmtiles_bericht.json"
+		before_output=output.read_bytes()
+		before_manifest=manifest.read_bytes()
+		original_replace=Path.replace
+		def fail_manifest_publish(path,target):
+			if path.name=="pmtiles_bericht.json.tmp":
+				raise OSError("Simulierter Fehler beim Austausch des Berichts")
+			return original_replace(path,target)
+		with patch("scripts.build_wien_pmtiles.subprocess.run",
+				side_effect=self._fake_run), patch.object(
+					Path,"replace",autospec=True,
+					side_effect=fail_manifest_publish):
+			with self.assertRaisesRegex(OSError,"Simulierter Fehler"):
+				build(self.directory,tippecanoe="tippecanoe",replace=True)
+		self.assertEqual(output.read_bytes(),before_output)
+		self.assertEqual(manifest.read_bytes(),before_manifest)
+		self.assertFalse(
+			(self.directory/f"{LAYER}.previous.pmtiles").exists())
+		self.assertFalse(
+			(self.directory/"pmtiles_bericht.previous.json").exists())
+		self.assertFalse(
+			(self.directory/f"{LAYER}.tmp.pmtiles").exists())
+		self.assertFalse(
+			(self.directory/"pmtiles_bericht.json.tmp").exists())
+
+	def test_replace_requires_archive_and_manifest_pair(self):
+		self._build_mocked()
+		(self.directory/"pmtiles_bericht.json").unlink()
+		with self.assertRaisesRegex(ValueError,"gemeinsam"):
+			self._build_mocked(replace=True)
 
 	def test_external_build_failure_leaves_source_intact(self):
 		file=self.directory/"gip_abschnitte.geojson"
