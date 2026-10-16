@@ -855,6 +855,57 @@ bash scripts/run-wien-gartenstrassen.sh --from export --until export
 
 Die reale Wirkung auf GIP 10023274 ist erst durch
 die lokalen Originalgeometrien beim erneuten Export bestätigt.
+## WGS84-Export: erneute Ungültigkeit erst beim Rückprojektions-Check (16.10.2026)
+
+Nach Einführung der streng geprüften WGS84-Ausgabereparatur
+stoppt die Wien-Ausgabe bei **GIP 10023323**:
+
+> WGS84-Geometrie ungültig
+> (Too few points in geometry component[16.2140370087171 48.2445637429625]);
+> metrische Reparaturprüfung fehlgeschlagen: Rückprojektion nicht gültig
+
+Die zuerst ausgeführte WGS84-Reparatur erzeugte dabei eine
+gültige Publikationsgeometrie; **die nur zur Flächenkontrolle
+zurückprojizierte Geometrie** wurde anschließend ungültig.
+Insbesondere sehr kurze Ringsegmente können beim zweimaligen
+Transformieren zu kollabierten Ringen führen. Ohne vollständige
+Original-WKB ist die genaue lokale Teilfläche noch nicht
+nachgewiesen.
+
+**Abgesicherte Kontrolle (keine Änderung an Fachgeometrien):**
+
+- Der originale gültige EPSG:31256-Abschnitt wird nicht
+  verändert. Die bereits gültige WGS84-Ausgabegeometrie
+  wird durch diesen Zusatz ebenfalls nicht verändert.
+- **Nur wenn die zurückprojizierte Prüfgeometrie** ungültig
+  ist, wird für die Kontrolle ihr gültiger polygonaler
+  Bestandteil mit `make_valid` wiederhergestellt.
+- Schon der Verlust oder Zugewinn von Fläche durch diese
+  Wiederherstellung muss unter
+  `max(0,01 m², 10^-6 × Originalabschnittsfläche)` bleiben;
+  andernfalls gilt die Kontrolle als fehlgeschlagen.
+- Anschließend bleiben ALLE bestehenden Prüfungen erhalten:
+  Gesamtfläche, fehlende/zusätzliche Flächen, metrische
+  Grenzverschiebung höchstens 1 cm. Nicht gültige oder
+  nicht polygonale Rekonstruktionen werden abgelehnt.
+- Im Exportbericht werden zusätzlich der GEOS-Grund der
+  ungültigen Rückprojektion und deren Reparatur-Flächendifferenz
+  unter `wgs84_projection_repairs` festgehalten.
+
+Regressionstests reproduzieren eine ungültige Kontrollprojektion
+mit `Too few points`, lehnen eine räumlich verschobene
+Kontrollprojektion ab und verwerfen eine
+nichtpolygonale Rückprojektionsreparatur.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_result_export.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from export --until export
+~~~
+
+Der Erfolg für die reale Geometrie `10023323` ist erst
+nach dem lokalen erneuten Test und Export bestätigt.
 ## Pfade und Parameter
 
 | Element | Standard |
