@@ -256,7 +256,14 @@ def build(source_dir=DEFAULT_SOURCE,*,tippecanoe=None,pmtiles=None):
 		temp_manifest.write_text(json.dumps(result,ensure_ascii=False,
 			indent=2,allow_nan=False)+"\n",encoding="utf-8")
 		temp.replace(output)
-		temp_manifest.replace(manifest)
+		try:
+			temp_manifest.replace(manifest)
+		except BaseException:
+			# Zwei Dateien lassen sich nicht als Paar atomar umbenennen.
+			# Falls das Manifest nicht veröffentlicht werden kann,
+			# das Archiv aus DIESEM Lauf ebenfalls zurücknehmen.
+			output.unlink(missing_ok=True)
+			raise
 		return result
 	except BaseException:
 		temp.unlink(missing_ok=True)
