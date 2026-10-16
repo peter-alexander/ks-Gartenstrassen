@@ -191,33 +191,26 @@ def _tippecanoe_version(binary):
 
 def build(source_dir=DEFAULT_SOURCE,*,tippecanoe=None,pmtiles=None,
 		replace=False):
-	"""Build PMTiles; --replace keeps both old files until QA succeeds.
+	"""Build PMTiles; --replace overwrites in place, without backups.
 
-	After validation, move the existing archive and manifest to
-	*.previous.* before publishing the new pair. On publication errors,
-	restore the previous pair and never delete its backup on failure.
+	Validate the new archive before touching the existing one. Publish
+	the manifest first, keeping its previous bytes only in memory until
+	the new archive is atomically installed. No previous PMTiles is saved.
 	"""
 	source_dir=Path(source_dir)
 	output=source_dir/f"{LAYER}.pmtiles"
 	manifest=source_dir/"pmtiles_bericht.json"
 	temp=source_dir/f"{LAYER}.tmp.pmtiles"
 	temp_manifest=source_dir/"pmtiles_bericht.json.tmp"
-	backup_output=source_dir/f"{LAYER}.previous.pmtiles"
-	backup_manifest=source_dir/"pmtiles_bericht.previous.json"
 	if output.exists()!=manifest.exists():
 		raise ValueError("PMTiles und Manifest müssen gemeinsam vorhanden sein")
 	existing=output.exists()
 	if existing and not replace:
-		raise FileExistsError("PMTiles bereits vorhanden: für den gesicherten "
-			"Neubau --replace angeben")
+		raise FileExistsError("PMTiles bereits vorhanden: zum Überschreiben "
+			"--replace angeben")
 	for p in (temp,temp_manifest):
 		if p.exists():
 			raise FileExistsError(f"Temporäre Datei existiert bereits: {p}")
-	if replace and existing:
-		for p in (backup_output,backup_manifest):
-			if p.exists():
-				raise FileExistsError(f"Bestehende Sicherung darf nicht "
-					f"überschrieben werden: {p}")
 	tippecanoe=tippecanoe or shutil.which("tippecanoe")
 	if tippecanoe is None:
 		raise FileNotFoundError("Tippecanoe >=2.17 fehlt (felt/tippecanoe)")
@@ -260,8 +253,6 @@ def build(source_dir=DEFAULT_SOURCE,*,tippecanoe=None,pmtiles=None,
 				"gip_id als Zeichenkette in Properties",
 			"input_features":source["gip_ids"],
 			"ersetzt_bestehendes_archiv":existing,
-			"vorheriges_archiv":str(backup_output) if existing else None,
-			"vorheriger_bericht":str(backup_manifest) if existing else None,
 			"tippecanoe_version":version,
 			"archive_bytes":temp.stat().st_size,
 			"archive_sha256":checksum(temp),
@@ -277,33 +268,23 @@ def build(source_dir=DEFAULT_SOURCE,*,tippecanoe=None,pmtiles=None,
 		}
 		temp_manifest.write_text(json.dumps(result,ensure_ascii=False,
 			indent=2,allow_nan=False)+"\n",encoding="utf-8")
-		# Beide bisherigen Ergebnisse bleiben bis zu diesem Punkt
-		# unverändert. Erst nach vollständiger Validierung austauschen.
-		archived_output=False
-		archived_manifest=False
-		new_output=False
-		new_manifest=False
+		# Bis hier bleiben alte PMTiles und Bericht unangetastet.
+		# Die beiden Dateien können nicht gemeinsam atomar ersetzt
+		# werden. Deshalb wird zunächst der Bericht ersetzt und
+		# anschließend als LETZTER Schritt das Archiv umbenannt.
+		# Schlägt dessen Austausch fehl, ist das alte Archiv noch da;
+		# nur der kleine alte JSON-Bericht wird aus dem RAM restauriert.
+		# Eine Kopie des alten PMTiles-Archivs wird nie erstellt.
+		previous_manifest=manifest.read_bytes() if existing else None
+		temp_manifest.replace(manifest)
 		try:
-			if existing:
-				output.replace(backup_output)
-				archived_output=True
-				manifest.replace(backup_manifest)
-				archived_manifest=True
 			temp.replace(output)
-			new_output=True
-			temp_manifest.replace(manifest)
-			new_manifest=True
 		except BaseException:
-			# Veröffentlichtes neues Paar zurücknehmen und danach
-			# die gesicherte Version vollständig wiederherstellen.
-			if new_output:
-				output.unlink(missing_ok=True)
-			if new_manifest:
+			if previous_manifest is None:
 				manifest.unlink(missing_ok=True)
-			if archived_output:
-				backup_output.replace(output)
-			if archived_manifest:
-				backup_manifest.replace(manifest)
+			else:
+				temp_manifest.write_bytes(previous_manifest)
+				temp_manifest.replace(manifest)
 			raise
 		return result
 	except BaseException:
@@ -319,8 +300,8 @@ def main():
 	p.add_argument("--pmtiles",default=None,
 		help="PMTiles-CLI für zusätzliche Archiv-Strukturprüfung")
 	p.add_argument("--replace",action="store_true",
-		help="PMTiles und Bericht nach erfolgreichem Neubau gesichert "
-			"ersetzen; vorhandene .previous-Dateien werden nie überschrieben")
+		help="Vorhandene PMTiles und Bericht nach bestandener Prüfung "
+			"direkt überschreiben, ohne Sicherungskopien")
 	args=p.parse_args()
 	try:
 		result=build(args.source_dir,tippecanoe=args.tippecanoe,
