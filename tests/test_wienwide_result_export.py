@@ -1,13 +1,16 @@
 """Regression tests for complete-GIP publication filtering (not tile filtering)."""
 import csv
 import json
+import os
 from pathlib import Path
+from zipfile import ZipFile
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from shapely.geometry import box, Polygon
+from shapely.geometry import box, Polygon, MultiPolygon
+from shapely import from_wkb
 from shapely import make_valid
 from shapely.affinity import translate
 from shapely.ops import transform
@@ -15,7 +18,7 @@ from shapely.ops import transform
 from scripts.wienwide_qa_gpkg import gpkg_blob
 from scripts.wienwide_gip_greening import CSV_COLUMNS
 from scripts.wienwide_result_export import (
-	WGS84,METRIC,_verified_wgs84,export,
+	WGS84,METRIC,_verified_wgs84,_collapsed_wgs84_parts,export,
 )
 
 
@@ -91,6 +94,96 @@ class WienwideResultExportTests(unittest.TestCase):
 		invalid=Polygon(points+[middle,start])
 		self.assertFalse(invalid.is_valid)
 		return metric,normal,invalid
+
+	def _zero_area_line_artifact_fixture(self):
+		# Reales numerisches Ringmuster: Zwei der drei
+		# metrischen Eckpunkte unterscheiden sich um nur 1e-12 m.
+		# Nach WGS84 wird das Flächenpolygon eine Linie.
+		tiny=Polygon([
+			(-8771.143,345139.365),
+			(-8771.310688095295,345139.10842805094),
+			(-8771.310688095296,345139.10842805094),
+			(-8771.143,345139.365),
+		])
+		main=box(-8780,345127,-8774,345134)
+		metric=MultiPolygon([main,tiny])
+		self.assertTrue(metric.is_valid)
+		self.assertGreater(tiny.area,0)
+		self.assertLess(tiny.area,1e-9)
+		self.assertLess(tiny.length,1)
+		bad_wgs=transform(WGS84,metric)
+		self.assertFalse(bad_wgs.is_valid)
+		return metric,bad_wgs,tiny
+
+	def test_collapsed_micropolygon_removed_from_publication_only(self):
+		metric,bad_wgs,micro=self._zero_area_line_artifact_fixture()
+		metric_wkb=metric.wkb
+		audit=[]
+		result=_verified_wgs84(metric,bad_wgs,"10023323",audit)
+		self.assertTrue(result.is_valid)
+		self.assertFalse(result.is_empty)
+		self.assertEqual(len(audit),1)
+		entry=audit[0]
+		self.assertEqual(len(entry["im_geojson_ausgelassene_degenerierte_teilpolygone"]),1)
+		self.assertAlmostEqual(entry["im_geojson_ausgelassene_degenerierte_teilpolygone"]
+			[0]["flaeche_m2"],micro.area,delta=1e-14)
+		self.assertLess(entry["grenzverschiebung_m"],.01)
+		self.assertGreater(entry["urspruengliche_grenzabweichung_m"],.1)
+		self.assertEqual(metric.wkb,metric_wkb)
+		self.assertEqual(len(metric.geoms),2)
+		self.assertEqual(len(result.geoms),1)
+
+	def test_noncollapsed_metric_polygon_cannot_be_dropped(self):
+		metric,bad_wgs,tiny=self._zero_area_line_artifact_fixture()
+		# WGS84-Anteil ist gültig/flächenhaft: kein
+		# toleriertes Verschwinden trotz winziger Quellfläche.
+		projected=MultiPolygon([transform(WGS84,metric.geoms[0]),
+			box(16.215,48.245,16.21501,48.24501)])
+		remaining,excluded=_collapsed_wgs84_parts(metric,projected)
+		self.assertIsNone(remaining)
+		self.assertEqual(excluded,[])
+
+	def test_long_zero_width_segment_cannot_be_dropped(self):
+		metric,bad_wgs,tiny=self._zero_area_line_artifact_fixture()
+		# Ein langer flächenloser Ausläufer ist keine
+		# akzeptable Kurzsegment-Ausnahme.
+		large=Polygon([
+			(-8771.143,345139.365),
+			(-8771.143+2,345139.365+2),
+			(-8771.143+2+1e-12,345139.365+2),
+			(-8771.143,345139.365),
+		])
+		projected=transform(WGS84,large)
+		if large.is_valid and large.area>0 and not projected.is_valid:
+			extended=MultiPolygon([metric.geoms[0],large])
+			wgs=transform(WGS84,extended)
+			remaining,excluded=_collapsed_wgs84_parts(extended,wgs)
+			self.assertIsNone(remaining)
+			self.assertEqual(excluded,[])
+
+	def test_original_wkb_diagnostic_regression_if_available(self):
+		path=os.environ.get("WIEN_EXPORT_DIAG_ZIP")
+		if not path:
+			self.skipTest("Originaldiagnose nur mit WIEN_EXPORT_DIAG_ZIP")
+		with ZipFile(path) as archive:
+			metric=from_wkb(archive.read(
+				"gip_10023323/00_original_metric_union.wkb"))
+			wgs=from_wkb(archive.read(
+				"gip_10023323/01_wgs84_unveraendert.wkb"))
+		self.assertTrue(metric.is_valid)
+		self.assertFalse(wgs.is_valid)
+		self.assertEqual(len(metric.geoms),4)
+		audit=[]
+		result=_verified_wgs84(metric,wgs,"10023323",audit)
+		self.assertTrue(result.is_valid)
+		self.assertEqual(len(result.geoms),3)
+		self.assertEqual(len(audit),1)
+		self.assertEqual(len(audit[0]
+			["im_geojson_ausgelassene_degenerierte_teilpolygone"]),1)
+		self.assertLess(audit[0]["grenzverschiebung_m"],.01)
+		self.assertGreater(audit[0]["urspruengliche_grenzabweichung_m"],.29)
+		self.assertLess(abs(audit[0]
+			["flaechenabweichung_nach_rueckprojektion_m2"]),.01)
 
 	def test_valid_wgs84_remains_unchanged_without_repair(self):
 		metric,valid,_invalid=self._invalid_wgs84_boundary_repetition()
