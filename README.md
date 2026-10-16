@@ -17,10 +17,16 @@ Für die interaktive Kartensammlung gibt es ergänzend einen
 GeoJSON. Er benötigt Felt/Tippecanoe ab **2.17**, wird lokal
 mit `.venv/bin/python -m scripts.build_wien_pmtiles` gestartet
 und erzeugt den vektorbasierten Layer `gartenstrassen_wien`
-(Zoom 12–17). Ausgangs-GeoJSON, CSV und QA-GeoPackage
+(Zoom 8–17). Ausgangs-GeoJSON, CSV und QA-GeoPackage
 werden nicht geändert. Die PMTiles-Datei ist eine
 zoomabhängige **Visualisierung**, keine metrisch exakte
-Analysequelle. Der lokale PMTiles-Build ist noch auszuführen.
+Analysequelle. Der erste lokale PMTiles-Build (Zoom 12–17)
+wurde mit Tippecanoe 2.49.0 erstellt; für den gewünschten
+Debug-Neubau mit Minzoom 8 bleibt Maxzoom 17 unverändert.
+Der gesicherte lokale Austausch erfolgt mit
+`.venv/bin/python -m scripts.build_wien_pmtiles --replace`.
+Die bisherigen PMTiles und ihr Bericht bleiben dabei
+als `.previous`-Sicherung erhalten.
 Ausführliche QA- und Bedienhinweise stehen in
 [Wienweiter Gesamtlauf](docs/Wien-Gesamtlauf.md).
 
