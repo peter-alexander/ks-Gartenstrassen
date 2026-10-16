@@ -906,6 +906,54 @@ bash scripts/run-wien-gartenstrassen.sh --from export --until export
 
 Der Erfolg für die reale Geometrie `10023323` ist erst
 nach dem lokalen erneuten Test und Export bestätigt.
+## Export-GIP 10023323: 29,6 cm Grenzabweichung – keine automatische Freigabe
+
+Der erneute Wiener Publikationsexport stoppt bei GIP `10023323`
+nach erfolgreicher WGS84- und Rückprojektionskontroll-Reparatur:
+
+~~~text
+WGS84-Geometrie ungültig (Too few points in geometry component
+[16.2140370087171 48.2445637429625]);
+Flächenänderung +0.000002585 m² (max 0.010000),
+zusätzlich 0.061854795 m², fehlend 0.061852210 m²
+(je max 0.694120),
+Grenzverschiebung 0.296424 m (max 0.010)
+~~~
+
+Die fast exakt gleiche Fläche beweist **nicht** die räumliche
+Übereinstimmung. 29,6 cm maximale Grenzabweichung überschreiten
+die bisherige Schranke um etwa Faktor 30. Daher bleibt die
+Ausgabe bewusst blockiert. Weder Grenz- noch Flächentoleranzen
+werden erhöht; die originalen 24.937 Messergebnisse und die
+beiden Quell-GeoPackages werden nicht verändert.
+
+Statt eine dritte Reparatur auf Verdacht einzuführen, liefert
+`scripts/diagnose_wien_export.py` eine **rein lesende, genau
+auf diese GIP-ID begrenzte** Untersuchung der fertigen
+Begrünungs-GeoPackage-Geometrien. Die Diagnose speichert in
+einer ZIP-Datei vollständige originale EPSG:31256-WKB-Fragmente
+und deren Union sowie WGS84 vor/nach make_valid, metrische
+Rückprojektion vor/nach make_valid, Normal-Roundtrip und
+zusätzliche bzw. fehlende metrische Flächen. Dazu kommen
+kleine 3-m-Ausschnitte rund um die genannte Fehlerkoordinate
+und ein JSON-Bericht mit Prüfergebnissen und Original-WKB-SHAs.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_diagnose_wien_export.py' -v
+.venv/bin/python -m scripts.diagnose_wien_export \
+	--gip-id 10023323 \
+	--lon 16.2140370087171 \
+	--lat 48.2445637429625 \
+	--out data/processed/wienweit/wien/diagnose-export-wgs84.zip
+~~~
+
+Die ZIP muss für die Ursachenprüfung analysiert werden;
+der Quellcode führt **keinen** Geometrieexport und keine
+zusätzliche Fachklassifikation durch. Ein zweiter Aufruf mit
+einem bereits vorhandenen ZIP-Pfad wird sicher abgewiesen.
+Die vorhandenen Ausgaben bleiben unverändert.
 ## Pfade und Parameter
 
 | Element | Standard |
