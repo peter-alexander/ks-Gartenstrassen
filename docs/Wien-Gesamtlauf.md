@@ -1205,6 +1205,104 @@ WIEN_EXPORT_FEHLSTELLEN_ZIP=data/processed/wienweit/wien/wgs84_export_fehlstelle
 Auch wenn der Scan anschließend null Fehler meldet,
 bleibt der eigentliche GeoJSON-Export ein separater
 bewusst erst danach auszuführender Schritt.
+## Vektor-PMTiles aus dem geprüften Wien-Export (16.10.2026)
+
+Der finale Wien-Export nach vollständiger, fehlerfreier WGS84-
+Vorprüfung ist abgeschlossen: 24.306 GIP-IDs mit jeweils
+mindestens 100 m², aus insgesamt 24.937 GIP-IDs.
+Die Geometriekontrolle protokollierte 226 WGS84-Ausgabekorrekturen,
+die Metrik und Quell-GPKGs wurden nicht verändert.
+
+Für eine performant abrufbare **Visualisierung in der Kartensammlung**
+kann die vorhandene Publikations-GeoJSON direkt in
+**PMTiles v3 mit Mapbox Vector Tiles (MVT)** überführt werden.
+Dies geschieht als bewusster, **separater Build-Schritt**,
+nicht als neue automatische Pflichtphase des rechenintensiven
+Wien-Laufs.
+
+**Werkzeug:** Felt/Tippecanoe **ab v2.17** unterstützt
+PMTiles direkt. Die auf Ubuntu installierte `tippecanoe`-Version
+mit `tippecanoe --version` prüfen; ältere Pakete können
+nur MBTiles liefern. Gegebenenfalls die aktuelle
+`felt/tippecanoe`-Version installieren. Für zusätzliche
+Archivinhalts-/Strukturprüfung kann `pmtiles verify`
+(Protomaps-Go-CLI) installiert werden.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_build_wien_pmtiles.py' -v
+tippecanoe --version
+# Optional: prüfen, ob der Protomaps-Verifizierer vorhanden ist:
+command -v pmtiles || true
+.venv/bin/python -m scripts.build_wien_pmtiles
+~~~
+
+**Lokale Ausgaben (bestehender Exportordner):**
+
+- `data/processed/wienweit/wien/veroeffentlichung_100m2/gartenstrassen_wien.pmtiles`
+- `data/processed/wienweit/wien/veroeffentlichung_100m2/pmtiles_bericht.json`
+
+**Eigenschaften:** Layer-Name `gartenstrassen_wien`, Zoom
+**12 bis 17**, `full-detail` und `low-detail` jeweils 12
+(4096 Tile-Units), maximale Zoomstufe ohne
+Tippecanoe-Linienvereinfachung; die niedrigeren
+Zoomstufen werden für die Darstellung vereinfacht.
+Feature-IDs sind aus `gip_id` numerisch konvertiert;
+das String-Attribut `gip_id` bleibt als Fach-ID erhalten.
+Beide Begrünungsprozente, Flächenkennzahlen, Straßenname,
+FOW und alle weiteren CSV-Attribute bleiben im MVT-Layer.
+Kein Coalescing, keine dynamische Feature-Ausdünnung,
+keine automatische Verkleinerung über Tile-Grenzwerte
+und keine Repräsentation winziger Polygone als Rechtecke.
+
+**Unabhängige Eingangs-QA:** Der Build gleicht die
+vollständige gefilterte CSV mit dem GeoJSON in einem
+speichersparenden Feature-Stream ab (vollständiger
+ID-Satz, 24.306 Einträge, Felder und Zahlen, gültige
+nichtleere Polygone). Er liest und überprüft den
+vorhandenen Exportbericht; seine Quelldateien werden
+nicht verändert. Das Eingangs-GeoJSON ist bereits
+EPSG:4326 und wird nicht noch einmal projiziert.
+
+**Sicherung des Archivs:** Tippecanoe schreibt
+`gartenstrassen_wien.tmp.pmtiles`, das mindestens die
+PMTiles-v3-Signatur und eine vollständige Headerlänge
+aufweisen muss. Falls der Protomaps-Befehl `pmtiles`
+im PATH liegt, wird `pmtiles verify` ausgeführt;
+das Prüfprotokoll enthält ausdrücklich, ob diese
+zusätzliche Archiv-Strukturprüfung verfügbar war.
+Erst anschließend entstehen die endgültige `.pmtiles`-
+Datei und ein Manifest mit SHA-256-Prüfsummen,
+Quell-GIP-Anzahl, Zoomstufen und Werkzeugversion.
+Vorhandene PMTiles-Ausgaben werden nicht überschrieben.
+
+**Wichtige fachliche Grenzen:**
+
+- Die Kartensammlung verwendet die Tiles als **Anzeigedaten**,
+  NICHT zur metrisch präzisen Flächenmessung: MVT
+  quantisiert WGS84-/Web-Mercator-Koordinaten nach
+  Zoomstufe und schneidet Features an Kachelgrenzen.
+- Niedrige Zoomstufen können kleine/schmale Abschnitte
+  wegen begrenzter Rasterauflösung nicht darstellen.
+  Aus 24.306 vollständigen GeoJSON-Features folgt
+  nicht 24.306 MVT-Features pro Zoomstufe oder Kachel.
+- Die vollständige metrische Flächenbasis in EPSG:31256,
+  die 100-m²-Export-CSV und das EPSG:4326-GeoJSON
+  bleiben maßgeblich für Werte, Genauigkeit und QA.
+- Prozentwerte werden **aus der CSV als Featureattribute**
+  übernommen, nicht erneut aus vereinfachter
+  MVT-Geometrie ermittelt.
+- Die spätere Hosting-Umgebung braucht HTTP-Range-Requests
+  und bei Cross-Origin-Zugriff korrektes CORS.
+  Quellennennung/Attribution vor der externen
+  Veröffentlichung fachlich klären, nicht erfinden.
+
+Der erste PMTiles-Build muss lokal ausgeführt werden, weil
+die erzeugten umfangreichen Geodaten absichtlich nicht
+im Git-Repository liegen. Die Kartenintegration
+erfolgt erst nach Sichtprüfung von Dateigröße,
+Tile-Grenzen, Hover-Kennung, Attributen und Ladezeiten.
 ## Pfade und Parameter
 
 | Element | Standard |
