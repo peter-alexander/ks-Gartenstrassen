@@ -15,7 +15,7 @@ from pathlib import Path
 import sqlite3
 from time import perf_counter
 
-from shapely import make_valid, union_all, voronoi_polygons
+from shapely import intersection, make_valid, union_all, voronoi_polygons
 from shapely.errors import GEOSException
 from shapely.geometry import MultiPoint, Polygon, MultiPolygon, box
 from shapely.validation import explain_validity
@@ -100,6 +100,125 @@ def _polygon(g, label, *, witnesses=(), repair_events=None):
 		f"flächentreu repariert; Delta {delta:+.6f} m², "
 		f"GEOS: {reason}")
 	return repaired
+
+
+def _check_overlay_intersection(candidate, left, right, label):
+	"""Beweise für eine Alternativberechnung, dass sie A ∩ B darstellt.
+
+	Ein übereinstimmender Flächenwert allein reicht nicht: sowohl
+	überzählige als auch fehlende Polygonflächen werden geprüft.
+	"""
+	if not left.is_valid or not right.is_valid:
+		raise ValueError(f"{label}: Ausgangsgeometrien für "
+			"Voronoi-Overlayprüfung ungültig")
+	if candidate is None:
+		candidate=Polygon()
+	if not candidate.is_valid or not math.isfinite(candidate.area):
+		raise ValueError(f"{label}: ungültiges Ergebnis "
+			"der alternativen Schnittberechnung")
+	tolerance=max(.01,min(left.area,right.area)*1e-8)
+	try:
+		outside_left=candidate.difference(left).area
+		outside_right=candidate.difference(right).area
+		# Zwei unabhängig gebildete Restmengen prüfen die
+		# vollständige A ∩ B; das betrifft auch 1000+ m²
+		# fälschlich ausgelassene GIP-Voronoi-Flächen.
+		missing_left=left.difference(candidate).intersection(right).area
+		missing_right=right.difference(candidate).intersection(left).area
+	except GEOSException as exc:
+		raise ValueError(f"{label}: Schnittvollständigkeit "
+			f"nicht überprüfbar: {exc}") from exc
+	measures={
+		"ausserhalb_voronoi_zellen_m2":outside_left,
+		"ausserhalb_uebrigem_strassenraum_m2":outside_right,
+		"fehlend_von_voronoi_zellen_m2":missing_left,
+		"fehlend_vom_uebrigen_strassenraum_m2":missing_right,
+	}
+	if any(not math.isfinite(value) or value>tolerance
+		for value in measures.values()):
+		raise ValueError(f"{label}: alternative Schnittberechnung "
+			f"nicht vollständig/außerhalb Quellflächen: {measures}; "
+			f"Toleranz {tolerance:.6f} m²")
+	measures["toleranz_m2"]=tolerance
+	return measures
+
+
+def _voronoi_intersection(owner_cells, remaining, cells, label,
+	repair_events):
+	"""Rekonstruktion nur wenn der normale Voronoi-Schnitt versagt.
+
+	Zuerst jedes ursprüngliche Voronoi-Polygon separat schneiden.
+	Im zweiten Schritt kleinste metrische Präzisionsraster testen.
+	Beide Ersatzwege müssen die vollständige echte Schnittmenge
+	der unveränderten Ausgangsgeometrien wiederherstellen.
+	"""
+	witnesses=(("Voronoi-Zellen",owner_cells),
+		("noch nicht zugeordneter Straßenraum",remaining))
+	if not owner_cells.is_valid or not remaining.is_valid:
+		raise ValueError(f"{label}: ungültige Voronoi-/Straßenraum-"
+			"Ausgangsgeometrie; keine automatische Schnittreparatur")
+	try:
+		raw=intersection(owner_cells,remaining)
+		return _polygon(raw,label,witnesses=witnesses,
+			repair_events=repair_events)
+	except (ValueError,GEOSException) as original_error:
+		failures=[]
+		# Keine Flächen verschieben oder auf der ursprünglichen
+		# ungültigen Intersection ein make_valid erzwingen.
+		try:
+			parts=[]
+			for index,cell in enumerate(cells):
+				local=intersection(cell,remaining)
+				part=_polygon(local,f"{label}, Zelle {index}",
+					witnesses=(("Voronoi-Einzelzelle",cell),
+						("noch nicht zugeordneter Straßenraum",remaining)))
+				if part is not None:
+					parts.append(part)
+			merged=union_all(parts) if parts else Polygon()
+			candidate=_polygon(merged,f"{label}, Einzelzellen")
+			checks=_check_overlay_intersection(
+				candidate,owner_cells,remaining,label)
+			method="Einzelzellen separat geschnitten und vereinigt"
+			grid=None
+		except (GEOSException,ValueError) as error:
+			failures.append(f"Einzelzellen: {error}")
+			candidate=None
+			for precision in (1e-9,1e-8,1e-7,1e-6):
+				try:
+					raw=intersection(owner_cells,remaining,
+						grid_size=precision)
+					current=_polygon(raw,
+						f"{label}, Präzision {precision:g} m")
+					current_checks=_check_overlay_intersection(
+						current,owner_cells,remaining,label)
+					candidate=current
+					checks=current_checks
+					method="Voronoi-Overlay mit geprüftem Präzisionsraster"
+					grid=precision
+					break
+				except (GEOSException,ValueError) as precision_error:
+					failures.append(f"{precision:g} m: {precision_error}")
+			if candidate is None:
+				raise ValueError(f"{label}: Originalschnitt ungültig "
+					f"({original_error}); auch Rekonstruktion und "
+					"Präzisionsversuche nicht sicher: "
+					+ " | ".join(failures)) from original_error
+	event={
+		"kontext":label,
+		"methode":method,
+		"originalfehler":str(original_error),
+		"voronoi_einzelzellen":len(cells),
+		"precision_grid_m":grid,
+		"flaeche_m2":candidate.area if candidate is not None else 0.,
+		"pruefung":checks,
+	}
+	repair_events.append(event)
+	print(f"Partition-Hinweis: {label}: Schnitt aus "
+		f"{len(cells)} Voronoi-Zellen neu aufgebaut ({method}); "
+		f"Fläche {event['flaeche_m2']:.6f} m²; "
+		"fehlend/außerhalb geprüft; "
+		f"ursprünglicher Fehler: {original_error}")
+	return candidate
 
 
 def _rtree(db, table, bounds):
@@ -195,11 +314,8 @@ def split_tile(street, core, sites, axes, nodes,
 		for pk in sorted(by_axis):
 			axis=axes[pk]
 			owner_cells=union_all(by_axis[pk])
-			candidate=_polygon(owner_cells.intersection(remaining),
-				f"Voronoi {axis['id']}",
-				witnesses=(("Voronoi-Zellen",owner_cells),
-					("noch nicht zugeordneter Straßenraum",remaining)),
-				repair_events=repair_events)
+			candidate=_voronoi_intersection(owner_cells,remaining,
+				by_axis[pk],f"Voronoi {axis['id']}",repair_events)
 			if candidate is None:
 				continue
 			axis_buffer=axis["geometry"].buffer(max_distance,resolution=8)
