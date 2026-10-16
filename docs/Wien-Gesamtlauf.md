@@ -731,6 +731,66 @@ Die wienweite Datenabdeckung ist erst bestätigt, nachdem
 **grm-fetch** vollständig beendet ist und anschließend
 **grm-build** sämtliche Original-PNGs einschließlich der
 neun RGB-Klassen auf Gültigkeit geprüft hat.
+## GRM2023-WMS: transparenter Hintergrund an Wiengrenze (16.10.2026)
+
+Der GRM-WMS-Download wurde für ganz Wien mit
+489 Rasterkacheln und **1816 von 1816 geprüften PNG-Caches**
+abgeschlossen. Beim ersten Versuch von `grm-build` stoppt
+der Teilbild-Decoder an
+`x-000009_y+000331/x000_y001` mit
+`(255, 255, 255, 0)` für 753382 Pixel.
+
+Der GetMap-Request setzt ausdrücklich
+`transparent=TRUE` und `bgcolor=0xFFFFFF`. Ein **vollständig
+transparentes weißes Pixel** bedeutet daher einen
+**nicht gezeichneten WMS-Hintergrund**, keine GRM-Fachklasse.
+Da die rechteckigen 500-m-Bildkacheln die tatsächliche
+Wiener AOI überragen können, sind solche Pixel **außerhalb**
+der Wiener Stadtgrenze erwartbar.
+
+**Neue strenge Decodierung in der Wien-Pipeline:**
+
+- Die bisherigen neun RGB-Fachklassen bleiben ausschließlich
+  mit Alpha 255 zulässig. Die Baumschicht bleibt exakt
+  `#38A800` mit Alpha 255.
+- Vollständig transparente weiße Pixel `(255,255,255,0)`
+  sind **nur außerhalb der eigentlichen Wiener AOI** erlaubt.
+  Die 0,5-m-Pixelzellen werden geometrisch als vollständige
+  Flächenrechtecke mit der Wiener Grenze verschnitten;
+  auch Randzellen mit nur anteiliger Überdeckung werden
+  geprüft. Ein bloßer Pixelmittelpunkttest genügt nicht.
+- Ein transparentes Pixel mit positiver Fläche innerhalb
+  der AOI bleibt ein **harter Fehler** (mögliche GRM-Datenlücke).
+  Es wird weder als „keine Bäume“ klassifiziert noch
+  künstlich mit einer der neun Klassen gefüllt.
+- Alpha 1–254, Alpha 0 mit anderer RGB-Farbe und unbekannte
+  deckende RGB-Farben bleiben wie bisher unzulässig.
+- Der Decoder verlangt beim Vorliegen von Transparenz
+  die gültige echte AOI. Im erzeugten Masken-SQLite wird
+  die Anzahl der **transparenten Pixel außerhalb AOI**
+  separat protokolliert.
+- Schon heruntergeladene PNGs und ihre SHA-256-Metadaten
+  bleiben unverändert; es erfolgt **kein erneuter WMS-Abruf**.
+  Bereits erstellte und geprüfte GRM-Kachelmasken werden
+  ebenfalls wiederverwendet.
+
+Die neue Prüfung ist in Offline-Tests für WMS-Hintergrund
+außerhalb Wien, Datenlücken innerhalb Wien, nur anteilig
+angeschnittene Randpixel und unbekannte Alpha/RGB-Farben
+abgedeckt.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest discover -s tests \
+	-p 'test_wienwide_grm2023.py' -v
+bash scripts/run-wien-gartenstrassen.sh --from grm-build --until grm-build
+~~~
+
+Falls der betreffende WMS-Teilbildbereich tatsächlich
+transparente Pixel **innerhalb der Stadtgrenze** enthält,
+stoppt der Bau ausdrücklich erneut mit der entsprechenden
+Zeile/Pixelnummer. Vor einer Klassenzuordnung muss die
+GRM-WMS-Abdeckung dann fachlich geklärt werden.
 ## Pfade und Parameter
 
 | Element | Standard |
