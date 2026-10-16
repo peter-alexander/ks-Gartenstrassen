@@ -23,10 +23,12 @@ zoomabhängige **Visualisierung**, keine metrisch exakte
 Analysequelle. Der erste lokale PMTiles-Build (Zoom 12–17)
 wurde mit Tippecanoe 2.49.0 erstellt; für den gewünschten
 Debug-Neubau mit Minzoom 8 bleibt Maxzoom 17 unverändert.
-Der gesicherte lokale Austausch erfolgt mit
+Der direkte lokale Austausch erfolgt mit
 `.venv/bin/python -m scripts.build_wien_pmtiles --replace`.
-Die bisherigen PMTiles und ihr Bericht bleiben dabei
-als `.previous`-Sicherung erhalten.
+Das neue Archiv wird zuerst vollständig erzeugt und geprüft.
+Danach werden die vorhandenen PMTiles und ihr Bericht direkt
+überschrieben, **ohne alte PMTiles-Versionen oder
+`.previous`-Sicherungskopien anzulegen**.
 Ausführliche QA- und Bedienhinweise stehen in
 [Wienweiter Gesamtlauf](docs/Wien-Gesamtlauf.md).
 
