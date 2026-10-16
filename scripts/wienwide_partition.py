@@ -37,7 +37,14 @@ def _polygon(g, label, *, witnesses=(), repair_events=None):
 	Voronoi-Zellen müssen nach der Reparatur innerhalb BEIDER
 	ursprünglichen Schnittpartner liegen (Zelle und Restmaske).
 	"""
-	if g is None or g.is_empty or g.area <= 0:
+	if g is None or g.is_empty:
+		return None
+	if not math.isfinite(g.area):
+		raise ValueError(f"{label}: nicht-endliche Geometriefläche")
+	if g.area <= 0:
+		if not g.is_valid:
+			raise ValueError(f"{label}: ungültige Geometrie mit "
+				f"Nullfläche ({explain_validity(g)}); nicht still übergehen")
 		return None
 	poly=polygonal_part(g)
 	if poly is None or poly.is_empty or poly.area <= 0:
@@ -195,13 +202,19 @@ def split_tile(street, core, sites, axes, nodes,
 				repair_events=repair_events)
 			if candidate is None:
 				continue
-			near=_polygon(candidate.intersection(
-				axis["geometry"].buffer(max_distance,resolution=8)),
-				f"Achsnähe {axis['id']}",repair_events=repair_events)
+			axis_buffer=axis["geometry"].buffer(max_distance,resolution=8)
+			near=_polygon(candidate.intersection(axis_buffer),
+				f"Achsnähe {axis['id']}",
+				witnesses=(("Voronoi-Anteil",candidate),
+					("Achsabstand",axis_buffer)),
+				repair_events=repair_events)
 			if near is None:
 				continue
+			old_near=near
 			near=_polygon(near.intersection(remaining),
 				f"Exklusive Fläche {axis['id']}",
+				witnesses=(("Achsnähe",old_near),
+					("noch nicht zugeordneter Straßenraum",remaining)),
 				repair_events=repair_events)
 			if near is None:
 				continue
