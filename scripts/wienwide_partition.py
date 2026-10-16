@@ -162,6 +162,7 @@ def _voronoi_intersection(owner_cells, remaining, cells, label,
 		return _polygon(raw,label,witnesses=witnesses,
 			repair_events=repair_events)
 	except (ValueError,GEOSException) as original_error:
+		original_error_message=str(original_error)
 		failures=[]
 		# Keine Flächen verschieben oder auf der ursprünglichen
 		# ungültigen Intersection ein make_valid erzwingen.
@@ -206,7 +207,7 @@ def _voronoi_intersection(owner_cells, remaining, cells, label,
 	event={
 		"kontext":label,
 		"methode":method,
-		"originalfehler":str(original_error),
+		"originalfehler":original_error_message,
 		"voronoi_einzelzellen":len(cells),
 		"precision_grid_m":grid,
 		"flaeche_m2":candidate.area if candidate is not None else 0.,
@@ -217,7 +218,7 @@ def _voronoi_intersection(owner_cells, remaining, cells, label,
 		f"{len(cells)} Voronoi-Zellen neu aufgebaut ({method}); "
 		f"Fläche {event['flaeche_m2']:.6f} m²; "
 		"fehlend/außerhalb geprüft; "
-		f"ursprünglicher Fehler: {original_error}")
+		f"ursprünglicher Fehler: {original_error_message}")
 	return candidate
 
 
