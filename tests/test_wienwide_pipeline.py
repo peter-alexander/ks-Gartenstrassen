@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from shapely import union_all
+from shapely import intersection as exact_intersection, union_all
+from shapely.errors import GEOSException
 from shapely.geometry import LineString, Point, Polygon, box, mapping
 from shapely.ops import transform
 
@@ -23,7 +24,8 @@ from scripts.wienwide_gip import (
 from scripts.wienwide_street import save_street_tile, load_street_tile
 from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 from scripts.wienwide_partition import (
-	_polygon, graph_context, split_tile, run as partition_run, report_results,
+	_polygon, _voronoi_intersection, graph_context, split_tile,
+	run as partition_run, report_results,
 )
 from scripts.wienwide_benchmark import benchmark
 from scripts.fetch_gip_sections import validate_layer
@@ -200,6 +202,121 @@ class WienPipelineTests(unittest.TestCase):
 				f"Naht oder Zuordnung bei GIP {gid}")
 		for group,geom in unknown:
 			self.assertAlmostEqual(all_unknown[group],geom.area,delta=.05)
+
+	def test_voronoi_nested_shells_rebuilds_exact_site_cell_intersections(self):
+		# Der echte Abbruch hatte ~1200 m² außerhalb der noch
+		# verfügbaren Fläche. Eine ungültige Gesamt-Intersection
+		# darf nie mit make_valid in den Nachbarraum ausgreifen.
+		cells=[box(0,0,50,100),box(50,0,100,100)]
+		owner=union_all(cells)
+		remaining=box(0,0,40,100)
+		invalid=Polygon([(0,0),(100,0),(100,100),(0,100),
+			(0,0),(0,30),(0,0)])
+		self.assertFalse(invalid.is_valid)
+		self.assertGreater(invalid.area,remaining.area)
+		calls=[]
+		def broken_global_overlay(left,right,**kwargs):
+			if left is owner and not kwargs:
+				calls.append("fehlerhafte-Gesamtintersection")
+				return invalid
+			calls.append("einzelzelle-oder-praezision")
+			return exact_intersection(left,right,**kwargs)
+		audit=[]
+		with patch("scripts.wienwide_partition.intersection",
+			side_effect=broken_global_overlay):
+			candidate=_voronoi_intersection(owner,remaining,cells,
+				"Voronoi 10466577",audit)
+		self.assertTrue(candidate.is_valid)
+		self.assertTrue(candidate.equals(remaining))
+		self.assertAlmostEqual(candidate.area,4000)
+		self.assertEqual(len(audit),1)
+		self.assertIn("Einzelzellen",audit[0]["methode"])
+		self.assertEqual(audit[0]["voronoi_einzelzellen"],2)
+		self.assertEqual(audit[0]["precision_grid_m"],None)
+		self.assertLess(audit[0]["pruefung"]
+			["ausserhalb_uebrigem_strassenraum_m2"],1e-8)
+		self.assertLess(audit[0]["pruefung"]
+			["fehlend_von_voronoi_zellen_m2"],1e-8)
+		self.assertIn("fehlerhafte-Gesamtintersection",calls)
+		self.assertEqual(calls.count("einzelzelle-oder-praezision"),2)
+
+	def test_voronoi_alternative_missing_area_still_stops(self):
+		cells=[box(0,0,50,100),box(50,0,100,100)]
+		owner=union_all(cells)
+		remaining=box(0,0,40,100)
+		invalid=Polygon([(0,0),(100,0),(100,100),(0,100),
+			(0,0),(0,30),(0,0)])
+		short=box(0,0,10,100)
+		def broken_overlay(left,right,**kwargs):
+			if left is owner and not kwargs:
+				return invalid
+			return short if left is owner or left is cells[0] else Polygon()
+		audit=[]
+		with patch("scripts.wienwide_partition.intersection",
+			side_effect=broken_overlay):
+			with self.assertRaisesRegex(ValueError,
+				"nicht sicher.*nicht vollständig"):
+				_voronoi_intersection(owner,remaining,cells,
+					"Voronoi 10466577",audit)
+		self.assertEqual(audit,[])
+
+	def test_voronoi_alternative_extra_area_still_stops(self):
+		cells=[box(0,0,50,100),box(50,0,100,100)]
+		owner=union_all(cells)
+		remaining=box(0,0,40,100)
+		invalid=Polygon([(0,0),(100,0),(100,100),(0,100),
+			(0,0),(0,30),(0,0)])
+		overextended=box(0,0,80,100)
+		def broken_overlay(left,right,**kwargs):
+			if left is owner and not kwargs:
+				return invalid
+			return overextended if left is owner or left is cells[0] else Polygon()
+		audit=[]
+		with patch("scripts.wienwide_partition.intersection",
+			side_effect=broken_overlay):
+			with self.assertRaisesRegex(ValueError,
+				"nicht sicher.*außerhalb Quellflächen"):
+				_voronoi_intersection(owner,remaining,cells,
+					"Voronoi 10466577",audit)
+		self.assertEqual(audit,[])
+
+	def test_voronoi_fallback_precision_grid_only_after_failed_cells(self):
+		cells=[box(0,0,50,100),box(50,0,100,100)]
+		owner=union_all(cells)
+		remaining=box(0,0,40,100)
+		invalid=Polygon([(0,0),(100,0),(100,100),(0,100),
+			(0,0),(0,30),(0,0)])
+		calls=[]
+		def broken_cells(left,right,**kwargs):
+			if left is owner and not kwargs:
+				return invalid
+			if left is cells[0]:
+				raise GEOSException("Ring edge missing (Einzelzelle)")
+			if "grid_size" in kwargs:
+				calls.append(kwargs["grid_size"])
+			return exact_intersection(left,right,**kwargs)
+		audit=[]
+		with patch("scripts.wienwide_partition.intersection",
+			side_effect=broken_cells):
+			candidate=_voronoi_intersection(owner,remaining,cells,
+				"Voronoi 10466577",audit)
+		self.assertTrue(candidate.equals(remaining))
+		self.assertEqual(calls,[1e-9])
+		self.assertEqual(audit[0]["precision_grid_m"],1e-9)
+		self.assertIn("Präzisionsraster",audit[0]["methode"])
+
+	def test_valid_voronoi_overlay_does_not_invoke_fallback(self):
+		cells=[box(0,0,50,100),box(50,0,100,100)]
+		owner=union_all(cells)
+		remaining=box(0,0,40,100)
+		audit=[]
+		with patch("scripts.wienwide_partition.intersection",
+			wraps=exact_intersection) as func:
+			result=_voronoi_intersection(owner,remaining,cells,
+				"Voronoi 10466577",audit)
+		self.assertTrue(result.equals(remaining))
+		self.assertEqual(audit,[])
+		func.assert_called_once_with(owner,remaining)
 
 	def test_voronoi_repair_preserves_polygon_and_two_clip_witnesses(self):
 		# Nach einer Polygon-Overlay-Operation kann GEOS eine
