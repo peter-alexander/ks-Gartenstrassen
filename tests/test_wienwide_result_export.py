@@ -154,12 +154,15 @@ class WienwideResultExportTests(unittest.TestCase):
 			(-8771.143,345139.365),
 		])
 		projected=transform(WGS84,large)
-		if large.is_valid and large.area>0 and not projected.is_valid:
-			extended=MultiPolygon([metric.geoms[0],large])
-			wgs=transform(WGS84,extended)
-			remaining,excluded=_collapsed_wgs84_parts(extended,wgs)
-			self.assertIsNone(remaining)
-			self.assertEqual(excluded,[])
+		self.assertTrue(large.is_valid)
+		self.assertGreater(large.area,0)
+		self.assertGreater(large.length,1)
+		self.assertFalse(projected.is_valid)
+		extended=MultiPolygon([metric.geoms[0],large])
+		wgs=transform(WGS84,extended)
+		remaining,excluded=_collapsed_wgs84_parts(extended,wgs)
+		self.assertIsNone(remaining)
+		self.assertEqual(excluded,[])
 
 	def test_original_wkb_diagnostic_regression_if_available(self):
 		path=os.environ.get("WIEN_EXPORT_DIAG_ZIP")
