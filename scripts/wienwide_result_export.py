@@ -17,15 +17,91 @@ import sqlite3
 from urllib.parse import quote
 
 from pyproj import Transformer
-from shapely import union_all
-from shapely.geometry import mapping
+from shapely import make_valid, union_all
+from shapely.geometry import Polygon, MultiPolygon, mapping
 from shapely.ops import transform
+from shapely.validation import explain_validity
 
-from scripts.analyze_gpkg import decode_gpkg_geometry
+from scripts.analyze_gpkg import decode_gpkg_geometry, polygonal_part
 from scripts.wienwide_grid import checksum
 from scripts.wienwide_gip_greening import CSV_COLUMNS
 
 WGS84 = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
+METRIC = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform
+
+
+def _verified_wgs84(geom, wgs84, gid, repair_events):
+	"""Nur projektionsbedingte Kleinstartefakte in der Ausgabe reparieren.
+
+	EPSG:31256 und alle Messgeometrien bleiben unverändert. Nach
+	make_valid wird die WGS84-Fläche wieder metrisch projiziert.
+	Für eine Freigabe müssen die Grenzen auf Zentimeterniveau
+	identisch und die Flächenabweichungen mit dem normalen
+	(auch bei gültiger Geometrie auftretenden) Roundtrip vereinbar sein.
+	"""
+	if wgs84.is_empty:
+		raise ValueError(f"{gid}: WGS84-Geometrie leer")
+	if wgs84.is_valid:
+		return wgs84
+	reason=explain_validity(wgs84)
+	try:
+		repaired=polygonal_part(make_valid(wgs84))
+	except Exception as exc:
+		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
+			f"({reason}); make_valid gescheitert: {exc}") from exc
+	if (repaired is None or repaired.is_empty
+		or not isinstance(repaired,(Polygon,MultiPolygon))
+		or not repaired.is_valid):
+		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
+			f"({reason}); keine gültige polygonale Reparatur")
+	try:
+		back=transform(METRIC,repaired)
+		if back.is_empty or not back.is_valid:
+			raise ValueError("Rückprojektion nicht gültig")
+		if not all(math.isfinite(v) for v in back.bounds):
+			raise ValueError("Rückprojektion nicht endlich")
+		area_delta=back.area-geom.area
+		outside=back.difference(geom).area
+		missing=geom.difference(back).area
+		boundary_shift=geom.boundary.hausdorff_distance(back.boundary)
+	except Exception as exc:
+		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
+			f"({reason}); metrische Reparaturprüfung fehlgeschlagen: "
+			f"{exc}") from exc
+	# Der Normal-Roundtrip EPSG:31256 -> WGS84 -> EPSG:31256
+	# besitzt im Wienraum eine Projektionsabweichung bis ca. 1 mm.
+	# Flächensymdiff wächst dadurch mit der Grenzlänge.
+	# Die cm-Grenze verhindert räumliche Umdeutung; zusätzliche
+	# Flächenobergrenze verbietet z.B. verschwundene Innenflächen.
+	area_tolerance=max(.01,geom.area*1e-6)
+	difference_tolerance=max(.01,geom.boundary.length*.003)
+	shift_tolerance=.01
+	if (not all(math.isfinite(v) for v in (
+			area_delta,outside,missing,boundary_shift))
+		or abs(area_delta)>area_tolerance
+		or outside>difference_tolerance
+		or missing>difference_tolerance
+		or boundary_shift>shift_tolerance):
+		raise ValueError(f"{gid}: WGS84-Geometrie ungültig "
+			f"({reason}); Reparatur nicht metrisch flächentreu: "
+			f"Flächenänderung {area_delta:+.9f} m² (max {area_tolerance:.6f}), "
+			f"zusätzlich {outside:.9f} m², fehlend {missing:.9f} m² "
+			f"(je max {difference_tolerance:.6f}), "
+			f"Grenzverschiebung {boundary_shift:.6f} m "
+			f"(max {shift_tolerance:.3f})")
+	repair_events.append({
+		"gip_id":gid,
+		"geos_grund":reason,
+		"methode":"make_valid nur auf WGS84-Publikationsgeometrie",
+		"flaechenabweichung_nach_rueckprojektion_m2":area_delta,
+		"zusaetzlich_m2":outside,
+		"fehlend_m2":missing,
+		"grenzverschiebung_m":boundary_shift,
+		"flaechentoleranz_m2":area_tolerance,
+		"differenztoleranz_m2":difference_tolerance,
+		"grenzverschiebung_toleranz_m":shift_tolerance,
+	})
+	return repaired
 
 
 def _rows(path):
@@ -124,6 +200,7 @@ def export(csv_path, gpkg_path, out_dir, *, min_area_m2=100):
 	uri = "file:" + quote(str(gpkg_path.resolve()), safe="/") + "?mode=ro"
 	temp.mkdir(parents=True)
 	try:
+		projection_repairs = []
 		with closing(sqlite3.connect(uri, uri=True)) as db:
 			meta = _read_gp_meta(db)
 			_check_totals(db, items, meta)
@@ -144,9 +221,8 @@ def export(csv_path, gpkg_path, out_dir, *, min_area_m2=100):
 					if (geom.is_empty or not geom.is_valid or
 							abs(geom.area - area) > max(.05, area * 1e-6)):
 						raise ValueError(f"{gid}: Vereinigung verändert die Abschnittsfläche")
-					wgs84 = transform(WGS84, geom)
-					if wgs84.is_empty or not wgs84.is_valid:
-						raise ValueError(f"{gid}: WGS84-Geometrie ungültig")
+					wgs84 = _verified_wgs84(geom,transform(WGS84,geom),
+						gid,projection_repairs)
 					feature = {"type": "Feature", "id": gid,
 						"properties": _properties(row), "geometry": mapping(wgs84)}
 					if count:
@@ -190,6 +266,8 @@ def export(csv_path, gpkg_path, out_dir, *, min_area_m2=100):
 			"omitted_assigned_m2": all_area - kept_area,
 			"full_street_m2": meta.get("strassenraum_m2"),
 			"full_unassigned_m2": meta.get("nicht_in_abschnittsquoten_m2"),
+			"wgs84_projection_repairs": projection_repairs,
+			"wgs84_projection_repair_count": len(projection_repairs),
 			"note": "Nur Ausgabe gefiltert; vollständiges QA-GPKG bleibt erhalten. "
 				"100 m² gelten pro globaler GIP-ID, nicht pro Kachelfragment."
 		}
