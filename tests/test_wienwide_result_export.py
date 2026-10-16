@@ -186,16 +186,8 @@ class WienwideResultExportTests(unittest.TestCase):
 			return projected
 		from shapely.geometry import Point
 		actual_make_valid=make_valid
-		def broken_inverse_repair(geometry):
-			if geometry.geom_type=="Polygon" and not geometry.is_valid:
-				# WGS84-Fehler muss regulär behoben werden; erst
-				# an der metrischen Kontrollgeometrie Point liefern.
-				if geometry.area>9999:
-					return Point(0,0)
-			return actual_make_valid(geometry)
-		# Eindeutige Rolle statt Größe prüfen: Erstes make_valid
-		# repariert das WGS84-Polygon, zweites ist absichtlich
-		# keine Polygonfläche.
+		# Erstes make_valid repariert WGS84, zweites ist absichtlich
+		# keine Polygonfläche der metrischen Kontrollprojektion.
 		call=[0]
 		def second_result_point(geometry):
 			call[0]+=1
