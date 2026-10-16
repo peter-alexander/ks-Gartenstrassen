@@ -5,9 +5,10 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from shapely import union_all
-from shapely.geometry import LineString, Point, box, mapping
+from shapely.geometry import LineString, Point, Polygon, box, mapping
 from shapely.ops import transform
 
 from scripts.assign_gip_section_areas import partition, _samples
@@ -21,7 +22,7 @@ from scripts.wienwide_gip import (
 )
 from scripts.wienwide_street import save_street_tile, load_street_tile
 from scripts.wienwide_partition import (
-	graph_context, split_tile, run as partition_run, report_results,
+	_polygon, graph_context, split_tile, run as partition_run, report_results,
 )
 from scripts.wienwide_benchmark import benchmark
 from scripts.fetch_gip_sections import validate_layer
@@ -197,6 +198,96 @@ class WienPipelineTests(unittest.TestCase):
 				f"Naht oder Zuordnung bei GIP {gid}")
 		for group,geom in unknown:
 			self.assertAlmostEqual(all_unknown[group],geom.area,delta=.05)
+
+	def test_voronoi_repair_preserves_polygon_and_two_clip_witnesses(self):
+		# Nach einer Polygon-Overlay-Operation kann GEOS eine
+		# doppelte Randkante erzeugen, ohne die Fläche zu ändern.
+		reference=box(0,0,10,10)
+		invalid=Polygon([(0,0),(10,0),(10,10),(0,10),
+			(0,0),(0,5),(0,0)])
+		self.assertFalse(invalid.is_valid)
+		audit=[]
+		geom=_polygon(invalid,"Voronoi 10466577",
+			witnesses=(("Voronoi-Zellen",reference),
+				("noch nicht zugeordneter Straßenraum",reference)),
+			repair_events=audit)
+		self.assertTrue(geom.is_valid)
+		self.assertTrue(geom.equals(reference))
+		self.assertEqual(len(audit),1)
+		self.assertEqual(audit[0]["kontext"],"Voronoi 10466577")
+		self.assertAlmostEqual(audit[0]["differenz_m2"],0)
+		self.assertAlmostEqual(audit[0]["ausserhalb_pruefgeometrien_m2"]
+			["Voronoi-Zellen"],0)
+
+	def test_voronoi_large_area_change_aborts_before_assignment(self):
+		# Ungültige doppelte Umrundung würde bei make_valid
+		# 100 m² verlieren; keine automatische Korrektur.
+		invalid=Polygon([(0,0),(10,0),(10,10),(0,10),
+			(0,0),(10,0),(10,10),(0,10),(0,0)])
+		self.assertFalse(invalid.is_valid)
+		with self.assertRaisesRegex(ValueError,
+			"Voronoi 10466577.*verändert Fläche"):
+			_polygon(invalid,"Voronoi 10466577",
+				witnesses=(("Voronoi-Zellen",box(0,0,10,10)),))
+
+	def test_voronoi_repair_must_stay_inside_original_site_cell(self):
+		invalid=Polygon([(0,0),(10,0),(10,10),(0,10),
+			(0,0),(0,5),(0,0)])
+		with self.assertRaisesRegex(ValueError,
+			"Voronoi 10466577.*außerhalb Voronoi-Zellen"):
+			_polygon(invalid,"Voronoi 10466577",
+				witnesses=(("Voronoi-Zellen",box(0,0,9,10)),
+					("noch nicht zugeordneter Straßenraum",
+						box(0,0,10,10))))
+
+	def test_invalid_voronoi_zero_area_is_not_silently_discarded(self):
+		bowtie=Polygon([(0,0),(10,10),(0,10),(10,0),(0,0)])
+		self.assertFalse(bowtie.is_valid)
+		self.assertEqual(bowtie.area,0)
+		with self.assertRaisesRegex(ValueError,"Nullfläche"):
+			_polygon(bowtie,"Voronoi 10466577")
+
+	def test_voronoi_real_partition_records_geos_overlay_repair(self):
+		# In eine ansonsten reguläre Aufteilung ein topologisch
+		# fehlerhaftes Randpolygon mit gleicher Fläche einschleusen.
+		# Die GIP-ID und Flächenzuordnung dürfen nicht verloren gehen.
+		core=box(0,0,100,100)
+		street=core
+		sites=[(1,25,50),(2,75,50)]
+		axes={
+			1:{"id":"10466577","name":"Test links","fow":3,
+				"geometry":LineString([(25,20),(25,80)])},
+			2:{"id":"20000000","name":"Test rechts","fow":3,
+				"geometry":LineString([(75,20),(75,80)])},
+		}
+		source_polygon=_polygon
+		injected=[]
+		def damaged_overlay(g,label,**kwargs):
+			if label=="Voronoi 10466577":
+				self.assertEqual(g.geom_type,"Polygon")
+				coords=list(g.exterior.coords)
+				start,nextpoint=coords[:2]
+				mid=((start[0]+nextpoint[0])/2,
+					(start[1]+nextpoint[1])/2)
+				g=Polygon(coords+[mid,start])
+				self.assertFalse(g.is_valid)
+				injected.append(label)
+			return source_polygon(g,label,**kwargs)
+		with patch("scripts.wienwide_partition._polygon",
+			side_effect=damaged_overlay):
+			assigned,unresolved,stats=split_tile(
+				street,core,sites,axes,[])
+		self.assertEqual(injected,["Voronoi 10466577"])
+		self.assertIn("10466577",assigned)
+		self.assertTrue(assigned["10466577"].is_valid)
+		self.assertAlmostEqual(stats["strassenraum_m2"],10000)
+		self.assertLess(stats["fehlend_m2"],.05)
+		self.assertLess(stats["overlap_m2"],.05)
+		self.assertEqual(len(stats["geometrie_reparaturen"]),1)
+		self.assertEqual(stats["geometrie_reparaturen"][0]
+			["kontext"],"Voronoi 10466577")
+		self.assertGreaterEqual(stats["zugeordnet_m2"],0)
+		self.assertGreaterEqual(stats["ungeklaert_m2"],0)
 
 	def test_wfs_bbox_superset_filters_outside_hulls_without_losing_counts(self):
 		# WFS BBOX liefert ein Kandidatensuperset. Auch ein um
