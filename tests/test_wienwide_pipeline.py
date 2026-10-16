@@ -1,5 +1,6 @@
 """Regressionen für Wienweite Kachel- und Datenpipeline ohne externe Dienste."""
 from collections import Counter
+import os
 from zipfile import ZipFile
 import json
 from pathlib import Path
@@ -314,7 +315,7 @@ class WienPipelineTests(unittest.TestCase):
 		self.assertLess(audit[0]["pruefung"]
 			["fehlend_von_voronoi_zellen_m2"],1e-8)
 		self.assertIn("fehlerhafte-Gesamtintersection",calls)
-		self.assertEqual(calls.count("einzelzelle-oder-praezision"),2)
+		self.assertEqual(calls.count("einzelzelle-oder-praezision"),4)
 
 	def test_voronoi_alternative_missing_area_still_stops(self):
 		cells=[box(0,0,50,100),box(50,0,100,100)]
@@ -377,11 +378,44 @@ class WienPipelineTests(unittest.TestCase):
 			candidate=_voronoi_intersection(owner,remaining,cells,
 				"Voronoi 10466577",audit)
 		self.assertTrue(candidate.equals(remaining))
-		self.assertEqual(calls,[1e-9])
+		self.assertEqual(calls,[1e-9,1e-9,1e-8])
 		self.assertEqual(audit[0]["precision_grid_m"],1e-9)
 		self.assertIn("Präzisionsraster",audit[0]["methode"])
 		self.assertIn("außerhalb noch nicht zugeordneter Straßenraum",
 			audit[0]["originalfehler"])
+
+	@unittest.skipUnless(os.environ.get("WIEN_VORONOI_DIAG_ZIP"),
+		"Reale Wiener WKB-Diagnose nur bei WIEN_VORONOI_DIAG_ZIP")
+	def test_real_wien_persidisweg_nested_shells_preserves_microarea(self):
+		# Reale nicht versionierte Quelldaten: lokale Diagnose-ZIP.
+		# Die fehlerhafte normale GEOS-Intersection ergibt ~1200 m²,
+		# die echte Schnittfläche der sieben Voronoi-Zellen ~0,000147 m².
+		from shapely.wkb import loads
+		with ZipFile(os.environ["WIEN_VORONOI_DIAG_ZIP"]) as archive:
+			owner=loads(archive.read("wkb/voronoi_vereinigung.wkb"))
+			remaining=loads(archive.read("wkb/restmaske.wkb"))
+			cells=[loads(archive.read(f"wkb/zellen/{i:05d}.wkb"))
+				for i in range(7)]
+		self.assertTrue(owner.is_valid)
+		self.assertTrue(remaining.is_valid)
+		self.assertEqual(len(cells),7)
+		self.assertAlmostEqual(owner.area,1200.880845259245,delta=.001)
+		self.assertTrue(all(cell.is_valid for cell in cells))
+		audit=[]
+		candidate=_voronoi_intersection(owner,remaining,cells,
+			"Voronoi 10466577",audit)
+		self.assertIsNotNone(candidate)
+		self.assertTrue(candidate.is_valid)
+		self.assertAlmostEqual(candidate.area,.00014695537,delta=1e-8)
+		self.assertLess(candidate.difference(remaining).area,1e-8)
+		self.assertLess(candidate.difference(owner).area,1e-8)
+		self.assertEqual(len(audit),1)
+		self.assertIn("Einzelzellen",audit[0]["methode"])
+		checks=audit[0]["pruefung"]
+		self.assertLess(checks["fehlend_von_voronoi_zellen_m2"],1e-8)
+		self.assertLess(checks["ausserhalb_uebrigem_strassenraum_m2"],1e-8)
+		self.assertEqual(len(checks["kontrollraster"]),2)
+		self.assertLess(checks["referenz_differenz_m2"],1e-8)
 
 	def test_valid_voronoi_overlay_does_not_invoke_fallback(self):
 		cells=[box(0,0,50,100),box(50,0,100,100)]
