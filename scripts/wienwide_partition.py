@@ -103,10 +103,13 @@ def _polygon(g, label, *, witnesses=(), repair_events=None):
 
 
 def _check_overlay_intersection(candidate, left, right, label):
-	"""Beweise für eine Alternativberechnung, dass sie A ∩ B darstellt.
+	"""Alternative Schnittfläche unabhängig und beidseitig prüfen.
 
-	Ein übereinstimmender Flächenwert allein reicht nicht: sowohl
-	überzählige als auch fehlende Polygonflächen werden geprüft.
+	GEOS kann bei gültigen Quellpolygonen ein falsches Ergebnis
+	für (left - candidate) ∩ right liefern (Wien: +1200,88 m²).
+	Deshalb werden zwei unabhängig aufgerasterte Kontrollschnitte
+	samt der Flächenaufteilung A = (A\B) + (A∩B) geprüft.
+	Die Zellenrekonstruktion bleibt ungerundet.
 	"""
 	if not left.is_valid or not right.is_valid:
 		raise ValueError(f"{label}: Ausgangsgeometrien für "
@@ -116,32 +119,86 @@ def _check_overlay_intersection(candidate, left, right, label):
 	if not candidate.is_valid or not math.isfinite(candidate.area):
 		raise ValueError(f"{label}: ungültiges Ergebnis "
 			"der alternativen Schnittberechnung")
-	tolerance=max(.01,min(left.area,right.area)*1e-8)
-	try:
-		outside_left=candidate.difference(left).area
-		outside_right=candidate.difference(right).area
-		# Zwei unabhängig gebildete Restmengen prüfen die
-		# vollständige A ∩ B; das betrifft auch 1000+ m²
-		# fälschlich ausgelassene GIP-Voronoi-Flächen.
-		missing_left=left.difference(candidate).intersection(right).area
-		missing_right=right.difference(candidate).intersection(left).area
-	except GEOSException as exc:
-		raise ValueError(f"{label}: Schnittvollständigkeit "
-			f"nicht überprüfbar: {exc}") from exc
-	measures={
-		"ausserhalb_voronoi_zellen_m2":outside_left,
-		"ausserhalb_uebrigem_strassenraum_m2":outside_right,
-		"fehlend_von_voronoi_zellen_m2":missing_left,
-		"fehlend_vom_uebrigen_strassenraum_m2":missing_right,
-	}
-	if any(not math.isfinite(value) or value>tolerance
-		for value in measures.values()):
+	checks=[]
+	failures=[]
+	for grid in (1e-9,1e-8):
+		try:
+			reference_raw=intersection(left,right,grid_size=grid)
+			reference=polygonal_part(reference_raw)
+			if reference is None:
+				reference=Polygon()
+			if not reference.is_valid or not math.isfinite(reference.area):
+				raise ValueError("Kontrollschnitt nicht polygonal gültig")
+			left_only=left.difference(right,grid_size=grid)
+			right_only=right.difference(left,grid_size=grid)
+			# Diese unabhängigen Flächenidentitäten erkennen
+			# eine falsch berechnete Schnittreferenz.
+			balance_left=left.area-(left_only.area+reference.area)
+			balance_right=right.area-(right_only.area+reference.area)
+			balance_tol=max(.01,max(left.area,right.area)*1e-8)
+			if (not math.isfinite(balance_left)
+				or not math.isfinite(balance_right)
+				or abs(balance_left)>balance_tol
+				or abs(balance_right)>balance_tol):
+				raise ValueError(f"Kontrollschnitt verletzt "
+					f"Quellflächenbilanzen: A {balance_left:+.9f}, "
+					f"B {balance_right:+.9f} m²; "
+					f"Toleranz {balance_tol:.9f} m²")
+			# Kleinstflächen nicht unter der bisherigen allgemeinen
+			# 0,01-m²-Toleranz verschwinden lassen.
+			tolerance=max(1e-8,
+				min(.01,max(candidate.area,reference.area)*1e-6))
+			measures={
+				"ausserhalb_voronoi_zellen_m2":
+					candidate.difference(left,grid_size=grid).area,
+				"ausserhalb_uebrigem_strassenraum_m2":
+					candidate.difference(right,grid_size=grid).area,
+				"fehlend_von_voronoi_zellen_m2":
+					reference.difference(candidate,grid_size=grid).area,
+				"fehlend_vom_uebrigen_strassenraum_m2":
+					reference.difference(candidate,grid_size=grid).area,
+				"zusaetzlich_gegen_kontrollschnitt_m2":
+					candidate.difference(reference,grid_size=grid).area,
+			}
+			if any(not math.isfinite(value) or value>tolerance
+				for value in measures.values()):
+				raise ValueError("nicht vollständig/außerhalb "
+					f"Quellflächen: {measures}; "
+					f"Toleranz {tolerance:.9f} m²")
+			checks.append({
+				"precision_grid_m":grid,
+				"kontrollschnitt_m2":reference.area,
+				"flaechenbilanz_voronoi_m2":balance_left,
+				"flaechenbilanz_restmaske_m2":balance_right,
+				"toleranz_m2":tolerance,
+				**measures,
+			})
+		except (GEOSException,ValueError) as exc:
+			failures.append(f"{grid:g} m: {exc}")
+	if len(checks)!=2:
 		raise ValueError(f"{label}: alternative Schnittberechnung "
-			f"nicht vollständig/außerhalb Quellflächen: {measures}; "
-			f"Toleranz {tolerance:.6f} m²")
-	measures["toleranz_m2"]=tolerance
+			"nicht vollständig/außerhalb Quellflächen oder "
+			"nicht unabhängig beweisbar: "+ " | ".join(failures))
+	# Die beiden unabhängigen Referenzen dürfen untereinander
+	# auch keine relevante Abweichung haben.
+	ref_delta=abs(checks[0]["kontrollschnitt_m2"]-
+		checks[1]["kontrollschnitt_m2"])
+	ref_tol=min(checks[0]["toleranz_m2"],checks[1]["toleranz_m2"])
+	if ref_delta>ref_tol:
+		raise ValueError(f"{label}: Kontrollraster widersprechen "
+			f"sich um {ref_delta:.9f} m², zulässig {ref_tol:.9f} m²")
+	# Für bestehende Auswertungen die aggregierten alten Feldnamen
+	# beibehalten, zusätzlich alle einzelnen Prüfraster protokollieren.
+	measures={key:max(row[key] for row in checks) for key in (
+		"ausserhalb_voronoi_zellen_m2",
+		"ausserhalb_uebrigem_strassenraum_m2",
+		"fehlend_von_voronoi_zellen_m2",
+		"fehlend_vom_uebrigen_strassenraum_m2",
+		"zusaetzlich_gegen_kontrollschnitt_m2")}
+	measures["toleranz_m2"]=ref_tol
+	measures["referenz_differenz_m2"]=ref_delta
+	measures["kontrollraster"]=checks
 	return measures
-
 
 def _voronoi_intersection(owner_cells, remaining, cells, label,
 	repair_events):
