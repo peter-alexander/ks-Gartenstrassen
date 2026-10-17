@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
 ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
 SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
-STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
+GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
+STAGES=(sis aoi grid gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=pmtiles
 WITH_GRM=1
@@ -21,10 +22,11 @@ Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
   SIS_V2_ROOT: separates Ausgabeverzeichnis (Standard: data/processed/sis-v2-run)
+  GIP2_SOURCE: lokales GIP2-GeoPackage (Standard: data/raw/gip_network_ogd.gpkg)
   PYTHON: Python aus requirements-analysis.txt
 
-V2 nutzt für Straßenflächen ausschließlich SIS. GIP-Kanten und GRM 2023
-werden wie bisher eingelesen; Kreuzungen werden noch nicht ausgeschnitten.
+V2 nutzt SIS und ausschließlich lokale GIP2 EDGE/NODE/TURN_USE.
+Konvexe TURN_USE-Kreuzungshüllen werden aus SIS ausgeschnitten.
 HELP
 }
 
@@ -82,12 +84,10 @@ for ((i=start;i<=end;i++)); do
 		grid)
 			[[ -e "$ROOT/raster.json" ]] || "$PYTHON" -m scripts.wienwide_grid \
 				--aoi "$ROOT/aoi.geojson" --tile-m 250 --halo-m 75 --out "$ROOT/raster.json";;
-		gip-fetch)
-			"$PYTHON" -m scripts.wienwide_gip fetch \
-				--manifest "$ROOT/raster.json" --out-dir "$ROOT/gip_fragmente";;
 		gip-index)
-			[[ -e "$ROOT/gip.sqlite" ]] || "$PYTHON" -m scripts.wienwide_gip index \
-				--manifest "$ROOT/raster.json" --fragments "$ROOT/gip_fragmente" --out "$ROOT/gip.sqlite";;
+			[[ -f "$GIP2" ]] || { echo "GIP2-Datei fehlt: $GIP2" >&2; exit 1; }
+			[[ -e "$ROOT/gip.sqlite" ]] || "$PYTHON" -m scripts.sis_gip2 \\
+				--source "$GIP2" --manifest "$ROOT/raster.json" --out "$ROOT/gip.sqlite";;
 		street)
 			"$PYTHON" -m scripts.sis_v2_street \
 				--manifest "$ROOT/raster.json" --sis-db "$ROOT/sis/sis.sqlite" \
@@ -96,7 +96,7 @@ for ((i=start;i<=end;i++)); do
 			"$PYTHON" -m scripts.wienwide_partition \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
 				--street-root "$ROOT/strassenraum" --out "$ROOT/aufteilung.sqlite" \
-				--no-junctions --all-fow;;
+				--all-fow --gip2-hulls;;
 		qa)
 			[[ -e "$ROOT/qa.gpkg" ]] || "$PYTHON" -m scripts.wienwide_qa_gpkg \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
