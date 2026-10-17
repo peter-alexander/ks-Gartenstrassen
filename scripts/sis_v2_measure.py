@@ -77,7 +77,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		config = dict(partition.execute("SELECT key,value FROM config"))
 		expected = {"schema_version":"1", "manifest_sha256":checksum(manifest_path),
 			"gip_sha256":checksum(gip_path)}
-		if config != {**expected,"junction_policy":"none"}:
+		if config != {**expected,"junction_policy":"none","fow_policy":"all"}:
 			raise ValueError("SIS V2 benötigt die Voronoi-Partition ohne Kreuzungsabzug")
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
@@ -108,8 +108,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			for gid,stored_area,blob in partition.execute(
 				"SELECT gip_id,area,geom FROM parts WHERE tile_id=? AND kind='abschnitt'", (tid,)):
 				gid = str(gid)
-				if gid not in axes or axes[gid][1] != 3:
-					raise ValueError(f"{tid}/{gid}: GIP-Achse fehlt oder FOW != 3")
+				if gid not in axes:
+					raise ValueError(f"{tid}/{gid}: GIP-Achse fehlt")
 				part = loads(blob)
 				if (not part.is_valid or part.is_empty or
 					abs(part.area-stored_area) > max(.01,stored_area*1e-8) or
