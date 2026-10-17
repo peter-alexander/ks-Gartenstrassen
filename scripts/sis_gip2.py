@@ -66,7 +66,7 @@ def build(source, manifest_path, output):
 			dst.executescript("""
 				CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 				CREATE TABLE axes(pk INTEGER PRIMARY KEY,gip TEXT UNIQUE NOT NULL,
-					name TEXT NOT NULL,fow INTEGER,node_from TEXT NOT NULL,
+					name TEXT NOT NULL,fow INTEGER,functional_class INTEGER,node_from TEXT NOT NULL,
 					node_to TEXT NOT NULL,wkb BLOB NOT NULL);
 				CREATE TABLE nodes(pk INTEGER PRIMARY KEY,gip TEXT UNIQUE NOT NULL,
 					name TEXT NOT NULL,x REAL NOT NULL,y REAL NOT NULL,wkb BLOB NOT NULL);
@@ -103,9 +103,9 @@ def build(source, manifest_path, output):
 				edge_id = str(row["object_id"])
 				if not edge_id or row["node_from_id"] is None or row["node_to_id"] is None:
 					raise ValueError("EDGE ohne UUID/Referenzknoten")
-				cur = dst.execute("INSERT INTO axes(gip,name,fow,node_from,node_to,wkb) VALUES (?,?,?,?,?,?)",
+				cur = dst.execute("INSERT INTO axes(gip,name,fow,functional_class,node_from,node_to,wkb) VALUES (?,?,?,?,?,?,?)",
 					(edge_id, row["mainname_text"] or row["feature_name"] or "",
-					row["form_of_way"], str(row["node_from_id"]), str(row["node_to_id"]), dumps(g)))
+					row["form_of_way"], row["functional_class"], str(row["node_from_id"]), str(row["node_to_id"]), dumps(g)))
 				axes += 1
 				n = max(1,math.ceil(g.length / 5))
 				for i in range(n):
