@@ -34,7 +34,7 @@ FIELDS = ("gip_id", "strassenname", "fow", "abschnitt_flaeche_m2",
 
 def _mask(db, core, categories):
 	parts = []
-	for kind, blob in db.execute("SELECT type,geom FROM surfaces"):
+	for kind, blob in db.execute("SELECT belag,geom FROM surfaces"):
 		if kind not in categories:
 			continue
 		geom = loads(blob)
@@ -159,9 +159,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				"strassenraum_m2":balance["strassenraum_m2"],
 				"abschnittsflaeche_m2":balance["abschnitte_m2"],
 				"ungeklaert_m2":balance["ungeklaert_m2"],
-				"vegetations_klassen":sorted(VEGETATION),
-				"potentiell_unversiegelt_klassen":sorted(POTENTIALLY_UNSEALED),
-				"warnung":"TYPE-Zuordnung vorläufig; potenziell unversiegelt bedeutet nicht nachgewiesen entsiegelt. Keine Kreuzungs-Neuabgrenzung."}
+				"vegetations_belag_codes":sorted(VEGETATION),
+				"potentiell_unversiegelt_belag_codes":sorted(POTENTIALLY_UNSEALED),
+				"warnung":"BELAG-Zuordnung vorläufig; potenziell unversiegelt bedeutet nicht nachgewiesen entsiegelt. Keine Kreuzungs-Neuabgrenzung."}
 			(stage/"bericht.json").write_text(json.dumps(report,ensure_ascii=False,
 				indent=2)+"\n",encoding="utf-8")
 			stage.replace(out_dir)
