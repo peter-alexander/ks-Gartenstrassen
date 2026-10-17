@@ -146,9 +146,33 @@ zusammen 795,877 m² bleiben nur in den vollständigen Ergebnisdateien.
 Die Referenzwerte bleiben 40 % Bodenbegrünung und 60 % Überschirmung.
 
 
-## Aktueller Versuch: unbeschnittene Voronoi-Aufteilung
+## Aktueller Versuch: Voronoi-Straßenarme automatisch kürzen
 
-Der SIS-V2-Standardlauf verwendet den lokalen GIP2-EDGE-Graphen weiterhin vollständig, schneidet aber **keine** Kreuzungsbereiche aus (weder TURN_USE-konvexe Hüllen noch 7-m-Kreise). NODE und TURN_USE dürfen im lokalen Index weiterhin als Diagnose vorhanden sein, beeinflussen jedoch die Zuteilung nicht. Die Kreuzungsflächen bleiben bis zu einer späteren, anhand von EDGE-Richtungen und SIS-Querschnitten validierten Segmentierung im Straßenraum. Der Aufruf `bash scripts/run-sis-v2-pilot.sh` überschreibt den bekannten V2-Arbeitsordner bei vollständigem Start.
+Zunächst wird die vollständige SIS-Fläche ohne TURN_USE-Ausschnitte und ohne
+7-m-Kreise auf **alle** lokalen GIP2-EDGE-Achsen nach Voronoi verteilt.
+Diese unveränderte Partition liegt in `aufteilung_roh.sqlite`.
+
+Der nachgeschaltete Schritt `trim` untersucht die zugehörige Voronoi-Fläche
+entlang jeder EDGE von `node_from` und `node_to` aus. In 1-m-Abständen
+werden senkrechte Querschnitte gemessen; maßgeblich ist nur der Linienanteil,
+der die jeweilige EDGE-Achse schneidet. Die erste Folge von fünf Querschnitten
+mit einer Spannweite von höchstens 10 % der Medianbreite wird verwendet,
+wenn davor eine um mindestens 20 % kleinere Breite beobachtet wurde.
+Die Suche endet spätestens bei 40 m bzw. vor der Mitte der EDGE.
+
+An dieser Stelle wird die Voronoi-Fläche tatsächlich geteilt: Der verbleibende
+Straßenabschnitt behält seine GIP-ID, der entfernte Teil wird als
+`knotenbereich` geführt. Die fertige `aufteilung.sqlite` sowie
+`qa.gpkg`, Kennzahlen und PMTiles verwenden die gekürzten Straßenabschnitte.
+Die ausgeschnittenen Knotenbereiche bleiben im QA-Layer `knotenbereiche`
+und in der Gesamtflächenbilanz. Falls kein stabiler Abschnitt erkannt wird,
+wird die betreffende Seite **nicht** abgeschnitten. MultiLineString-EDGE
+werden im ersten Versuch übersprungen.
+
+Dies ist ein experimentelles geometrisches Verfahren, noch keine fachlich
+validierte Kreuzungsabgrenzung. Der vollständige Standardlauf lautet:
+`bash scripts/run-sis-v2-pilot.sh` und überschreibt nur den bekannten
+V2-Ergebnisordner.
 
 ## GIP 2.0 / TURN_USE-Kreuzungshüllen (historischer Versuch)
 
