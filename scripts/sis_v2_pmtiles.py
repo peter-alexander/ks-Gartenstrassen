@@ -3,6 +3,8 @@
 GIP-Auswertung bleibt vollständig; 100 m² sind nur Exportfilter.
 """
 import argparse
+import hashlib
+import uuid
 import json
 from pathlib import Path
 import shutil
@@ -27,6 +29,7 @@ def run(source, output, *, min_area=100):
 	if not isinstance(items,list):
 		raise ValueError("Ungültige Featureliste")
 	selected = []
+	mvt_ids = set()
 	for feature in items:
 		props = feature["properties"]
 		area = float(props["abschnitt_flaeche_m2"])
@@ -34,13 +37,21 @@ def run(source, output, *, min_area=100):
 			if "boden_pct" not in props or "nicht_begruent_pct" not in props:
 				raise ValueError("V2-SIS-Kennzahlen fehlen")
 			gip_id = str(props.get("gip_id", ""))
-			if not gip_id.isdecimal() or not 0 <= int(gip_id) < 2**63:
-				raise ValueError(f"Ungültige numerische GIP-ID: {gip_id!r}")
+			if gip_id.isdecimal() and 0 <= int(gip_id) < 2**63:
+				mvt_id = int(gip_id)
+			else:
+				try:
+					mvt_id = int.from_bytes(hashlib.sha256(uuid.UUID(gip_id).bytes).digest()[:8], "big") & ((1 << 63)-1)
+				except (ValueError, AttributeError) as exc:
+					raise ValueError(f"Ungültige GIP-UUID: {gip_id!r}") from exc
+			if mvt_id in mvt_ids:
+				raise ValueError(f"Kollision der numerischen MVT-ID für {gip_id}")
+			mvt_ids.add(mvt_id)
 			if str(feature.get("id")) != gip_id:
 				raise ValueError(f"GeoJSON-ID und gip_id widersprechen sich: {feature.get('id')!r}/{gip_id!r}")
 			# GeoJSON erlaubt String-IDs, Tippecanoe übernimmt als MVT-Feature-ID
 			# aber nur Zahlen. Die Eigenschaft gip_id bleibt unverändert erhalten.
-			selected.append({**feature, "id":int(gip_id)})
+			selected.append({**feature, "id":mvt_id})
 	if not selected:
 		raise ValueError("Keine Features erfüllen Mindestfläche")
 	output.parent.mkdir(parents=True,exist_ok=True)
