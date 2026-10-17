@@ -149,7 +149,7 @@ Zusätzlich zur lokalen SIS-Datei wird `data/raw/gip_network_ogd.gpkg` benötigt
 - `EDGE`: alle FOW-Klassen als Voronoi-Achsen, 5-m-Sites in EPSG:31256.
 - `NODE`: Knotenmittelpunkte innerhalb der SIS-Bounding-Box.
 - `TURN_USE`: alle Linien mit `via_node_id = NODE.object_id`.
-- Pro NODE: konvexe Hülle sämtlicher TURN_USE-Stützpunkte. Nichtpolygonale
+- Pro NODE: nur wenn mindestens ein zugehöriger TURN_USE den `base_type` ungleich 7 hat, wird die konvexe Hülle aller zugehörigen Linien gebildet. Knoten mit ausschließlich `base_type = 7` erhalten keine Kreuzungshülle (`junction_audit.result = nur_base_type_7`). Nichtpolygonale
   Hüllen werden protokolliert, nicht künstlich aufgeweitet.
 - Alle Hüllen werden räumlich vereinigt und mit SIS geschnitten;
   nur der verbleibende Straßenraum wird den EDGE-Voronoi-Achsen zugeteilt.
