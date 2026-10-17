@@ -5,7 +5,8 @@ import sqlite3
 import tempfile
 import unittest
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Polygon, box
+from shapely.ops import unary_union
 from shapely.wkb import dumps, loads
 
 from scripts.sis_v2_trim import run
@@ -35,26 +36,31 @@ class VoronoiTrimTests(unittest.TestCase):
 					"area REAL,assigned REAL,unresolved REAL,elapsed_s REAL,stats_json TEXT)")
 				db.execute("CREATE TABLE parts(tile_id TEXT,kind TEXT,gip_id TEXT,"
 					"area REAL,geom BLOB,PRIMARY KEY(tile_id,kind,gip_id))")
-				db.execute("INSERT INTO tiles VALUES (?,?,?,?,?,?,?)",
-					("tile","hash",wedge.area,wedge.area,0.,0.,
-						json.dumps({"strassenraum_m2":wedge.area,
-							"zugeordnet_m2":wedge.area,"ungeklaert_m2":0.})))
-				db.execute("INSERT INTO parts VALUES (?,?,?,?,?)",
-					("tile","abschnitt","edge",wedge.area,dumps(wedge)))
+				# Zwei disjunkte Kachelkerne teilen dieselbe EDGE.
+				for tid, core in (("a",box(-1,-10,20,10)),("b",box(20,-10,41,10))):
+					part = wedge.intersection(core)
+					db.execute("INSERT INTO tiles VALUES (?,?,?,?,?,?,?)",
+						(tid,"hash",part.area,part.area,0.,0.,
+							json.dumps({"strassenraum_m2":part.area,
+								"zugeordnet_m2":part.area,"ungeklaert_m2":0.})))
+					db.execute("INSERT INTO parts VALUES (?,?,?,?,?)",
+						(tid,"abschnitt","edge",part.area,dumps(part)))
 			result = run(gip,raw,out)
 			self.assertGreater(result["geschnittene_flaeche_m2"], 1)
 			with sqlite3.connect(out) as db:
-				pieces = {(k,g):loads(blob) for k,g,blob in db.execute(
-					"SELECT kind,gip_id,geom FROM parts")}
-				kept = pieces["abschnitt","edge"]
-				removed = pieces["ungeklaert","knotenbereich"]
+				pieces = {(tid,k,g):loads(blob) for tid,k,g,blob in db.execute(
+					"SELECT tile_id,kind,gip_id,geom FROM parts")}
+				kept = unary_union([geom for (tid,k,g),geom in pieces.items()
+					if k=="abschnitt"])
+				removed = unary_union([geom for (tid,k,g),geom in pieces.items()
+					if k=="ungeklaert" and g=="knotenbereich"])
 				self.assertTrue(kept.is_valid)
 				self.assertTrue(removed.is_valid)
 				self.assertAlmostEqual(kept.area + removed.area, wedge.area, places=6)
 				self.assertAlmostEqual(kept.intersection(removed).area,0,places=6)
 				self.assertAlmostEqual(kept.union(removed).symmetric_difference(wedge).area,0,places=6)
 				assigned,unresolved = db.execute(
-					"SELECT assigned,unresolved FROM tiles").fetchone()
+					"SELECT SUM(assigned),SUM(unresolved) FROM tiles").fetchone()
 				self.assertAlmostEqual(assigned,kept.area,places=6)
 				self.assertAlmostEqual(unresolved,removed.area,places=6)
 				self.assertEqual(dict(db.execute(
@@ -62,4 +68,4 @@ class VoronoiTrimTests(unittest.TestCase):
 					"voronoi-stable-width-v1")
 			with sqlite3.connect(raw) as db:
 				self.assertAlmostEqual(db.execute(
-					"SELECT area FROM parts").fetchone()[0],wedge.area)
+					"SELECT SUM(area) FROM parts").fetchone()[0],wedge.area)
