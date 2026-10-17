@@ -8,6 +8,7 @@ PYTHON="${PYTHON:-.venv/bin/python}"
 ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
 SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
 GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
+SIS_DB="${SIS_V2_INDEX:-$ROOT/sis/sis.sqlite}"
 STAGES=(sis aoi grid gip-index street partition trim qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=pmtiles
@@ -21,6 +22,7 @@ Phasen: sis aoi grid gip-index street partition trim qa grm-fetch grm-build meas
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
+  SIS_V2_INDEX: optionaler zentraler SIS-SQLite-Index (Wien)
   SIS_V2_ROOT: separates Ausgabeverzeichnis (Standard: data/processed/sis-v2-run)
   GIP2_SOURCE: lokales GIP2-GeoPackage (Standard: data/raw/gip_network_ogd.gpkg)
   PYTHON: Python aus requirements-analysis.txt
@@ -80,7 +82,7 @@ for ((i=start;i<=end;i++)); do
 			fi;;
 		aoi)
 			[[ -e "$ROOT/aoi.geojson" ]] || "$PYTHON" -m scripts.sis_v2_aoi \
-				--sis-db "$ROOT/sis/sis.sqlite" --out "$ROOT/aoi.geojson";;
+				--sis-db "$SIS_DB" --out "$ROOT/aoi.geojson";;
 		grid)
 			[[ -e "$ROOT/raster.json" ]] || "$PYTHON" -m scripts.wienwide_grid \
 				--aoi "$ROOT/aoi.geojson" --tile-m 250 --halo-m 75 --out "$ROOT/raster.json";;
@@ -90,7 +92,7 @@ for ((i=start;i<=end;i++)); do
 				--source "$GIP2" --manifest "$ROOT/raster.json" --out "$ROOT/gip.sqlite";;
 		street)
 			"$PYTHON" -m scripts.sis_v2_street \
-				--manifest "$ROOT/raster.json" --sis-db "$ROOT/sis/sis.sqlite" \
+				--manifest "$ROOT/raster.json" --sis-db "$SIS_DB" \
 				--out-root "$ROOT/strassenraum";;
 		partition)
 			"$PYTHON" -m scripts.wienwide_partition \
@@ -126,7 +128,7 @@ for ((i=start;i<=end;i++)); do
 			if ((WITH_GRM)); then args=(--grm-root "$ROOT/grm2023"); fi
 			"$PYTHON" -m scripts.sis_v2_measure \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
-				--sis-db "$ROOT/sis/sis.sqlite" --street-root "$ROOT/strassenraum" \
+				--sis-db "$SIS_DB" --street-root "$ROOT/strassenraum" \
 				--partition-db "$ROOT/aufteilung.sqlite" --out-dir "$ROOT/ergebnisse" "${args[@]}";;
 	esac
 done
