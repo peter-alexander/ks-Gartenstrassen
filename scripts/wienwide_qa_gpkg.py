@@ -108,7 +108,7 @@ def init_gpkg(db):
 			gip_gesamt_m2 REAL)""")
 		description={
 			"gip_abschnitte":"GIP-Voronoi-Abschnittsflaechen je Kachel und GIP-ID (FOW gemaess Partition)",
-			"knotenbereiche":"Gesonderte Knotenflaechen (7-m-Radius), je Kachel aggregiert",
+			"knotenbereiche":"Gesonderte Knoten-/Kreuzungsflaechen je Kachel aggregiert",
 			"sonderachsen":"V0: Nicht-FOW3-Sammelflaechen; bei V2 mit allen FOW-Klassen leer",
 			"nicht_zugeordnet":"Verbleibende nicht zugeordnete Strassenraumflaechen"
 		}[layer]
@@ -191,7 +191,8 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		src.row_factory=sqlite3.Row
 		gip.row_factory=sqlite3.Row
 		actual=dict(src.execute("SELECT key,value FROM config"))
-		if actual!=expected and actual!={**expected,"junction_policy":"none"} and actual!={**expected,"junction_policy":"none","fow_policy":"all"} and actual!={**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"}:
+		actual.pop("querschnitt_regel",None)
+		if actual!=expected and actual!={**expected,"junction_policy":"none"} and actual!={**expected,"junction_policy":"none","fow_policy":"all"} and actual!={**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"} and actual!={**expected,"junction_policy":"voronoi-stable-width-v1","fow_policy":"all"}:
 			raise ValueError("Partition gehört zu anderem Manifest/GIP-Index")
 		gip_meta={row["key"]:json.loads(row["value"])
 			for row in gip.execute("SELECT key,value FROM meta")}
