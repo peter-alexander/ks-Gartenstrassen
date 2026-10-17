@@ -580,10 +580,12 @@ def main():
 	p.add_argument("--street-root",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--limit-tiles",type=int,help="Begrenzter Diagnoselauf")
+	p.add_argument("--no-junctions",action="store_true",
+		help="Nur Voronoi: keine Kreuzungsflächen abziehen")
 	args=p.parse_args()
 	try:
 		report=run(args.manifest,args.gip_index,args.street_root,args.out,
-			limit_tiles=args.limit_tiles)
+			limit_tiles=args.limit_tiles, exclude_junctions=not args.no_junctions)
 		print(json.dumps(report,ensure_ascii=False,indent=2))
 	except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
 		p.exit(1,f"Fehler: {exc}\n")
