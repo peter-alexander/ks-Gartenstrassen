@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
 ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
 SIS="${SIS_V2_SOURCE:-}"
-STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure)
+STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=measure
 WITH_GRM=1
@@ -16,7 +16,7 @@ usage() {
 	cat <<'HELP'
 bash scripts/run-sis-v2-pilot.sh [--from PHASE] [--until PHASE] [--no-grm]
 
-Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure
+Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokal vorhandenes SISBELAGOGD.json; sonst Download Testquelle
@@ -103,6 +103,10 @@ for ((i=start;i<=end;i++)); do
 				"$PYTHON" -m scripts.wienwide_grm2023 build \
 					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023"
 			fi;;
+		pmtiles)
+			[[ -e "$ROOT/gartenstrassen_sis_v2.pmtiles" ]] || "$PYTHON" -m scripts.sis_v2_pmtiles \
+				--geojson "$ROOT/ergebnisse/gip_abschnitte.geojson" \
+				--out "$ROOT/gartenstrassen_sis_v2.pmtiles" --min-area-m2 100;;
 		measure)
 			args=()
 			if ((WITH_GRM)); then args=(--grm-root "$ROOT/grm2023"); fi
