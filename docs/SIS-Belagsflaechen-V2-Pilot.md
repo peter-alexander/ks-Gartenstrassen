@@ -145,7 +145,12 @@ Mindestfläche 100 m²: 710 GIP-IDs sind enthalten, 26 kleinere IDs mit
 zusammen 795,877 m² bleiben nur in den vollständigen Ergebnisdateien.
 Die Referenzwerte bleiben 40 % Bodenbegrünung und 60 % Überschirmung.
 
-## GIP 2.0 / TURN_USE-Kreuzungshüllen (aktueller Folgelauf)
+
+## Aktueller Versuch: unbeschnittene Voronoi-Aufteilung
+
+Der SIS-V2-Standardlauf verwendet den lokalen GIP2-EDGE-Graphen weiterhin vollständig, schneidet aber **keine** Kreuzungsbereiche aus (weder TURN_USE-konvexe Hüllen noch 7-m-Kreise). NODE und TURN_USE dürfen im lokalen Index weiterhin als Diagnose vorhanden sein, beeinflussen jedoch die Zuteilung nicht. Die Kreuzungsflächen bleiben bis zu einer späteren, anhand von EDGE-Richtungen und SIS-Querschnitten validierten Segmentierung im Straßenraum. Der Aufruf `bash scripts/run-sis-v2-pilot.sh` überschreibt den bekannten V2-Arbeitsordner bei vollständigem Start.
+
+## GIP 2.0 / TURN_USE-Kreuzungshüllen (historischer Versuch)
 
 Die aktuelle Pipeline verwendet **keinen Wiener GIP-WFS** mehr.
 Zusätzlich zur lokalen SIS-Datei wird `data/raw/gip_network_ogd.gpkg` benötigt.
