@@ -8,7 +8,7 @@ PYTHON="${PYTHON:-.venv/bin/python}"
 ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
 SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
 GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
-STAGES=(sis aoi grid gip-index street partition qa grm-fetch grm-build measure pmtiles)
+STAGES=(sis aoi grid gip-index street partition querschnitt qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=pmtiles
 WITH_GRM=1
@@ -17,7 +17,7 @@ usage() {
 	cat <<'HELP'
 bash scripts/run-sis-v2-pilot.sh [--from PHASE] [--until PHASE] [--no-grm]
 
-Phasen: sis aoi grid gip-index street partition qa grm-fetch grm-build measure pmtiles
+Phasen: sis aoi grid gip-index street partition querschnitt qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
@@ -97,6 +97,11 @@ for ((i=start;i<=end;i++)); do
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
 				--street-root "$ROOT/strassenraum" --out "$ROOT/aufteilung.sqlite" \
 				--all-fow --no-junctions --gip2-local;;
+		querschnitt)
+			[[ -e "$ROOT/voronoi_querschnitte.geojson" ]] || "$PYTHON" -m scripts.sis_v2_cross_sections \
+				--gip-index "$ROOT/gip.sqlite" \
+				--partition-db "$ROOT/aufteilung.sqlite" \
+				--out "$ROOT/voronoi_querschnitte.geojson";;
 		qa)
 			[[ -e "$ROOT/qa.gpkg" ]] || "$PYTHON" -m scripts.wienwide_qa_gpkg \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
