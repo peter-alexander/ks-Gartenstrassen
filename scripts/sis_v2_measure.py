@@ -27,7 +27,7 @@ from scripts.wienwide_grm2023 import read_mask as read_grm
 
 TO_WGS = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
 VEGETATION = VEGETATION_CODES
-FIELDS = ("gip_id", "strassenname", "fow", "functional_class", "abschnitt_flaeche_m2",
+FIELDS = ("gip_id", "strassenname", "fow", "abschnitt_flaeche_m2",
 	"boden_m2", "boden_pct", "nicht_begruent_m2",
 	"nicht_begruent_pct", "grm_kronen_m2", "grm_kronen_pct", "kachelteile")
 
@@ -81,13 +81,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"}):
 			raise ValueError("SIS V2 benötigt eine unterstützte Voronoi-Partition")
 		balance = report_results(partition,manifest)
-		gip2 = config.get("junction_policy") == "gip2-turn-use-convex-hull"
-		if gip2:
-			axes = {str(gid):(name,fow,fc) for gid,name,fow,fc in gip.execute(
-				"SELECT gip,name,fow,functional_class FROM axes")}
-		else:
-			axes = {str(gid):(name,fow,None) for gid,name,fow in gip.execute(
-				"SELECT gip,name,fow FROM axes")}
+		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
+			"SELECT gip,name,fow FROM axes")}
 		groups = defaultdict(lambda:{"area":0.,"vegetation":0.,
 			"crown":0.,"parts":0,"geometries":[]})
 		for tile in manifest["tiles"]:
@@ -136,15 +131,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		if abs(sum(v["area"] for v in groups.values())-
 			balance["abschnitte_m2"]) > max(.05,balance["abschnitte_m2"]*1e-6):
 			raise ValueError("GIP-Flächenbilanz inkonsistent")
-		excluded = {gid:item for gid,item in groups.items()
-			if gip2 and axes[gid][2] in (1,2)}
-		included = {gid:item for gid,item in groups.items() if gid not in excluded}
-		excluded_area = sum(item["area"] for item in excluded.values())
-		total_area = sum(item["area"] for item in included.values())
-		total_vegetation = sum(item["vegetation"] for item in included.values())
-		total_crown = sum(item["crown"] for item in included.values())
-		if abs(total_area + excluded_area - balance["abschnitte_m2"]) > max(.05,balance["abschnitte_m2"]*1e-6):
-			raise ValueError("Bilanz nach functional_class-Ausschluss inkonsistent")
+		total_area = sum(item["area"] for item in groups.values())
+		total_vegetation = sum(item["vegetation"] for item in groups.values())
+		total_crown = sum(item["crown"] for item in groups.values())
 		stage.mkdir(parents=True)
 		try:
 			with (stage/"gip_abschnitte.csv").open("w",newline="",encoding="utf-8") as target, \
@@ -152,10 +141,10 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				writer = csv.DictWriter(target,fieldnames=FIELDS)
 				writer.writeheader()
 				geo.write('{"type":"FeatureCollection","features":[')
-				for idx,(gid,item) in enumerate(sorted(included.items())):
+				for idx,(gid,item) in enumerate(sorted(groups.items())):
 					area = item["area"]
-					name,fow,fc = axes[gid]
-					row = {"gip_id":gid, "strassenname":name, "fow":fow, "functional_class":fc,
+					name,fow = axes[gid]
+					row = {"gip_id":gid, "strassenname":name, "fow":fow,
 						"abschnitt_flaeche_m2":area,
 						"boden_m2":item["vegetation"],
 						"boden_pct":100*item["vegetation"]/area,
@@ -177,23 +166,18 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			report = {"provider":VERSION, "manifest_sha256":checksum(manifest_path),
 				"sis_source_sha256":meta["sha256"],"sis_index_sha256":checksum(sis_path),
 				"gip_sha256":checksum(gip_path),"partition_sha256":checksum(partition_path),
-				"grm_available":grm_root is not None,"gip_ids":len(included),
-				"gip_ids_vollstaendige_partition":len(groups),
-				"functional_class_ausgeschlossen":[1,2] if gip2 else [],
-				"ausgeschlossene_gip_ids":len(excluded),
-				"ausgeschlossene_flaeche_m2":excluded_area,
+				"grm_available":grm_root is not None,"gip_ids":len(groups),
 				"strassenraum_m2":balance["strassenraum_m2"],
-				"abschnittsflaeche_m2":total_area,
-				"abschnittsflaeche_vor_filter_m2":balance["abschnitte_m2"],
+				"abschnittsflaeche_m2":balance["abschnitte_m2"],
 				"ungeklaert_m2":balance["ungeklaert_m2"],
 				"ungeklaert_pct":100*balance["ungeklaert_m2"]/balance["strassenraum_m2"],
 				"bilanzdifferenz_m2":balance["bilanzdifferenz_m2"],
 				"boden_m2":total_vegetation,
-				"boden_pct":100*total_vegetation/total_area if total_area else None,
+				"boden_pct":100*total_vegetation/total_area,
 				"nicht_begruent_m2":max(0.,total_area-total_vegetation),
-				"nicht_begruent_pct":100*max(0.,total_area-total_vegetation)/total_area if total_area else None,
+				"nicht_begruent_pct":100*max(0.,total_area-total_vegetation)/total_area,
 				"grm_kronen_m2":total_crown if grm_root is not None else None,
-				"grm_kronen_pct":100*total_crown/total_area if grm_root is not None and total_area else None,
+				"grm_kronen_pct":100*total_crown/total_area if grm_root is not None else None,
 				"darstellungsreferenz_pct":{"boden":40,"grm_kronen":60},
 				"boden_belag_codes":sorted(VEGETATION),
 				"boden_ueberlagerungsregel":"BL/ST/WI nur außerhalb aller übrigen BELAG-Flächen begrünt; Konfliktflächen konservativ nicht begrünt",
