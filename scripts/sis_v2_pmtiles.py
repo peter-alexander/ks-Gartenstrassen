@@ -31,7 +31,7 @@ def run(source, output, *, min_area=100):
 		props = feature["properties"]
 		area = float(props["abschnitt_flaeche_m2"])
 		if area >= min_area:
-			if "sis_vegetation_pct" not in props or "sis_potentiell_unversiegelt_pct" not in props:
+			if "boden_pct" not in props or "nicht_begruent_pct" not in props:
 				raise ValueError("V2-SIS-Kennzahlen fehlen")
 			selected.append(feature)
 	if not selected:
