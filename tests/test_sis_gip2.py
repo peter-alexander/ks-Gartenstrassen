@@ -96,7 +96,7 @@ class GIP2GeometryTests(unittest.TestCase):
 			with sqlite3.connect(source) as db:
 				db.execute("CREATE TABLE gpkg_contents(table_name TEXT)")
 				for layer, columns in (
-					("EDGE","object_id TEXT,node_from_id TEXT,node_to_id TEXT,mainname_text TEXT,feature_name TEXT,form_of_way INTEGER"),
+					("EDGE","object_id TEXT,node_from_id TEXT,node_to_id TEXT,mainname_text TEXT,feature_name TEXT,form_of_way INTEGER,functional_class INTEGER"),
 					("NODE","object_id TEXT,feature_name TEXT,edge_degree INTEGER"),
 					("TURN_USE","object_id TEXT,via_node_id TEXT,base_type INTEGER")):
 					db.execute(f"CREATE TABLE {layer}(fid INTEGER PRIMARY KEY,geom BLOB,{columns})")
@@ -152,7 +152,7 @@ class GIP2GeometryTests(unittest.TestCase):
 			with sqlite3.connect(source) as db:
 				db.execute("CREATE TABLE gpkg_contents(table_name TEXT)")
 				for layer, columns in (
-					("EDGE","object_id TEXT,node_from_id TEXT,node_to_id TEXT,mainname_text TEXT,feature_name TEXT,form_of_way INTEGER"),
+					("EDGE","object_id TEXT,node_from_id TEXT,node_to_id TEXT,mainname_text TEXT,feature_name TEXT,form_of_way INTEGER,functional_class INTEGER"),
 					("NODE","object_id TEXT,feature_name TEXT,edge_degree INTEGER"),
 					("TURN_USE","object_id TEXT,via_node_id TEXT,base_type INTEGER")):
 					db.execute(f"CREATE TABLE {layer}(fid INTEGER PRIMARY KEY,geom BLOB,{columns})")
