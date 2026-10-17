@@ -61,8 +61,10 @@ erneut auf diesen SIS-Flächen partitioniert, Bodenkennzahlen aus SIS-BELAG
 und Baumkronen weiterhin aus GRM2023 berechnet. Eine eigene QA,
 CSV/GeoJSON und PMTiles-Ausgabe sind vorbereitet.
 
-**Noch nicht durch echte Daten und vollständigen CI-Lauf abgenommen.**
-Die Regel ist BL/ST/WI = begrünt, alle übrigen BELAG = nicht begrünt; die V2-Voronoi-Aufteilung schließt Kreuzungen vorerst nicht aus. Die hier
+Der erste vollständige SIS-Testlauf wurde am 17. Oktober 2026 technisch
+erfolgreich bis zum PMTiles abgeschlossen; die fachliche Sichtprüfung und
+Freigabe stehen noch aus. Die Regel ist BL/ST/WI = begrünt, alle übrigen
+BELAG = nicht begrünt; die V2-Voronoi-Aufteilung schließt Kreuzungen vorerst nicht aus. Die hier
 darunter dokumentierten V0-Kennzahlen bleiben historisch und werden
 durch die neue Methodik nicht rückwirkend umgedeutet.
 

@@ -33,7 +33,14 @@ def run(source, output, *, min_area=100):
 		if area >= min_area:
 			if "boden_pct" not in props or "nicht_begruent_pct" not in props:
 				raise ValueError("V2-SIS-Kennzahlen fehlen")
-			selected.append(feature)
+			gip_id = str(props.get("gip_id", ""))
+			if not gip_id.isdecimal() or not 0 <= int(gip_id) < 2**63:
+				raise ValueError(f"Ungültige numerische GIP-ID: {gip_id!r}")
+			if str(feature.get("id")) != gip_id:
+				raise ValueError(f"GeoJSON-ID und gip_id widersprechen sich: {feature.get('id')!r}/{gip_id!r}")
+			# GeoJSON erlaubt String-IDs, Tippecanoe übernimmt als MVT-Feature-ID
+			# aber nur Zahlen. Die Eigenschaft gip_id bleibt unverändert erhalten.
+			selected.append({**feature, "id":int(gip_id)})
 	if not selected:
 		raise ValueError("Keine Features erfüllen Mindestfläche")
 	output.parent.mkdir(parents=True,exist_ok=True)

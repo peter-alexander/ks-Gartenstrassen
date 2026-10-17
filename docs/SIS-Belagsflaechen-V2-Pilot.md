@@ -37,7 +37,12 @@ verwendete Filterung auf GG/EE/HH wird hier **nicht** angewandt.
   Summen-/Vereinigungsflächen, Überlappungsdifferenz.
 - Bestehende Ergebnisordner werden nicht überschrieben.
 - Ungültige Polygone, fehlendes `TYPE`, unpassende Koordinaten oder
-  ein widersprüchliches CRS führen zum Abbruch, nicht zu stillen Reparaturen.
+  ein widersprüchliches CRS führen grundsätzlich zum Abbruch. Eine Ausnahme
+  ist nur für nachweislich flächenlose degenerierte Ringe vorgesehen:
+  `make_valid` darf ausschließlich polygonale Bestandteile übernehmen und
+  muss sowohl Flächendifferenz als auch symmetrische Differenz innerhalb der
+  protokollierten metrischen Toleranz halten. Jede solche Korrektur steht mit
+  Quell-ID, SIS-ID und Flächenbilanz in `sis/bericht.json`.
 
 ## Durchgängige SIS-V2-Pipeline
 
@@ -88,14 +93,53 @@ Dieselbe Gesamtfläche ist auch der Nenner der GRM2023-Baumkronenquote;
 deren Zähler ist ausschließlich die GRM2023-Kronenfläche im Abschnitt.
 Bodenbegrünungs- und Überschirmungsprozente werden nicht addiert.
 
-**Qualitätssicherung:** Die Summe der metrischen SIS-Polygonflächen darf
-nur innerhalb numerischer Toleranz von ihrer Vereinigung abweichen.
-Überlappungen führen zu einem Abbruch statt einer stillen Klassifikationsregel.
+**Qualitätssicherung:** Quellüberlagerungen werden mit den IDs beider
+SIS-Features und ihrer Schnittfläche in `sis/bericht.json` protokolliert.
+Überlagerungen derselben binären Bodenklasse werden vereinigt und dadurch
+nicht doppelt gezählt. Überschneiden sich begrünte und nicht begrünte
+Beläge nur als numerische Randsplitter bis 0,01 m², gilt konservativ
+„nicht begrünt“; ein größerer Klassifikationskonflikt bricht den Lauf ab.
 
 Die V2-Zuordnung verwendet auf ausdrücklichen Wunsch zunächst ausschließlich
-Voronoi-Flächen ohne Abzug von Kreuzungskreisen. V0 bleibt unverändert. Es gab
-bislang **keinen echten Durchlauf** mit der angegebenen SIS-Datei
-und keinen bestätigten GRM/GIP-Pilotdatenlauf.
+Voronoi-Flächen ohne Abzug von Kreuzungskreisen. V0 bleibt unverändert.
+
+## Abgeschlossener SIS-Testlauf vom 17.10.2026
+
+Der vollständige Lauf mit `data/raw/SISBELAGOGD.json` ist einschließlich
+GIP-Abruf und -Voronoi, GRM2023, QA und PMTiles erfolgreich abgeschlossen.
+Die unveränderte Eingabe und ihre Kopie haben beide SHA-256
+`17f89e01ea7ac8c27390ba76ffa889a34d1b52b10ac67e4cbcfbcfd8041a8a36`.
+
+| Größe | Ergebnis |
+| --- | ---: |
+| SIS-Features, alle TYPE-Klassen einschließlich M1/M2 | 28.122 |
+| Brutto-Summenfläche vor Vereinigung | 1.079.955,147 m² |
+| Vereinigter SIS-Straßenraum | 1.079.759,478 m² |
+| Dokumentierte Quellüberlagerung | 195,670 m² |
+| Widersprüchliche Bodenklassen-Randsplitter | 0,002757 m² |
+| Reguläre, geometrisch eindeutige GIP-IDs | 736 |
+| GIP-Abschnittsteile im QA-GeoPackage | 1.126 |
+| Regulär zugeordnete Abschnittsfläche | 927.885,165 m² |
+| Sonderachsen | 133.996,946 m² |
+| Sonstige nicht zugeordnete Fläche | 17.877,367 m² |
+| Gesamte nicht regulär zugeordnete Fläche | 151.874,312 m² / 14,0656 % |
+| Flächenbilanzdifferenz | −0,000000001 m² |
+| Bodenbegrünung in regulären Abschnitten | 32.199,576 m² / 3,4702 % |
+| GRM2023-Kronenfläche in regulären Abschnitten | 65.597,842 m² / 7,0696 % |
+
+Eine Geometrie wurde korrigiert: Feature 6266,
+`SISBELAGOGD.1135624723`, SIS-ID 3584640, enthielt einen degenerierten
+Innenring mit nur zwei verschiedenen Punkten. `make_valid` ergab eine
+GeometryCollection; übernommen wurde ausschließlich das Polygon, die
+flächenlose LineString-Komponente wurde verworfen. Die Fläche änderte sich
+von 30,610802784743 m² auf 30,610802784743 m²
+(Delta 0,000000000000007 m²; symmetrische Differenz 0 m²).
+
+Die vollständigen 736 Abschnittsergebnisse stehen in CSV und GeoJSON.
+Für PMTiles gilt wie bei V0 ausschließlich als Darstellungsfilter die
+Mindestfläche 100 m²: 710 GIP-IDs sind enthalten, 26 kleinere IDs mit
+zusammen 795,877 m² bleiben nur in den vollständigen Ergebnisdateien.
+Die Referenzwerte bleiben 40 % Bodenbegrünung und 60 % Überschirmung.
 
 ## Noch offen / nächster Validierungsschritt
 
@@ -104,9 +148,11 @@ und keinen bestätigten GRM/GIP-Pilotdatenlauf.
 1. Die Testdatei später durch einen **gekachelten amtlichen WFS-Abruf**
    von `ogdwien:SISBELAGOGD` ersetzen. IDs, Dubletten,
    Abfragegrenzen und Vollständigkeit prüfen.
-2. Die binäre BELAG-Klassifikation (`BL`, `ST`, `WI` gegenüber allen
-   anderen Klassen) und die vollständige Flächenbilanz am Pilot prüfen.
+2. Die 151.874,312 m² ohne reguläre FOW-3-Zuordnung fachlich prüfen;
+   133.996,946 m² davon sind derzeit nachvollziehbar als Sonderachsen
+   ausgewiesen.
 3. Kreuzungsplateaus erst nach fachlicher GIP-Prüfung abgrenzen;
    V2 enthält vorerst ausdrücklich **keinen** Kreuzungsausschluss.
-4. Realtest der gesamten Kette und visuelle GIS-Prüfung; Ausgabe
-   erst nach nachvollziehbarer QA für die Kartensammlung freigeben.
+4. Die technische QA ist abgeschlossen; vor einer fachlichen Freigabe für
+   die Kartensammlung bleiben eine visuelle GIS-Prüfung und die Prüfung der
+   GIP-/GRM-Abdeckung erforderlich.

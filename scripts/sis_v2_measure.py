@@ -18,6 +18,7 @@ from shapely.geometry import box, mapping
 from shapely.ops import transform
 from shapely.wkb import loads
 
+from scripts.sis_belagsflaechen import VEGETATION_CODES
 from scripts.sis_v2_street import VERSION
 from scripts.wienwide_grid import checksum, read_manifest
 from scripts.wienwide_partition import report_results
@@ -25,7 +26,7 @@ from scripts.wienwide_gip import connect as connect_gip
 from scripts.wienwide_grm2023 import read_mask as read_grm
 
 TO_WGS = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
-VEGETATION = frozenset(("BL", "ST", "WI"))
+VEGETATION = VEGETATION_CODES
 FIELDS = ("gip_id", "strassenname", "fow", "abschnitt_flaeche_m2",
 	"boden_m2", "boden_pct", "nicht_begruent_m2",
 	"nicht_begruent_pct", "grm_kronen_m2", "grm_kronen_pct", "kachelteile")
@@ -42,6 +43,16 @@ def _mask(db, core, categories):
 			if not intersection.is_empty and intersection.area > 0:
 				parts.append(intersection)
 	return union_all(parts) if parts else None
+
+
+def _vegetation_mask(db, core):
+	"""Nur eindeutig begrünte SIS-Fläche; Quellkonflikte konservativ abziehen."""
+	green = _mask(db, core, VEGETATION)
+	if green is None:
+		return None
+	non_green = _mask(db, core, {row[0] for row in db.execute(
+		"SELECT DISTINCT belag FROM surfaces") if row[0] not in VEGETATION})
+	return green.difference(non_green) if non_green is not None else green
 
 
 def _intersect_area(part, mask):
@@ -90,7 +101,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				(tid,)).fetchone()
 			if psha is None or psha[0] != checksum(street_path):
 				raise ValueError(f"{tid}: Partition für andere Straßenraumkachel")
-			vegetation = _mask(sis,core,VEGETATION)
+			vegetation = _vegetation_mask(sis,core)
 			crown = None
 			if grm_root is not None:
 				crown, _ = read_grm(grm_root,tile,manifest=manifest_path,aoi=aoi)
@@ -119,6 +130,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		if abs(sum(v["area"] for v in groups.values())-
 			balance["abschnitte_m2"]) > max(.05,balance["abschnitte_m2"]*1e-6):
 			raise ValueError("GIP-Flächenbilanz inkonsistent")
+		total_area = sum(item["area"] for item in groups.values())
+		total_vegetation = sum(item["vegetation"] for item in groups.values())
+		total_crown = sum(item["crown"] for item in groups.values())
 		stage.mkdir(parents=True)
 		try:
 			with (stage/"gip_abschnitte.csv").open("w",newline="",encoding="utf-8") as target, \
@@ -155,7 +169,17 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				"strassenraum_m2":balance["strassenraum_m2"],
 				"abschnittsflaeche_m2":balance["abschnitte_m2"],
 				"ungeklaert_m2":balance["ungeklaert_m2"],
+				"ungeklaert_pct":100*balance["ungeklaert_m2"]/balance["strassenraum_m2"],
+				"bilanzdifferenz_m2":balance["bilanzdifferenz_m2"],
+				"boden_m2":total_vegetation,
+				"boden_pct":100*total_vegetation/total_area,
+				"nicht_begruent_m2":max(0.,total_area-total_vegetation),
+				"nicht_begruent_pct":100*max(0.,total_area-total_vegetation)/total_area,
+				"grm_kronen_m2":total_crown if grm_root is not None else None,
+				"grm_kronen_pct":100*total_crown/total_area if grm_root is not None else None,
+				"darstellungsreferenz_pct":{"boden":40,"grm_kronen":60},
 				"boden_belag_codes":sorted(VEGETATION),
+				"boden_ueberlagerungsregel":"BL/ST/WI nur außerhalb aller übrigen BELAG-Flächen begrünt; Konfliktflächen konservativ nicht begrünt",
 				"klassifikation":"SIS BELAG BL/ST/WI = begrünt; alle anderen BELAG = nicht begrünt; alle TYPE einschließlich M1/M2 enthalten",
 				"kreuzungen":"Kein Kreuzungsausschluss; reine Voronoi-Zuordnung"}
 			(stage/"bericht.json").write_text(json.dumps(report,ensure_ascii=False,

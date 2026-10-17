@@ -13,9 +13,11 @@ import sqlite3
 from urllib.request import urlopen
 
 from pyproj import Transformer
-from shapely import union_all
+from shapely import make_valid, union_all
+from shapely.errors import GEOSException
 from shapely.geometry import Polygon, MultiPolygon, shape
 from shapely.ops import transform
+from shapely.strtree import STRtree
 from shapely.wkb import dumps
 from shapely.validation import explain_validity
 
@@ -23,6 +25,72 @@ SOURCE_URL = "https://tiles.radlobby.at/Gehsteigbreiten/Testdaten/SISBELAGOGD.js
 SCHEMA = "sis-belagsflaechen-pilot-v1"
 TO_METRIC = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform
 MAX_SOURCE_BYTES = 150 * 1024 * 1024
+VEGETATION_CODES = frozenset(("BL", "ST", "WI"))
+
+
+def _polygonal_parts(geometry):
+	"""Polygonale Bestandteile rekursiv erhalten; Linien/Punkte nie zu Fläche machen."""
+	if isinstance(geometry, Polygon):
+		return [geometry]
+	if isinstance(geometry, MultiPolygon):
+		return list(geometry.geoms)
+	if hasattr(geometry, "geoms"):
+		return [part for child in geometry.geoms for part in _polygonal_parts(child)]
+	return []
+
+
+def _repair_source_polygon(geom, *, index, identifier, sis_id, reason):
+	"""Ungültige SIS-Fläche nur mit beidseitig belegter Flächentreue reparieren."""
+	# Pilotentscheidung für den tatsächlich belegten Quellfehler: Ein
+	# degenerierter Innenring trägt keine Fläche. Andere Topologiefehler
+	# (z. B. Selbstüberschneidungen) bleiben fachlich mehrdeutig und brechen ab.
+	if not reason.startswith("Too few points in geometry component"):
+		raise ValueError(
+			f"Feature {index} (ID {identifier!r}, SIS_ID {sis_id!r}): "
+			f"ungültige Polygongeometrie: {reason}. "
+			"Keine freigegebene konservative Reparatur für diesen Fehlertyp")
+	try:
+		candidate = make_valid(geom)
+		parts = _polygonal_parts(candidate)
+		repaired = union_all(parts) if parts else None
+		original_metric = transform(TO_METRIC, geom)
+		repaired_metric = transform(TO_METRIC, repaired) if repaired is not None else None
+		if (repaired_metric is None or repaired_metric.is_empty
+			or not repaired_metric.is_valid
+			or not isinstance(repaired_metric, (Polygon, MultiPolygon))
+			or repaired_metric.area <= 0):
+			raise ValueError("make_valid lieferte keine gültige Polygonfläche")
+		difference = repaired_metric.area - original_metric.area
+		tolerance = max(.01, original_metric.area * 1e-8)
+		symmetric_difference = original_metric.symmetric_difference(repaired_metric).area
+		if abs(difference) > tolerance or symmetric_difference > tolerance:
+			raise ValueError(
+				f"Reparatur wäre nicht flächentreu: Delta {difference:+.6f} m², "
+				f"symmetrische Differenz {symmetric_difference:.6f} m², "
+				f"Toleranz {tolerance:.6f} m²")
+	except (GEOSException, ValueError) as exc:
+		raise ValueError(
+			f"Feature {index} (ID {identifier!r}, SIS_ID {sis_id!r}): "
+			f"ungültige Polygongeometrie: {reason}. "
+			f"Streng geprüfte make_valid-Reparatur abgelehnt: {exc}") from exc
+	event = {
+		"feature_index": index,
+		"feature_id": identifier,
+		"sis_id": sis_id,
+		"grund": reason,
+		"methode": "shapely.make_valid; ausschließlich polygonale Bestandteile; metrische Flächentreue beidseitig geprüft",
+		"make_valid_ergebnistyp": candidate.geom_type,
+		"polygonale_bestandteile": len(parts),
+		"verworfene_nichtpolygonale_bestandteile": [
+			part.geom_type for part in getattr(candidate, "geoms", ())
+			if not isinstance(part, (Polygon, MultiPolygon))],
+		"flaeche_vorher_m2": original_metric.area,
+		"flaeche_nachher_m2": repaired_metric.area,
+		"flaechendifferenz_m2": difference,
+		"symmetrische_differenz_m2": symmetric_difference,
+		"toleranz_m2": tolerance,
+	}
+	return repaired, event
 
 
 def download_source(url, destination):
@@ -48,7 +116,7 @@ def download_source(url, destination):
 		raise
 
 
-def read_surfaces(path):
+def read_surfaces(path, *, repair_log=None, source_log=None):
 	"""Alle Polygonfeatures mit sämtlichen TYPE-Werten, metrisch transformiert."""
 	doc = json.loads(Path(path).read_text(encoding="utf-8"))
 	if doc.get("type") != "FeatureCollection" or not isinstance(doc.get("features"), list):
@@ -75,13 +143,18 @@ def read_surfaces(path):
 			or not isinstance(props.get("BELAG_TXT"), str)):
 			raise ValueError(f"Feature {index}: SIS TYPE/BELAG/BELAG_TXT fehlen")
 		geom = shape(feature.get("geometry"))
-		if not isinstance(geom, (Polygon, MultiPolygon)) or geom.is_empty or not geom.is_valid:
-			identifier = feature.get("id", f"Index {index}")
-			reason = explain_validity(geom)
+		identifier = feature.get("id", f"Index {index}")
+		sis_id = props.get("SIS_ID")
+		if not isinstance(geom, (Polygon, MultiPolygon)) or geom.is_empty:
 			raise ValueError(
-				f"Feature {index} (ID {identifier!r}, SIS_ID {props.get('SIS_ID')!r}): "
-				f"ungültige Polygongeometrie: {reason}. "
-				"Keine automatische Reparatur oder Auslassung.")
+				f"Feature {index} (ID {identifier!r}, SIS_ID {sis_id!r}): "
+				"keine nichtleere Polygongeometrie")
+		if not geom.is_valid:
+			reason = explain_validity(geom)
+			geom, event = _repair_source_polygon(geom, index=index,
+				identifier=identifier, sis_id=sis_id, reason=reason)
+			if repair_log is not None:
+				repair_log.append(event)
 		west, south, east, north = geom.bounds
 		if not (15.5 < west <= east < 17.5 and 47.5 < south <= north < 49):
 			raise ValueError(f"Feature {index}: Koordinaten außerhalb Wiens / Achsen vertauscht")
@@ -89,7 +162,38 @@ def read_surfaces(path):
 		if not metric.is_valid or metric.is_empty or metric.area <= 0:
 			raise ValueError(f"Feature {index}: ungültige metrische Fläche")
 		rows.append((index, props["TYPE"], props["BELAG"], props["BELAG_TXT"], metric))
+		if source_log is not None:
+			source_log.append({"feature_index": index, "feature_id": identifier,
+				"sis_id": sis_id, "type": props["TYPE"], "belag": props["BELAG"]})
 	return rows
+
+
+def _overlap_audit(rows, sources):
+	"""Alle flächigen Quellüberlagerungen mit IDs und Klassifikation erfassen."""
+	geometries = [row[4] for row in rows]
+	tree = STRtree(geometries)
+	events = []
+	for index, geom in enumerate(geometries):
+		for other in tree.query(geom, predicate="intersects"):
+			other = int(other)
+			if other <= index:
+				continue
+			area = geom.intersection(geometries[other]).area
+			if area <= 1e-7:
+				continue
+			left, right = sources[index], sources[other]
+			events.append({
+				"feature_index_a": left["feature_index"],
+				"feature_id_a": left["feature_id"], "sis_id_a": left["sis_id"],
+				"type_a": left["type"], "belag_a": left["belag"],
+				"feature_index_b": right["feature_index"],
+				"feature_id_b": right["feature_id"], "sis_id_b": right["sis_id"],
+				"type_b": right["type"], "belag_b": right["belag"],
+				"ueberlagerung_m2": area,
+				"gleiche_bodenklasse": ((left["belag"] in VEGETATION_CODES)
+					== (right["belag"] in VEGETATION_CODES)),
+			})
+	return sorted(events, key=lambda event: -event["ueberlagerung_m2"])
 
 
 def build(source, output):
@@ -99,15 +203,29 @@ def build(source, output):
 		raise FileExistsError(f"Vorhandener Pilotordner wird nicht überschrieben: {output}")
 	if not source.is_file():
 		raise FileNotFoundError(source)
-	rows = read_surfaces(source)
+	repairs, sources = [], []
+	rows = read_surfaces(source, repair_log=repairs, source_log=sources)
 	street = union_all([geom for _, _, _, _, geom in rows])
 	if not street.is_valid or street.is_empty or street.area <= 0:
 		raise ValueError("SIS-Gesamtfläche ungültig")
 	gross = sum(g.area for _, _, _, _, g in rows)
 	overlap = max(0., gross-street.area)
 	tolerance = max(.01, gross*1e-8)
-	if overlap > tolerance:
-		raise ValueError(f"SIS-Polygone überlappen um {overlap:.6f} m² (Toleranz {tolerance:.6f} m²)")
+	overlap_events = _overlap_audit(rows, sources) if overlap > tolerance else []
+	green = union_all([geom for _, _, belag, _, geom in rows
+		if belag in VEGETATION_CODES])
+	non_green = union_all([geom for _, _, belag, _, geom in rows
+		if belag not in VEGETATION_CODES])
+	class_conflict = green.intersection(non_green).area
+	# Überlagerungen derselben binären Bodenklasse ändern die Klassifikation
+	# nicht und werden durch Union nie doppelt gezählt. Widersprüchliche
+	# Quellklassen dürfen nur numerische Randsplitter sein; dort gilt
+	# konservativ „nicht begrünt“.
+	conflict_tolerance = .01
+	if class_conflict > conflict_tolerance:
+		raise ValueError(
+			f"SIS-Bodenklassen überlagern sich widersprüchlich um "
+			f"{class_conflict:.6f} m² (Toleranz {conflict_tolerance:.6f} m²)")
 	sha = hashlib.sha256(source.read_bytes()).hexdigest()
 	output.mkdir(parents=True)
 	try:
@@ -133,7 +251,8 @@ def build(source, output):
 			db.execute("INSERT INTO street VALUES (?)", (dumps(street),))
 			for key, value in {"schema": SCHEMA, "crs": "EPSG:31256",
 				"sha256": sha, "provider": "SISBELAGOGD",
-				"source_url": SOURCE_URL}.items():
+				"source_url": SOURCE_URL,
+				"geometry_repairs": json.dumps(repairs, ensure_ascii=False)}.items():
 				db.execute("INSERT INTO metadata VALUES (?,?)", (key, value))
 		counts = {}
 		belags = {}
@@ -153,6 +272,11 @@ def build(source, output):
 			"brutto_summe_m2": gross,
 			"vereinigte_strassenbelagsflaeche_m2": street.area,
 			"ueberlagerungsflaeche_m2": overlap, "ueberlagerungstoleranz_m2": tolerance,
+			"ueberlagerungspaare": overlap_events,
+			"widerspruechliche_bodenklassen_m2": class_conflict,
+			"widerspruechliche_bodenklassen_toleranz_m2": conflict_tolerance,
+			"boden_ueberlagerungsregel": "BL/ST/WI nur außerhalb aller übrigen BELAG-Flächen begrünt; Konfliktflächen konservativ nicht begrünt",
+			"geometriekorrekturen": repairs,
 			"type_klassen": counts, "belag_klassen": belags,
 			"status": "V2-Quellpilot; keine Entsiegelungsklassifikation und keine GIP-Abschnitte",
 		}
