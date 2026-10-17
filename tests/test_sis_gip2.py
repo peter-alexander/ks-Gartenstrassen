@@ -112,10 +112,10 @@ class GIP2GeometryTests(unittest.TestCase):
 						(cur.lastrowid,b[0],b[2],b[1],b[3]))
 				add("EDGE",LineString([(x-70,y),(x+70,y)]),
 					{"object_id":"edge-one","node_from_id":"left",
-					"node_to_id":"right","mainname_text":"Test","feature_name":"Test","form_of_way":1})
+					"node_to_id":"right","mainname_text":"Test","feature_name":"Test","form_of_way":1,"functional_class":1})
 				add("EDGE",LineString([(x,y-70),(x,y+70)]),
 					{"object_id":"edge-two","node_from_id":"bottom",
-					"node_to_id":"top","mainname_text":"Test","feature_name":"Test","form_of_way":3})
+					"node_to_id":"top","mainname_text":"Test","feature_name":"Test","form_of_way":3,"functional_class":4})
 				add("NODE",Point(x,y),
 					{"object_id":"node-one","feature_name":"Kreuzung","edge_degree":4})
 				add("TURN_USE",LineString([(x-10,y-5),(x+10,y-5)]),
@@ -134,6 +134,8 @@ class GIP2GeometryTests(unittest.TestCase):
 				area = db.execute("SELECT area_m2 FROM junctions").fetchone()[0]
 				self.assertAlmostEqual(area,200,delta=.05)
 				self.assertEqual(db.execute("SELECT COUNT(*) FROM axes").fetchone()[0],2)
+				self.assertEqual(dict(db.execute("SELECT gip,functional_class FROM axes").fetchall()),
+					{"edge-one":1,"edge-two":4})
 
 	def test_only_base_type_7_and_mixed_both_produce_hulls(self):
 		with tempfile.TemporaryDirectory() as folder:
