@@ -53,7 +53,15 @@ def read_surfaces(path):
 	if doc.get("type") != "FeatureCollection" or not isinstance(doc.get("features"), list):
 		raise ValueError("SIS-Eingabe muss eine GeoJSON-FeatureCollection sein")
 	if "crs" in doc:
-		raise ValueError("GeoJSON mit explizitem CRS nicht erlaubt; EPSG:4326 erwartet")
+		crs = doc["crs"]
+		name = (crs.get("properties", {}).get("name")
+			if isinstance(crs, dict) and crs.get("type") == "name"
+			and isinstance(crs.get("properties"), dict) else None)
+		if not isinstance(name, str) or name.strip().upper() not in (
+			"EPSG:4326", "URN:OGC:DEF:CRS:EPSG::4326",
+			"URN:OGC:DEF:CRS:EPSG:6.6:4326",
+			"OGC:CRS84", "URN:OGC:DEF:CRS:OGC:1.3:CRS84"):
+			raise ValueError(f"Nicht unterstütztes GeoJSON-CRS: {name!r}; WGS84 erwartet")
 	if not doc["features"]:
 		raise ValueError("SIS-FeatureCollection ist leer")
 	rows = []
