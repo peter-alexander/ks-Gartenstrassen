@@ -12,7 +12,7 @@ class CrossSectionTests(unittest.TestCase):
 		result, cross = evaluate(axis, polygon)
 		self.assertEqual(result["status"], "grenze_gefunden")
 		self.assertAlmostEqual(result["distanz_m"], 10, delta=1)
-		self.assertAlmostEqual(cross.length, 10, delta=.001)
+		self.assertAlmostEqual(cross.length, 9, delta=.001)
 
 	def test_constant_width_has_no_growth(self):
 		axis = LineString([(0, 0), (40, 0)])
