@@ -58,21 +58,24 @@ def load_street_tile(path, core):
 	if not path.is_file():
 		raise FileNotFoundError(f"Straßenraum-Kachel fehlt: {path}")
 	from urllib.parse import quote
-	with sqlite3.connect("file:"+quote(str(path.resolve()),safe="/")+"?mode=ro",uri=True) as conn:
-		data=dict(conn.execute("SELECT key,value FROM metadata"))
-		if data.get("schema_version")!="1" or data.get("crs")!="EPSG:31256":
-			raise ValueError(f"Nicht unterstützte Straßenraumkachel {path}")
-		if data.get("strassenraum_regel_version") not in (STREET_CLASSIFICATION_VERSION, "sis-belagsflaechen-v2"):
-			raise ValueError(f"Straßenraumkachel mit unbekannter Provider-Regelversion: {path}")
-		row=conn.execute("SELECT geom FROM street").fetchone()
-		if row is None:
-			raise ValueError(f"Straßenraum-Maske leer: {path}")
-		geom=loads(row[0])
-		if not geom.is_valid:
-			raise ValueError(f"Straßenraum-Geometrie ungültig: {path}")
-		if geom.difference(core).area>.01:
-			raise ValueError(f"Straßenraum-Kachel liegt außerhalb ihrer Kernkachel: {path}")
-		return geom
+	try:
+		with sqlite3.connect("file:"+quote(str(path.resolve()),safe="/")+"?mode=ro",uri=True) as conn:
+			data=dict(conn.execute("SELECT key,value FROM metadata"))
+			if data.get("schema_version")!="1" or data.get("crs")!="EPSG:31256":
+				raise ValueError(f"Nicht unterstützte Straßenraumkachel {path}")
+			if data.get("strassenraum_regel_version") not in (STREET_CLASSIFICATION_VERSION, "sis-belagsflaechen-v2"):
+				raise ValueError(f"Straßenraumkachel mit unbekannter Provider-Regelversion: {path}")
+			row=conn.execute("SELECT geom FROM street").fetchone()
+			if row is None:
+				raise ValueError(f"Straßenraum-Maske leer: {path}")
+			geom=loads(row[0])
+			if not geom.is_valid:
+				raise ValueError(f"Straßenraum-Geometrie ungültig: {path}")
+			if geom.difference(core).area>.01:
+				raise ValueError(f"Straßenraum-Kachel liegt außerhalb ihrer Kernkachel: {path}")
+			return geom
+	except sqlite3.DatabaseError as exc:
+		raise ValueError(f"Straßenraum-Quelldatei verändert oder beschädigt: {path}") from exc
 
 
 def save_street_tile(path, street, metadata, *, allow_empty=False):
