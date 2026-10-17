@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
-ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
+ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-all-fow-run}"
 SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
 STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
@@ -20,7 +20,7 @@ Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
-  SIS_V2_ROOT: separates Ausgabeverzeichnis (kein V0-Pfad!)
+  SIS_V2_ROOT: separates Ausgabeverzeichnis (Standard: data/processed/sis-v2-all-fow-run)
   PYTHON: Python aus requirements-analysis.txt
 
 V2 nutzt für Straßenflächen ausschließlich SIS. GIP-Kanten und GRM 2023
@@ -85,7 +85,7 @@ for ((i=start;i<=end;i++)); do
 			"$PYTHON" -m scripts.wienwide_partition \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
 				--street-root "$ROOT/strassenraum" --out "$ROOT/aufteilung.sqlite" \
-				--no-junctions;;
+				--no-junctions --all-fow;;
 		qa)
 			[[ -e "$ROOT/qa.gpkg" ]] || "$PYTHON" -m scripts.wienwide_qa_gpkg \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
