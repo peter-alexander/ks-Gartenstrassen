@@ -89,6 +89,11 @@ def build(source, output):
 	street = union_all([geom for _, _, _, _, geom in rows])
 	if not street.is_valid or street.is_empty or street.area <= 0:
 		raise ValueError("SIS-Gesamtfläche ungültig")
+	gross = sum(g.area for _, _, _, _, g in rows)
+	overlap = max(0., gross-street.area)
+	tolerance = max(.01, gross*1e-8)
+	if overlap > tolerance:
+		raise ValueError(f"SIS-Polygone überlappen um {overlap:.6f} m² (Toleranz {tolerance:.6f} m²)")
 	sha = hashlib.sha256(source.read_bytes()).hexdigest()
 	output.mkdir(parents=True)
 	try:
@@ -131,9 +136,9 @@ def build(source, output):
 		report = {
 			"schema": SCHEMA, "quelle": SOURCE_URL, "sha256": sha,
 			"crs": "EPSG:31256", "features": len(rows),
-			"brutto_summe_m2": sum(g.area for _, _, _, _, g in rows),
+			"brutto_summe_m2": gross,
 			"vereinigte_strassenbelagsflaeche_m2": street.area,
-			"ueberlagerungsflaeche_m2": sum(g.area for _, _, g in rows)-street.area,
+			"ueberlagerungsflaeche_m2": overlap, "ueberlagerungstoleranz_m2": tolerance,
 			"type_klassen": counts, "belag_klassen": belags,
 			"status": "V2-Quellpilot; keine Entsiegelungsklassifikation und keine GIP-Abschnitte",
 		}
