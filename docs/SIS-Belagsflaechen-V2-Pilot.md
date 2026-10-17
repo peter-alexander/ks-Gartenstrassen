@@ -48,6 +48,11 @@ erreichbar; keine FMZK-/BEV-Katastereingaben nötig:
 bash scripts/run-sis-v2-pilot.sh
 ~~~
 
+Der vollständige Pilot verwendet standardmäßig die bereits lokal vorhandene
+`/data/raw/SISBELAGOGD.json`. Die Datei wird nicht erneut heruntergeladen.
+Falls der Pfad auf einem anderen System abweicht, kann `SIS_V2_SOURCE`
+gesetzt werden.
+
 Optional eine bereits vorhandene Testdatei übergeben:
 
 ~~~bash
@@ -65,8 +70,8 @@ bleiben Kronenwerte im Ergebnis `null`.
 
 V2-Ausgaben:
 
-- `qa.gpkg`: vollständige GIP-Partition inkl. Kreuzungskreise,
-  Sonderachsen und Restflächen, unveränderte geometrische QA.
+- `qa.gpkg`: vollständige GIP-Voronoi-Partition **ohne Kreuzungsabzug**,
+  mit Sonderachsen und Restflächen als geometrischer QA.
 - `ergebnisse/gip_abschnitte.csv` und `.geojson`: GIP-Abschnitte,
   SIS-Bodenkennzahlen sowie optional GRM2023-Überschirmung.
 - `ergebnisse/bericht.json`: Herkunft und Bilanz sowie
@@ -79,6 +84,9 @@ alle übrigen BELAG-Codes = nicht begrünt. Sämtliche TYPE-Klassen,
 einschließlich Mauern (M1/M2), gehören zur gesamten SIS-Fläche.
 Ausgabefelder: `boden_m2`, `boden_pct`, `nicht_begruent_m2`,
 `nicht_begruent_pct`. Der Nenner ist die komplette SIS-Voronoi-Abschnittsfläche.
+Dieselbe Gesamtfläche ist auch der Nenner der GRM2023-Baumkronenquote;
+deren Zähler ist ausschließlich die GRM2023-Kronenfläche im Abschnitt.
+Bodenbegrünungs- und Überschirmungsprozente werden nicht addiert.
 
 **Qualitätssicherung:** Die Summe der metrischen SIS-Polygonflächen darf
 nur innerhalb numerischer Toleranz von ihrer Vereinigung abweichen.
