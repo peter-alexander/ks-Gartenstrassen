@@ -74,6 +74,14 @@ class SISBelagsflaechenTests(unittest.TestCase):
 			build(self.source, self.base/"out")
 		self.assertFalse((self.base/"out").exists())
 
+	def test_explicit_wgs84_crs_accepted(self):
+		for name in ("EPSG:4326", "urn:ogc:def:crs:EPSG::4326", "OGC:CRS84"):
+			with self.subTest(name=name):
+				doc = json.loads(self.source.read_text(encoding="utf-8"))
+				doc["crs"] = {"type": "name", "properties": {"name": name}}
+				self.source.write_text(json.dumps(doc), encoding="utf-8")
+				self.assertEqual(len(read_surfaces(self.source)), 2)
+
 	def test_bad_crs_rejected(self):
 		doc = json.loads(self.source.read_text(encoding="utf-8"))
 		doc["crs"] = {"type": "name", "properties": {"name": "EPSG:3857"}}
