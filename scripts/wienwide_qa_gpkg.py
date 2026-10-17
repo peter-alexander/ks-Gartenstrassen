@@ -29,7 +29,6 @@ from scripts.wienwide_grid import checksum, read_manifest
 from scripts.wienwide_partition import SCHEMA as PARTITION_SCHEMA, report_results
 
 LAYERS = ("gip_abschnitte", "knotenbereiche", "sonderachsen", "nicht_zugeordnet")
-EXCLUDED_LAYER = "ausgeschlossen_fc_1_2"
 SOURCE_GROUP = {"knotenbereich": "knotenbereiche",
 	"sonderachse": "sonderachsen", "nicht_zugeordnet": "nicht_zugeordnet"}
 EPSG = 31256
@@ -57,9 +56,7 @@ def gpkg_blob(geometry):
 		dumps(geom,hex=False,big_endian=False,output_dimension=2))
 
 
-def init_gpkg(db, layers=None):
-	if layers is None:
-		layers = LAYERS
+def init_gpkg(db):
 	db.executescript("""
 		PRAGMA application_id=1196444487;
 		PRAGMA user_version=10200;
@@ -96,7 +93,7 @@ def init_gpkg(db, layers=None):
 		("Undefined Cartesian SRS",-1,"NONE",-1,"undefined",""),
 		("Undefined geographic SRS",0,"NONE",0,"undefined",""),
 		(srs.name,EPSG,"EPSG",EPSG,srs.to_wkt(version="WKT1_GDAL"),"")])
-	for layer in layers:
+	for layer in LAYERS:
 		db.execute(f"""CREATE TABLE "{layer}"(
 			fid INTEGER PRIMARY KEY AUTOINCREMENT,
 			geom MULTIPOLYGON NOT NULL,
@@ -111,7 +108,6 @@ def init_gpkg(db, layers=None):
 			gip_gesamt_m2 REAL)""")
 		description={
 			"gip_abschnitte":"GIP-Voronoi-Abschnittsflaechen je Kachel und GIP-ID (FOW gemaess Partition)",
-			"ausgeschlossen_fc_1_2":"Nach Voronoi ausgeschlossene GIP2-Abschnitte mit functional_class 1 oder 2",
 			"knotenbereiche":"Gesonderte Knotenflaechen (7-m-Radius), je Kachel aggregiert",
 			"sonderachsen":"V0: Nicht-FOW3-Sammelflaechen; bei V2 mit allen FOW-Klassen leer",
 			"nicht_zugeordnet":"Verbleibende nicht zugeordnete Strassenraumflaechen"
@@ -227,22 +223,16 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		gip_totals={row["gip_id"]:row["total"] for row in src.execute(
 			"""SELECT gip_id,SUM(area) AS total FROM parts
 			   WHERE kind='abschnitt' GROUP BY gip_id""")}
-		gip2 = actual.get("junction_policy") == "gip2-turn-use-convex-hull"
-		if gip2:
-			axes={row["gip"]:(row["name"],row["fow"],row["node_from"],row["node_to"],row["functional_class"])
-				for row in gip.execute("SELECT gip,name,fow,node_from,node_to,functional_class FROM axes")}
-		else:
-			axes={row["gip"]:(row["name"],row["fow"],row["node_from"],row["node_to"],None)
-				for row in gip.execute("SELECT gip,name,fow,node_from,node_to FROM axes")}
-		layers = LAYERS + (EXCLUDED_LAYER,) if gip2 else LAYERS
+		axes={row["gip"]:(row["name"],row["fow"],row["node_from"],row["node_to"])
+			for row in gip.execute("SELECT gip,name,fow,node_from,node_to FROM axes")}
 		counts=Counter()
 		areas=Counter()
 		per_tile=defaultdict(lambda:Counter())
-		limits={name:None for name in layers}
+		limits={name:None for name in LAYERS}
 		output.parent.mkdir(parents=True,exist_ok=True)
 		try:
 			with closing(sqlite3.connect(tmp)) as target, target:
-				init_gpkg(target, layers=layers)
+				init_gpkg(target)
 				for row in src.execute("""SELECT tile_id,kind,gip_id,area,geom
 					FROM parts ORDER BY tile_id,kind,gip_id"""):
 					tid,kind,gid,stored_area=row["tile_id"],row["kind"],row["gip_id"],row["area"]
@@ -253,9 +243,7 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 						attrs=axes.get(gid)
 						if attrs is None or (actual.get("fow_policy") != "all" and attrs[1] != 3):
 							raise ValueError(f"Abschnitt {gid}: GIP-ID fehlt oder FOW gemäß Partitionsregel unzulässig")
-						name,fow,node_from,node_to,fc=attrs
-						if gip2 and fc in (1,2):
-							layer="ausgeschlossen_fc_1_2"
+						name,fow,node_from,node_to=attrs
 						total=gip_totals[gid]
 					elif kind=="ungeklaert" and gid in SOURCE_GROUP:
 						layer=SOURCE_GROUP[gid]
@@ -297,10 +285,10 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 						("parts",total),("assigned",assigned),
 						("unresolved",unresolved))):
 						raise ValueError(f"{tid}: Teilflächensummen stimmen nicht")
-				for layer in layers:
+				for layer in LAYERS:
 					finish_layer(target,layer,limits[layer])
-				if (abs(areas["gip_abschnitte"]+areas["ausgeschlossen_fc_1_2"]-balance["abschnitte_m2"])>.05
-					or abs(sum(areas[layer] for layer in SOURCE_GROUP.values())-
+				if (abs(areas["gip_abschnitte"]-balance["abschnitte_m2"])>.05
+					or abs(sum(areas[layer] for layer in LAYERS[1:])-
 						balance["ungeklaert_m2"])>.05):
 					raise ValueError("QA-Layersummen weichen von der Partition ab")
 				report={
@@ -314,7 +302,6 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 					"kacheln":len(tile_map),
 					"layer_anzahl":dict(counts),
 					"layer_flaeche_m2":dict(areas),
-					"functional_class_ausgeschlossen":[1,2] if gip2 else [],
 					"voronoi_bericht":balance,
 					"hinweis":"Sonderachsen und Knotenbereiche wurden von V0 pro "
 						"Kachel vereinigt. Sonderachsen können aus dieser "
