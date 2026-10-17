@@ -74,21 +74,15 @@ V2-Ausgaben:
 - `gartenstrassen_sis_v2.pmtiles`: separate Publikationskacheln,
   GIP-Abschnitte ab 100 m², Zoom 8 bis 17; benötigt `tippecanoe`.
 
-Die bisherigen Modul-3/6-FMZK-Quellspalten werden **nicht** mit
-SIS-Werten umetikettiert. Stattdessen gelten ausdrücklich neue Felder:
-`sis_vegetation_m2`, `sis_vegetation_pct`,
-`sis_potentiell_unversiegelt_m2` und
-`sis_potentiell_unversiegelt_pct`.
+Die Flächen werden binär klassifiziert: **BELAG BL, ST oder WI = Bodenbegrünung**;
+alle übrigen BELAG-Codes = nicht begrünt. Sämtliche TYPE-Klassen,
+einschließlich Mauern (M1/M2), gehören zur gesamten SIS-Fläche.
+Ausgabefelder: `boden_m2`, `boden_pct`, `nicht_begruent_m2`,
+`nicht_begruent_pct`. Der Nenner ist die komplette SIS-Voronoi-Abschnittsfläche.
 
-**Vorläufige Arbeitsklassifikation der Belagsarten (noch fachlich zu prüfen):**
-Die Codes beziehen sich auf das Feld **BELAG**, nicht **TYPE**.
-Vegetation: BL, ST, WI; potenziell unversiegelt: BL, ST, WI, KB, MW, GO.
-Insbesondere KB (kein Belag), MW (wassergebundener Makadam) und GO
-(Großsteinpflaster ohne Fugenverguss) dürfen **nicht** ohne Validierung
-als tatsächlich entsiegelt oder begrünt interpretiert werden.
-Der Begriff „potenziell unversiegelt“ ist daher absichtlich vorsichtig.
-Diese Zuordnung muss am Originaldatensatz und anhand der amtlichen
-Felddefinitionen fachlich geprüft werden.
+**Qualitätssicherung:** Die Summe der metrischen SIS-Polygonflächen darf
+nur innerhalb numerischer Toleranz von ihrer Vereinigung abweichen.
+Überlappungen führen zu einem Abbruch statt einer stillen Klassifikationsregel.
 
 Die V2-Zuordnung verwendet auf ausdrücklichen Wunsch zunächst ausschließlich
 Voronoi-Flächen ohne Abzug von Kreuzungskreisen. V0 bleibt unverändert. Es gab
@@ -102,8 +96,8 @@ und keinen bestätigten GRM/GIP-Pilotdatenlauf.
 1. Die Testdatei später durch einen **gekachelten amtlichen WFS-Abruf**
    von `ogdwien:SISBELAGOGD` ersetzen. IDs, Dubletten,
    Abfragegrenzen und Vollständigkeit prüfen.
-2. SIS-`TYPE`-Klassifikation gegen amtliche Definitionen und die
-   tatsächlich im Pilot vorkommenden Kategorien bestätigen.
+2. Die binäre BELAG-Klassifikation (`BL`, `ST`, `WI` gegenüber allen
+   anderen Klassen) und die vollständige Flächenbilanz am Pilot prüfen.
 3. Kreuzungsplateaus erst nach fachlicher GIP-Prüfung abgrenzen;
    V2 enthält vorerst ausdrücklich **keinen** Kreuzungsausschluss.
 4. Realtest der gesamten Kette und visuelle GIS-Prüfung; Ausgabe
