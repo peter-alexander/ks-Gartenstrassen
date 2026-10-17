@@ -61,8 +61,10 @@ def read_surfaces(path):
 		if not isinstance(feature, dict) or feature.get("type") != "Feature":
 			raise ValueError(f"Feature {index}: ungültige Struktur")
 		props = feature.get("properties")
-		if not isinstance(props, dict) or not isinstance(props.get("TYPE"), str):
-			raise ValueError(f"Feature {index}: SIS TYPE fehlt oder ist kein Text")
+		if (not isinstance(props, dict) or not isinstance(props.get("TYPE"), str)
+			or not isinstance(props.get("BELAG"), str)
+			or not isinstance(props.get("BELAG_TXT"), str)):
+			raise ValueError(f"Feature {index}: SIS TYPE/BELAG/BELAG_TXT fehlen")
 		geom = shape(feature.get("geometry"))
 		if not isinstance(geom, (Polygon, MultiPolygon)) or geom.is_empty or not geom.is_valid:
 			raise ValueError(f"Feature {index}: ungültige Polygongeometrie")
@@ -72,7 +74,7 @@ def read_surfaces(path):
 		metric = transform(TO_METRIC, geom)
 		if not metric.is_valid or metric.is_empty or metric.area <= 0:
 			raise ValueError(f"Feature {index}: ungültige metrische Fläche")
-		rows.append((index, props["TYPE"], metric))
+		rows.append((index, props["TYPE"], props["BELAG"], props["BELAG_TXT"], metric))
 	return rows
 
 
@@ -84,7 +86,7 @@ def build(source, output):
 	if not source.is_file():
 		raise FileNotFoundError(source)
 	rows = read_surfaces(source)
-	street = union_all([geom for _, _, geom in rows])
+	street = union_all([geom for _, _, _, _, geom in rows])
 	if not street.is_valid or street.is_empty or street.area <= 0:
 		raise ValueError("SIS-Gesamtfläche ungültig")
 	sha = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -96,6 +98,7 @@ def build(source, output):
 				CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 				CREATE TABLE surfaces (
 					id INTEGER PRIMARY KEY, type TEXT NOT NULL,
+					belag TEXT NOT NULL, belag_txt TEXT NOT NULL,
 					area_m2 REAL NOT NULL, geom BLOB NOT NULL
 				);
 				CREATE VIRTUAL TABLE surface_index USING rtree(
@@ -103,9 +106,9 @@ def build(source, output):
 				);
 				CREATE TABLE street (geom BLOB NOT NULL);
 			""")
-			for index, kind, geom in rows:
-				db.execute("INSERT INTO surfaces VALUES (?,?,?,?)",
-					(index, kind, geom.area, dumps(geom)))
+			for index, kind, belag, belag_txt, geom in rows:
+				db.execute("INSERT INTO surfaces VALUES (?,?,?,?,?,?)",
+					(index, kind, belag, belag_txt, geom.area, dumps(geom)))
 				db.execute("INSERT INTO surface_index VALUES (?,?,?,?,?)",
 					(index, geom.bounds[0], geom.bounds[2], geom.bounds[1], geom.bounds[3]))
 			db.execute("INSERT INTO street VALUES (?)", (dumps(street),))
@@ -114,17 +117,24 @@ def build(source, output):
 				"source_url": SOURCE_URL}.items():
 				db.execute("INSERT INTO metadata VALUES (?,?)", (key, value))
 		counts = {}
-		for _, kind, geom in rows:
+		belags = {}
+		for _, kind, belag, belag_txt, geom in rows:
 			entry = counts.setdefault(kind, {"features": 0, "summierte_flaeche_m2": 0})
 			entry["features"] += 1
 			entry["summierte_flaeche_m2"] += geom.area
+			b = belags.setdefault(belag, {"bezeichnung": belag_txt, "features": 0,
+				"summierte_flaeche_m2": 0})
+			if b["bezeichnung"] != belag_txt:
+				raise ValueError(f"BELAG {belag}: widersprüchliche Bezeichnungen")
+			b["features"] += 1
+			b["summierte_flaeche_m2"] += geom.area
 		report = {
 			"schema": SCHEMA, "quelle": SOURCE_URL, "sha256": sha,
 			"crs": "EPSG:31256", "features": len(rows),
-			"brutto_summe_m2": sum(g.area for _, _, g in rows),
+			"brutto_summe_m2": sum(g.area for _, _, _, _, g in rows),
 			"vereinigte_strassenbelagsflaeche_m2": street.area,
 			"ueberlagerungsflaeche_m2": sum(g.area for _, _, g in rows)-street.area,
-			"type_klassen": counts,
+			"type_klassen": counts, "belag_klassen": belags,
 			"status": "V2-Quellpilot; keine Entsiegelungsklassifikation und keine GIP-Abschnitte",
 		}
 		(output/"bericht.json").write_text(
