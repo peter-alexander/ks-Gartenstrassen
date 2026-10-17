@@ -107,9 +107,9 @@ def init_gpkg(db):
 			flaeche_m2 REAL NOT NULL,
 			gip_gesamt_m2 REAL)""")
 		description={
-			"gip_abschnitte":"Vorlaeufige FOW=3 GIP-Abschnittsflaechen je Kachel und GIP-ID",
+			"gip_abschnitte":"GIP-Voronoi-Abschnittsflaechen je Kachel und GIP-ID (FOW gemaess Partition)",
 			"knotenbereiche":"Gesonderte Knotenflaechen (7-m-Radius), je Kachel aggregiert",
-			"sonderachsen":"Gesonderte Nicht-FOW3-Sammelflaechen; Einzel-GIP-IDs in V0 nicht erhalten",
+			"sonderachsen":"V0: Nicht-FOW3-Sammelflaechen; bei V2 mit allen FOW-Klassen leer",
 			"nicht_zugeordnet":"Verbleibende nicht zugeordnete Strassenraumflaechen"
 		}[layer]
 		db.execute("""INSERT INTO gpkg_contents
@@ -241,8 +241,8 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 					if kind=="abschnitt":
 						layer="gip_abschnitte"
 						attrs=axes.get(gid)
-						if attrs is None or attrs[1]!=3:
-							raise ValueError(f"Abschnitt {gid}: GIP-ID fehlt oder FOW nicht 3")
+						if attrs is None or (actual.get("fow_policy") != "all" and attrs[1] != 3):
+							raise ValueError(f"Abschnitt {gid}: GIP-ID fehlt oder FOW gemäß Partitionsregel unzulässig")
 						name,fow,node_from,node_to=attrs
 						total=gip_totals[gid]
 					elif kind=="ungeklaert" and gid in SOURCE_GROUP:
