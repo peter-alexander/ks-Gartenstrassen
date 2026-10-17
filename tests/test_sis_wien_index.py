@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from shapely.geometry import Polygon, mapping
-from scripts.sis_wien_index import connect, import_tile
+from scripts.sis_wien_index import connect, import_tile, verify_complete
 from scripts.sis_wien_source import mask
 from pyproj import Transformer
 from shapely.ops import transform
@@ -41,6 +41,18 @@ class SISWienIndexTests(unittest.TestCase):
 				full = transform(to_m,Polygon(geo["features"][0]["geometry"]["coordinates"][0]))
 				self.assertAlmostEqual(mask(db,full).area,full.area,delta=.01)
 				self.assertAlmostEqual(mask(db,full,{"WI"}).area,full.area,delta=.01)
+
+	def test_incomplete_tile_set_is_rejected(self):
+		with tempfile.TemporaryDirectory() as root:
+			with connect(Path(root)/"wien.sqlite") as db:
+				grid = [("a",(0,0,1900,1900))]
+				with self.assertRaisesRegex(ValueError,"unvollständig"):
+					verify_complete(db,grid)
+				db.execute("INSERT INTO imported_tiles VALUES (?,?,?,?,?,?)",
+					("a","sha",json.dumps([0,0,1900,1900]),0,0,0))
+				self.assertTrue(verify_complete(db,grid))
+				with self.assertRaisesRegex(ValueError,"abweichend"):
+					verify_complete(db,[("a",(0,0,1800,1800))])
 
 	def test_conflicting_id_rolls_back_whole_tile(self):
 		with tempfile.TemporaryDirectory() as root:
