@@ -7,6 +7,7 @@ Später kann ein gekachelter WFS-Adapter dieselbe Eingangsstruktur erzeugen.
 import argparse
 import hashlib
 import json
+import lzma
 from pathlib import Path
 import shutil
 import sqlite3
@@ -118,7 +119,12 @@ def download_source(url, destination):
 
 def read_surfaces(path, *, repair_log=None, source_log=None):
 	"""Alle Polygonfeatures mit sämtlichen TYPE-Werten, metrisch transformiert."""
-	doc = json.loads(Path(path).read_text(encoding="utf-8"))
+	source = Path(path)
+	if source.name.endswith(".geojson.xz"):
+		with lzma.open(source,"rt",encoding="utf-8") as stream:
+			doc = json.load(stream)
+	else:
+		doc = json.loads(source.read_text(encoding="utf-8"))
 	if doc.get("type") != "FeatureCollection" or not isinstance(doc.get("features"), list):
 		raise ValueError("SIS-Eingabe muss eine GeoJSON-FeatureCollection sein")
 	if "crs" in doc:
@@ -229,7 +235,13 @@ def build(source, output):
 	sha = hashlib.sha256(source.read_bytes()).hexdigest()
 	output.mkdir(parents=True)
 	try:
-		shutil.copyfile(source, output/"SISBELAGOGD.json")
+		if source.name.endswith(".geojson.xz"):
+			# WFS-Kacheln bleiben einmalig im dauerhaften XZ-Cache.
+			# Keine zweite Kopie und kein unkomprimiertes GeoJSON auf der SSD.
+			archived_source = str(source.resolve())
+		else:
+			shutil.copyfile(source, output/"SISBELAGOGD.json")
+			archived_source = str((output/"SISBELAGOGD.json").resolve())
 		with sqlite3.connect(output/"sis.sqlite") as db:
 			db.executescript("""
 				CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -251,6 +263,7 @@ def build(source, output):
 			db.execute("INSERT INTO street VALUES (?)", (dumps(street),))
 			for key, value in {"schema": SCHEMA, "crs": "EPSG:31256",
 				"sha256": sha, "provider": "SISBELAGOGD",
+				"source_path": archived_source,
 				"source_url": SOURCE_URL,
 				"geometry_repairs": json.dumps(repairs, ensure_ascii=False)}.items():
 				db.execute("INSERT INTO metadata VALUES (?,?)", (key, value))
