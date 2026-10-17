@@ -17,6 +17,7 @@ from shapely import union_all
 from shapely.geometry import Polygon, MultiPolygon, shape
 from shapely.ops import transform
 from shapely.wkb import dumps
+from shapely.validation import explain_validity
 
 SOURCE_URL = "https://tiles.radlobby.at/Gehsteigbreiten/Testdaten/SISBELAGOGD.json"
 SCHEMA = "sis-belagsflaechen-pilot-v1"
@@ -75,7 +76,12 @@ def read_surfaces(path):
 			raise ValueError(f"Feature {index}: SIS TYPE/BELAG/BELAG_TXT fehlen")
 		geom = shape(feature.get("geometry"))
 		if not isinstance(geom, (Polygon, MultiPolygon)) or geom.is_empty or not geom.is_valid:
-			raise ValueError(f"Feature {index}: ungültige Polygongeometrie")
+			identifier = feature.get("id", f"Index {index}")
+			reason = explain_validity(geom)
+			raise ValueError(
+				f"Feature {index} (ID {identifier!r}, SIS_ID {props.get('SIS_ID')!r}): "
+				f"ungültige Polygongeometrie: {reason}. "
+				"Keine automatische Reparatur oder Auslassung.")
 		west, south, east, north = geom.bounds
 		if not (15.5 < west <= east < 17.5 and 47.5 < south <= north < 49):
 			raise ValueError(f"Feature {index}: Koordinaten außerhalb Wiens / Achsen vertauscht")
