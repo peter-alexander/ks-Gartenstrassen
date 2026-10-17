@@ -9,7 +9,7 @@ ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
 SIS="${SIS_V2_SOURCE:-}"
 STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
-UNTIL=measure
+UNTIL=pmtiles
 WITH_GRM=1
 
 usage() {
