@@ -54,7 +54,8 @@ bash scripts/run-sis-v2-pilot.sh
 ~~~
 
 Der vollständige Pilot verwendet standardmäßig die bereits lokal vorhandene
-`/data/raw/SISBELAGOGD.json`. Die Datei wird nicht erneut heruntergeladen.
+`data/raw/SISBELAGOGD.json` sowie `data/raw/gip_network_ogd.gpkg`. Die Dateien
+werden nicht erneut heruntergeladen.
 Falls der Pfad auf einem anderen System abweicht, kann `SIS_V2_SOURCE`
 gesetzt werden.
 
@@ -67,16 +68,18 @@ SIS_V2_SOURCE=/pfad/SISBELAGOGD.json bash scripts/run-sis-v2-pilot.sh
 Der neue Pilot bleibt vollständig getrennt von V0 unter
 `data/processed/sis-v2-run/`. Das Pilot-AOI wird aus dem metrischen
 Umgrenzungsrechteck der SIS-Testdatei erzeugt, mit 250-m-Arbeitskacheln
-und 75-m-Halo. Die GIP-Daten und GRM2023-Baumschicht werden über die
-bestehenden, quellengeprüften Abrufmodule für dieses Gebiet bezogen.
+und 75-m-Halo. Die GIP-Geometrien werden aus dem lokalen GIP-2.0-GeoPackage
+gelesen; die GRM2023-Baumschicht wird über das bestehende, quellengeprüfte
+Abrufmodul für dieses Gebiet bezogen.
 `--from` und `--until` erlauben einzelne Phasen. Mit `--no-grm`
 kann die Kronenberechnung zunächst ausgelassen werden; in diesem Fall
 bleiben Kronenwerte im Ergebnis `null`.
 
 V2-Ausgaben:
 
-- `qa.gpkg`: vollständige GIP-Voronoi-Partition **ohne Kreuzungsabzug**,
-  mit Sonderachsen und Restflächen als geometrischer QA.
+- `qa.gpkg`: vollständige GIP-Voronoi-Partition nach Abzug der aus TURN_USE
+  gebildeten konvexen Kreuzungshüllen, mit Kreuzungs- und Restflächen als
+  geometrischer QA.
 - `ergebnisse/gip_abschnitte.csv` und `.geojson`: GIP-Abschnitte,
   SIS-Bodenkennzahlen sowie optional GRM2023-Überschirmung.
 - `ergebnisse/bericht.json`: Herkunft und Bilanz sowie
@@ -100,10 +103,11 @@ nicht doppelt gezählt. Überschneiden sich begrünte und nicht begrünte
 Beläge nur als numerische Randsplitter bis 0,01 m², gilt konservativ
 „nicht begrünt“; ein größerer Klassifikationskonflikt bricht den Lauf ab.
 
-Die V2-Zuordnung verwendet auf ausdrücklichen Wunsch zunächst ausschließlich
-Voronoi-Flächen ohne Abzug von Kreuzungskreisen. V0 bleibt unverändert.
+Die aktuelle GIP-2.0-Zuordnung verwendet Voronoi-Flächen nach Abzug
+datengetriebener konvexer TURN_USE-Kreuzungshüllen. Sie verwendet keine
+pauschalen 7-m-Kreuzungskreise. V0 bleibt unverändert.
 
-## Abgeschlossener SIS-Testlauf vom 17.10.2026
+## Historischer erster SIS-Testlauf vom 17.10.2026
 
 Der vollständige Lauf mit `data/raw/SISBELAGOGD.json` ist einschließlich
 GIP-Abruf und -Voronoi, GRM2023, QA und PMTiles erfolgreich abgeschlossen.
@@ -141,7 +145,7 @@ Mindestfläche 100 m²: 710 GIP-IDs sind enthalten, 26 kleinere IDs mit
 zusammen 795,877 m² bleiben nur in den vollständigen Ergebnisdateien.
 Die Referenzwerte bleiben 40 % Bodenbegrünung und 60 % Überschirmung.
 
-## GIP 2.0 / TURN_USE-Kreuzungshüllen (experimenteller Folgelauf)
+## GIP 2.0 / TURN_USE-Kreuzungshüllen (aktueller Folgelauf)
 
 Die aktuelle Pipeline verwendet **keinen Wiener GIP-WFS** mehr.
 Zusätzlich zur lokalen SIS-Datei wird `data/raw/gip_network_ogd.gpkg` benötigt.
@@ -163,8 +167,28 @@ Zusätzlich zur lokalen SIS-Datei wird `data/raw/gip_network_ogd.gpkg` benötigt
 **Achtung:** Der Parser erwartet GeoPackage-Spatial-Indizes
 `rtree_EDGE_geom`, `rtree_NODE_geom` und `rtree_TURN_USE_geom`.
 Der neue Lauf überschreibt beim Start den bekannten V2-Arbeitsordner,
-nicht die `data/raw`-Quelldateien. Bisher wurde er noch **nicht**
-gegen die lokale GIP-2.0-Datei erfolgreich durchgetestet.
+nicht die `data/raw`-Quelldateien. Er wurde gegen die lokale GIP-2.0-Datei
+vollständig bis zum PMTiles durchgetestet.
+
+Der reproduzierte vollständige Folgelauf vom 17.10.2026 ergab:
+
+| Größe | Ergebnis |
+| --- | ---: |
+| Lokale GIP2-Achsen / 5-m-Voronoi-Sites | 3.014 / 37.920 |
+| NODEs / polygonale TURN_USE-Hüllen | 1.808 / 1.506 |
+| Geometrisch eindeutige GIP-IDs | 1.748 |
+| GIP-Abschnittsteile im QA-GeoPackage | 2.382 |
+| Regulär zugeordnete Abschnittsfläche | 945.188,627 m² |
+| TURN_USE-Kreuzungsflächen | 133.714,033 m² |
+| Sonstige nicht zugeordnete Fläche | 856,818 m² |
+| Gesamte nicht regulär zugeordnete Fläche | 134.570,851 m² / 12,4630 % |
+| Flächenbilanzdifferenz | +0,000000119 m² |
+| Bodenbegrünung in regulären Abschnitten | 41.662,177 m² / 4,4078 % |
+| GRM2023-Kronenfläche in regulären Abschnitten | 73.123,360 m² / 7,7364 % |
+
+CSV und GeoJSON enthalten alle 1.748 IDs. Der PMTiles-Darstellungsfilter
+ab 100 m² enthält 1.060 IDs; 688 kleinere Abschnitte mit zusammen
+22.955,998 m² bleiben in CSV und GeoJSON erhalten.
 
 ~~~bash
 git pull --ff-only
@@ -179,11 +203,13 @@ bash scripts/run-sis-v2-pilot.sh
 1. Die Testdatei später durch einen **gekachelten amtlichen WFS-Abruf**
    von `ogdwien:SISBELAGOGD` ersetzen. IDs, Dubletten,
    Abfragegrenzen und Vollständigkeit prüfen.
-2. Die 151.874,312 m² ohne reguläre FOW-3-Zuordnung fachlich prüfen;
-   133.996,946 m² davon sind derzeit nachvollziehbar als Sonderachsen
-   ausgewiesen.
-3. Kreuzungsplateaus erst nach fachlicher GIP-Prüfung abgrenzen;
-   V2 enthält vorerst ausdrücklich **keinen** Kreuzungsausschluss.
+2. Die im aktuellen Folgelauf nicht den Abschnitten zugerechneten Flächen
+   fachlich prüfen; sie bestehen überwiegend aus den konstruierten
+   TURN_USE-Kreuzungshüllen und zu einem kleineren Teil aus sonstigen
+   Restflächen.
+3. Die TURN_USE-Kreuzungshüllen vor einer fachlichen Freigabe visuell prüfen;
+   nichtpolygonale Hüllen bleiben im Audit sichtbar und werden nicht künstlich
+   aufgeweitet.
 4. Die technische QA ist abgeschlossen; vor einer fachlichen Freigabe für
    die Kartensammlung bleiben eine visuelle GIS-Prüfung und die Prüfung der
    GIP-/GRM-Abdeckung erforderlich.

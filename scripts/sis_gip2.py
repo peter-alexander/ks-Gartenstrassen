@@ -181,8 +181,9 @@ def build(source, manifest_path, output):
 					(node_id,num,"polygon",hull.area))
 				polygon_count += 1
 			meta = {"manifest_sha256":checksum(manifest_path),"source_sha256":checksum(source),
-				"source":"gip_network_ogd.gpkg","sampling_m":5,
-				"knotenradius_m":7,"max_axis_distance_m":25,
+				"source":"gip_network_ogd.gpkg",
+				"index_method":"gip2-local-edge-turn-use-v1","sampling_m":5,
+				"max_axis_distance_m":25,
 				"achsen":axes,"voronoi_sites":sites,
 				"identische_sites_ausgelassen":duplicate_sites,"knoten":len(node_ids),
 				"kreuzungshuelle":polygon_count,

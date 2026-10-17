@@ -79,7 +79,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			"gip_sha256":checksum(gip_path)}
 		if config not in ({**expected,"junction_policy":"none","fow_policy":"all"},
 			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"}):
-			raise ValueError("SIS V2 benötigt die Voronoi-Partition ohne Kreuzungsabzug")
+			raise ValueError("SIS V2 benötigt eine unterstützte Voronoi-Partition")
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
 			"SELECT gip,name,fow FROM axes")}

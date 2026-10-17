@@ -1,7 +1,9 @@
 """Lokale GIP-2.0-Adaptertests ohne vollständigen österreichischen GIP-Datensatz."""
 import sqlite3
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import struct
 import unittest
@@ -23,6 +25,38 @@ def gpkg(geometry, envelope=0):
 
 
 class GIP2GeometryTests(unittest.TestCase):
+	def test_pilot_driver_help_lists_only_real_stages(self):
+		result = subprocess.run(["bash", "scripts/run-sis-v2-pilot.sh", "--help"],
+			check=True, capture_output=True, text=True)
+		self.assertIn("gip-index",result.stdout)
+		self.assertNotIn("gip-fetch",result.stdout)
+
+	def test_pilot_driver_passes_gip_index_arguments(self):
+		with tempfile.TemporaryDirectory() as folder:
+			root = Path(folder)
+			processed = root/"processed"
+			processed.mkdir()
+			(processed/"raster.json").write_text("{}")
+			source = root/"gip.gpkg"
+			source.touch()
+			fake_python = root/"python"
+			fake_python.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+			fake_python.chmod(0o755)
+			environment = os.environ | {
+				"PYTHON": str(fake_python),
+				"SIS_V2_ROOT": str(processed),
+				"GIP2_SOURCE": str(source),
+			}
+			result = subprocess.run([
+				"bash", "scripts/run-sis-v2-pilot.sh",
+				"--from", "gip-index", "--until", "gip-index",
+			], check=True, capture_output=True, text=True, env=environment)
+			self.assertEqual(result.stdout.splitlines()[1:], [
+				"-m", "scripts.sis_gip2", "--source", str(source),
+				"--manifest", str(processed/"raster.json"),
+				"--out", str(processed/"gip.sqlite"),
+			])
+
 	def test_gpkg_geometry_without_envelope(self):
 		g = Point(16.3627,48.1907)
 		self.assertTrue(gpkg_geom(gpkg(g)).equals(g))
@@ -95,6 +129,8 @@ class GIP2GeometryTests(unittest.TestCase):
 			self.assertEqual(report["knoten"],1)
 			self.assertEqual(report["kreuzungshuelle"],1)
 			self.assertEqual(report["nodes_nur_base_type_7_verworfen"],0)
+			self.assertEqual(report["index_method"],"gip2-local-edge-turn-use-v1")
+			self.assertNotIn("knotenradius_m",report)
 			with sqlite3.connect(target) as db:
 				area = db.execute("SELECT area_m2 FROM junctions").fetchone()[0]
 				self.assertAlmostEqual(area,200,delta=.05)

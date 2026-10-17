@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SIS-basierte V2-Pilotanalyse – vollständig getrennter Arbeitsbereich.
-# Nutzt SIS statt FMZK+Kataster, GIP-Voronoi ohne Kreuzungsausschluss.
+# Nutzt SIS statt FMZK+Kataster und lokale GIP2-TURN_USE-Kreuzungshüllen.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -17,7 +17,7 @@ usage() {
 	cat <<'HELP'
 bash scripts/run-sis-v2-pilot.sh [--from PHASE] [--until PHASE] [--no-grm]
 
-Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles
+Phasen: sis aoi grid gip-index street partition qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
@@ -86,7 +86,7 @@ for ((i=start;i<=end;i++)); do
 				--aoi "$ROOT/aoi.geojson" --tile-m 250 --halo-m 75 --out "$ROOT/raster.json";;
 		gip-index)
 			[[ -f "$GIP2" ]] || { echo "GIP2-Datei fehlt: $GIP2" >&2; exit 1; }
-			[[ -e "$ROOT/gip.sqlite" ]] || "$PYTHON" -m scripts.sis_gip2 \\
+			[[ -e "$ROOT/gip.sqlite" ]] || "$PYTHON" -m scripts.sis_gip2 \
 				--source "$GIP2" --manifest "$ROOT/raster.json" --out "$ROOT/gip.sqlite";;
 		street)
 			"$PYTHON" -m scripts.sis_v2_street \

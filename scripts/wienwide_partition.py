@@ -28,6 +28,25 @@ from scripts.wienwide_gip import connect as connect_gip
 
 SCHEMA = 1
 GROUPS = ("knotenbereich","sonderachse","nicht_zugeordnet")
+GIP2_INDEX_METHOD = "gip2-local-edge-turn-use-v1"
+
+
+def _validate_index_metadata(metadata, manifest_sha256, *, gip2_hulls=False):
+	common=(metadata.get("manifest_sha256")==manifest_sha256
+		and metadata.get("sampling_m")==5
+		and metadata.get("max_axis_distance_m")==25)
+	method=(metadata.get("index_method")==GIP2_INDEX_METHOD
+		if gip2_hulls else metadata.get("knotenradius_m")==7)
+	if not common or not method:
+		raise ValueError("GIP-Katalog gehört zu anderem AOI/anderer Methode")
+
+
+def _describe_method(report, *, gip2_hulls=False):
+	if gip2_hulls:
+		report["status"]=("vorläufige GIP2-Aufteilung mit "
+			"TURN_USE-Kreuzungshüllen; keine fachlich geprüfte Straßenabgrenzung")
+		report["kreuzungen"]="gip2-turn-use-convex-hull"
+	return report
 
 
 def _polygon(g, label, *, witnesses=(), repair_events=None):
@@ -517,11 +536,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 	with connect_gip(gip_path) as gip:
 		metadata=dict((r["key"],json.loads(r["value"]))
 			for r in gip.execute("SELECT key,value FROM meta"))
-		if (metadata.get("manifest_sha256")!=checksum(manifest_path)
-			or metadata.get("sampling_m")!=5
-			or metadata.get("knotenradius_m")!=7
-			or metadata.get("max_axis_distance_m")!=25):
-			raise ValueError("GIP-Katalog gehört zu anderem AOI/anderer V0-Methodik")
+		_validate_index_metadata(metadata,checksum(manifest_path),
+			gip2_hulls=gip2_hulls)
 		tiles=manifest["tiles"]
 		if limit_tiles is not None:
 			if limit_tiles<1:raise ValueError("limit_tiles muss positiv sein")
@@ -585,7 +601,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 			count=target.execute("SELECT COUNT(*) FROM tiles").fetchone()[0]
 			complete=count==len(manifest["tiles"])
 			if complete:
-				return report_results(target,manifest)
+				return _describe_method(report_results(target,manifest),
+					gip2_hulls=gip2_hulls)
 			return {"status":"PARTIELL – NICHT WIENWEIT VOLLSTÄNDIG",
 				"fertige_kacheln":count,"gesamt_kacheln":len(manifest["tiles"])}
 

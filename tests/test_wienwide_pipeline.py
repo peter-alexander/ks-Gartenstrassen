@@ -28,7 +28,8 @@ from scripts.diagnose_wien_voronoi import capture
 from scripts.export_fmzk_strassenraum import STREET_CLASSIFICATION_VERSION
 from scripts.wienwide_partition import (
 	_polygon, _voronoi_intersection, graph_context, split_tile,
-	run as partition_run, report_results,
+	run as partition_run, report_results, _validate_index_metadata,
+	_describe_method,
 )
 from scripts.wienwide_benchmark import benchmark
 from scripts.fetch_gip_sections import validate_layer
@@ -39,6 +40,25 @@ def fc(features):
 
 
 class WienPipelineTests(unittest.TestCase):
+	def test_partition_validates_legacy_and_gip2_index_methods_separately(self):
+		common={"manifest_sha256":"manifest","sampling_m":5,
+			"max_axis_distance_m":25}
+		_validate_index_metadata(common | {"knotenradius_m":7},"manifest")
+		_validate_index_metadata(common | {
+			"index_method":"gip2-local-edge-turn-use-v1"},"manifest",
+			gip2_hulls=True)
+		with self.assertRaisesRegex(ValueError,"anderem AOI/anderer Methode"):
+			_validate_index_metadata(common | {"knotenradius_m":7},"manifest",
+				gip2_hulls=True)
+		with self.assertRaisesRegex(ValueError,"anderem AOI/anderer Methode"):
+			_validate_index_metadata(common | {
+				"index_method":"gip2-local-edge-turn-use-v1"},"manifest")
+		report=_describe_method({"status":"vorläufige V0-Aufteilung"},
+			gip2_hulls=True)
+		self.assertIn("GIP2",report["status"])
+		self.assertEqual(report["kreuzungen"],
+			"gip2-turn-use-convex-hull")
+
 	def setUp(self):
 		self.tmp=tempfile.TemporaryDirectory()
 		self.addCleanup(self.tmp.cleanup)
