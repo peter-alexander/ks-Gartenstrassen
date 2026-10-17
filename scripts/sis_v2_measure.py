@@ -77,7 +77,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		config = dict(partition.execute("SELECT key,value FROM config"))
 		expected = {"schema_version":"1", "manifest_sha256":checksum(manifest_path),
 			"gip_sha256":checksum(gip_path)}
-		if config != {**expected,"junction_policy":"none","fow_policy":"all"}:
+		if config not in ({**expected,"junction_policy":"none","fow_policy":"all"},
+			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"}):
 			raise ValueError("SIS V2 benötigt die Voronoi-Partition ohne Kreuzungsabzug")
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
@@ -181,7 +182,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				"boden_belag_codes":sorted(VEGETATION),
 				"boden_ueberlagerungsregel":"BL/ST/WI nur außerhalb aller übrigen BELAG-Flächen begrünt; Konfliktflächen konservativ nicht begrünt",
 				"klassifikation":"SIS BELAG BL/ST/WI = begrünt; alle anderen BELAG = nicht begrünt; alle TYPE einschließlich M1/M2 enthalten",
-				"kreuzungen":"Kein Kreuzungsausschluss; reine Voronoi-Zuordnung"}
+				"kreuzungen":config["junction_policy"]}
 			(stage/"bericht.json").write_text(json.dumps(report,ensure_ascii=False,
 				indent=2)+"\n",encoding="utf-8")
 			stage.replace(out_dir)
