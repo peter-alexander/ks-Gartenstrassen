@@ -1,20 +1,8 @@
-"""Diagnose: stabile Voronoi-Querschnitte ab den beiden GIP-EDGE-Enden.
+"""Querschnittsbreiten entlang GIP-EDGE in der zugeordneten Voronoi-Fläche.
 
-Schreibt nur GeoJSON und einen Bericht; verändert die Voronoi-Partition nicht.
-Alle Koordinaten und Abstände intern in EPSG:31256 (Meter).
+Reiner Geometriebaustein für die nachgelagerte Segmentierung (EPSG:31256).
 """
-import argparse
-from collections import Counter, defaultdict
-import json
-from pathlib import Path
-import sqlite3
-
-from pyproj import Transformer
-from shapely.geometry import LineString, Point, mapping
-from shapely.ops import transform, unary_union
-from shapely.wkb import loads
-
-TO_WGS = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
+from shapely.geometry import LineString
 STEP_M = 1.
 WINDOW = 5
 TOLERANCE = .10
@@ -86,73 +74,3 @@ def evaluate(axis, polygon, *, reverse=False):
 	return {"status": "grenze_gefunden", "distanz_m": index,
 		"breite_m": round(width, 3), "profil": profile}, cross
 
-
-def run(gip_path, partition_path, output):
-	gip_path, partition_path, output = map(Path, (gip_path, partition_path, output))
-	if output.exists():
-		raise FileExistsError(output)
-	features = []
-	stats = Counter()
-	with sqlite3.connect(f"file:{gip_path.resolve()}?mode=ro", uri=True) as gip, \
-			sqlite3.connect(f"file:{partition_path.resolve()}?mode=ro", uri=True) as partition:
-		config = dict(partition.execute("SELECT key,value FROM config"))
-		if config.get("junction_policy") != "none" or config.get("fow_policy") != "all":
-			raise ValueError("Erfordert unbeschnittene GIP2-Voronoi-Aufteilung")
-		# Alle Kachelstücke einer EDGE gemeinsam messen, um künstliche
-		# Querschnittslücken an den Grenzen der Arbeitskacheln zu vermeiden.
-		by_id = defaultdict(list)
-		for gid, blob in partition.execute(
-				"SELECT gip_id,geom FROM parts WHERE kind='abschnitt'"):
-			by_id[gid].append(loads(blob))
-		axes = {gid: geom for gid, geom in gip.execute(
-			"SELECT gip,wkb FROM axes")}
-		for gid, pieces in sorted(by_id.items()):
-			axis_blob = axes.get(gid)
-			if axis_blob is None:
-				raise ValueError(f"Fehlende EDGE: {gid}")
-			axis = loads(axis_blob)
-			if axis.geom_type != "LineString":
-				stats["multi_edge_uebersprungen"] += 1
-				continue
-			polygon = unary_union(pieces)
-			for end, reverse in (("node_from", False), ("node_to", True)):
-				result, cross = evaluate(axis, polygon, reverse=reverse)
-				stats[result["status"]] += 1
-				if cross is None:
-					continue
-				features.append({"type": "Feature",
-					"properties": {
-						"gip_id": gid, "ende": end,
-						"abstand_m": result["distanz_m"],
-						"breite_m": result["breite_m"],
-						"messabstand_m": STEP_M, "fenster": WINDOW,
-						"breitentoleranz": TOLERANCE,
-						"mindestens_zunahme": MIN_GROWTH,
-						"breitenprofil": json.dumps(result["profil"], ensure_ascii=False),
-					},
-					"geometry": mapping(transform(TO_WGS, cross))})
-	output.parent.mkdir(parents=True, exist_ok=True)
-	output.write_text(json.dumps({"type": "FeatureCollection", "features": features},
-		ensure_ascii=False), encoding="utf-8")
-	report = {"status": "Nur Diagnoselinien; keine Flächen ausgeschnitten",
-		"achsen_mit_voronoi_flaeche": len(by_id), "schnittlinien": len(features),
-		"ergebnisse": dict(stats), "messabstand_m": STEP_M, "fenster": WINDOW,
-		"breitentoleranz": TOLERANCE, "mindestens_zunahme": MIN_GROWTH,
-		"maximaler_suchabstand_m": MAX_SEARCH_M}
-	output.with_suffix(".bericht.json").write_text(
-		json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-	return report
-
-
-def main():
-	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument("--gip-index", required=True, type=Path)
-	parser.add_argument("--partition-db", required=True, type=Path)
-	parser.add_argument("--out", required=True, type=Path)
-	args = parser.parse_args()
-	print(json.dumps(run(args.gip_index, args.partition_db, args.out),
-		ensure_ascii=False, indent=2))
-
-
-if __name__ == "__main__":
-	main()
