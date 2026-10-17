@@ -64,7 +64,7 @@ class GIP2GeometryTests(unittest.TestCase):
 				for layer, columns in (
 					("EDGE","object_id TEXT,node_from_id TEXT,node_to_id TEXT,mainname_text TEXT,feature_name TEXT,form_of_way INTEGER"),
 					("NODE","object_id TEXT,feature_name TEXT,edge_degree INTEGER"),
-					("TURN_USE","object_id TEXT,via_node_id TEXT")):
+					("TURN_USE","object_id TEXT,via_node_id TEXT,base_type INTEGER")):
 					db.execute(f"CREATE TABLE {layer}(fid INTEGER PRIMARY KEY,geom BLOB,{columns})")
 					db.execute("INSERT INTO gpkg_contents VALUES (?)",(layer,))
 					db.execute(f"CREATE VIRTUAL TABLE rtree_{layer}_geom USING rtree(id,minx,maxx,miny,maxy)")
@@ -85,19 +85,70 @@ class GIP2GeometryTests(unittest.TestCase):
 				add("NODE",Point(x,y),
 					{"object_id":"node-one","feature_name":"Kreuzung","edge_degree":4})
 				add("TURN_USE",LineString([(x-10,y-5),(x+10,y-5)]),
-					{"object_id":"turn-one","via_node_id":"node-one"})
+					{"object_id":"turn-one","via_node_id":"node-one","base_type":7})
 				add("TURN_USE",LineString([(x+10,y+5),(x-10,y+5)]),
-					{"object_id":"turn-two","via_node_id":"node-one"})
+					{"object_id":"turn-two","via_node_id":"node-one","base_type":3})
 			target = root/"index.sqlite"
 			report = build(source,manifest,target)
 			self.assertEqual(report["achsen"],2)
 			self.assertGreater(report["voronoi_sites"],2)
 			self.assertEqual(report["knoten"],1)
 			self.assertEqual(report["kreuzungshuelle"],1)
+			self.assertEqual(report["nodes_nur_base_type_7_verworfen"],0)
 			with sqlite3.connect(target) as db:
 				area = db.execute("SELECT area_m2 FROM junctions").fetchone()[0]
 				self.assertAlmostEqual(area,200,delta=.05)
 				self.assertEqual(db.execute("SELECT COUNT(*) FROM axes").fetchone()[0],2)
+
+	def test_only_base_type_7_suppresses_hull_but_mixed_keeps_it(self):
+		with tempfile.TemporaryDirectory() as folder:
+			root = Path(folder)
+			to_wgs = Transformer.from_crs("EPSG:31256","EPSG:4326",
+				always_xy=True).transform
+			to_metric = Transformer.from_crs("EPSG:4326","EPSG:31256",
+				always_xy=True).transform
+			x,y = to_metric(16.36,48.20)
+			aoi = root/"aoi.geojson"
+			aoi.write_text(json.dumps(mapping(transform(to_wgs,
+				box(x-60,y-60,x+60,y+60)))))
+			manifest = root/"manifest.json"
+			write_manifest(manifest, build_manifest(aoi,size=250,halo=75))
+			source = root/"gip.gpkg"
+			with sqlite3.connect(source) as db:
+				db.execute("CREATE TABLE gpkg_contents(table_name TEXT)")
+				for layer, columns in (
+					("EDGE","object_id TEXT,node_from_id TEXT,node_to_id TEXT,mainname_text TEXT,feature_name TEXT,form_of_way INTEGER"),
+					("NODE","object_id TEXT,feature_name TEXT,edge_degree INTEGER"),
+					("TURN_USE","object_id TEXT,via_node_id TEXT,base_type INTEGER")):
+					db.execute(f"CREATE TABLE {layer}(fid INTEGER PRIMARY KEY,geom BLOB,{columns})")
+					db.execute("INSERT INTO gpkg_contents VALUES (?)",(layer,))
+					db.execute(f"CREATE VIRTUAL TABLE rtree_{layer}_geom USING rtree(id,minx,maxx,miny,maxy)")
+				def add(layer, geom, cols):
+					g = transform(to_wgs, geom)
+					cur = db.execute(f"INSERT INTO {layer}(geom,{','.join(cols)}) VALUES ({','.join('?' for _ in range(len(cols)+1))})",
+						(gpkg(g),*cols.values()))
+					b=g.bounds
+					db.execute(f"INSERT INTO rtree_{layer}_geom VALUES (?,?,?,?,?)",
+						(cur.lastrowid,b[0],b[2],b[1],b[3]))
+				add("EDGE",LineString([(x-80,y),(x+80,y)]),
+					{"object_id":"a","node_from_id":"b","node_to_id":"c","mainname_text":"Test","feature_name":"","form_of_way":1})
+				add("EDGE",LineString([(x,y-80),(x,y+80)]),
+					{"object_id":"d","node_from_id":"e","node_to_id":"f","mainname_text":"Test","feature_name":"","form_of_way":3})
+				for node,dy in (("only7",-20),("mixed",20)):
+					add("NODE",Point(x,y+dy),
+						{"object_id":node,"feature_name":node,"edge_degree":4})
+					add("TURN_USE",LineString([(x-10,y+dy-5),(x+10,y+dy-5)]),
+						{"object_id":node+"-1","via_node_id":node,"base_type":7})
+					add("TURN_USE",LineString([(x+10,y+dy+5),(x-10,y+dy+5)]),
+						{"object_id":node+"-2","via_node_id":node,
+						"base_type":7 if node=="only7" else 3})
+			report=build(source,manifest,root/"index.sqlite")
+			self.assertEqual(report["nodes_nur_base_type_7_verworfen"],1)
+			self.assertEqual(report["kreuzungshuelle"],1)
+			with sqlite3.connect(root/"index.sqlite") as db:
+				self.assertEqual(db.execute("SELECT node_id FROM junctions").fetchall(),[("mixed",)])
+				self.assertEqual(db.execute("SELECT result FROM junction_audit WHERE node_id='only7'").fetchone()[0],
+					"nur_base_type_7")
 
 
 if __name__=="__main__":
