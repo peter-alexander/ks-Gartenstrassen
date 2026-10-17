@@ -1,7 +1,7 @@
 """Abschnittsbezogene SIS-V2-Messung mit GIP-Flächen und optional GRM2023.
 
-Bodenklassen sind explizite, vorläufige Arbeitsdefinitionen; getrennt werden
-Vegetation und (weiter gefasste) potenziell unversiegelte Beläge ausgewiesen.
+Alle SIS-TYPE-Flächen zählen; BELAG BL/ST/WI gelten als Bodenbegrünung.
+Alle übrigen Beläge sind nicht begrünt.
 Keine FMZK-/Kataster-Abhängigkeiten, keine stillen NULL->0-Umwandlungen.
 """
 import argparse
@@ -26,10 +26,9 @@ from scripts.wienwide_grm2023 import read_mask as read_grm
 
 TO_WGS = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transform
 VEGETATION = frozenset(("BL", "ST", "WI"))
-POTENTIALLY_UNSEALED = frozenset(("BL", "ST", "WI", "KB", "MW", "GO"))
 FIELDS = ("gip_id", "strassenname", "fow", "abschnitt_flaeche_m2",
-	"sis_vegetation_m2", "sis_vegetation_pct", "sis_potentiell_unversiegelt_m2",
-	"sis_potentiell_unversiegelt_pct", "grm_kronen_m2", "grm_kronen_pct", "kachelteile")
+	"boden_m2", "boden_pct", "nicht_begruent_m2",
+	"nicht_begruent_pct", "grm_kronen_m2", "grm_kronen_pct", "kachelteile")
 
 
 def _mask(db, core, categories):
@@ -72,7 +71,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
 			"SELECT gip,name,fow FROM axes")}
-		groups = defaultdict(lambda:{"area":0.,"vegetation":0.,"unsealed":0.,
+		groups = defaultdict(lambda:{"area":0.,"vegetation":0.,
 			"crown":0.,"parts":0,"geometries":[]})
 		for tile in manifest["tiles"]:
 			tid = tile["id"]
@@ -92,7 +91,6 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			if psha is None or psha[0] != checksum(street_path):
 				raise ValueError(f"{tid}: Partition für andere Straßenraumkachel")
 			vegetation = _mask(sis,core,VEGETATION)
-			unsealed = _mask(sis,core,POTENTIALLY_UNSEALED)
 			crown = None
 			if grm_root is not None:
 				crown, _ = read_grm(grm_root,tile,manifest=manifest_path,aoi=aoi)
@@ -107,14 +105,12 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 					part.difference(street_geom).area > .01):
 					raise ValueError(f"{tid}/{gid}: Geometrie nicht in SIS-Straßenraum")
 				v = _intersect_area(part,vegetation)
-				u = _intersect_area(part,unsealed)
 				c = _intersect_area(part,crown) if crown is not None else 0.
-				if max(v,u,c) > stored_area + .01:
+				if max(v,c) > stored_area + .01:
 					raise ValueError(f"{tid}/{gid}: Belags-/Kronenfläche zu groß")
 				item = groups[gid]
 				item["area"] += stored_area
 				item["vegetation"] += v
-				item["unsealed"] += u
 				item["crown"] += c
 				item["parts"] += 1
 				item["geometries"].append(part)
@@ -135,10 +131,10 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 					name,fow = axes[gid]
 					row = {"gip_id":gid, "strassenname":name, "fow":fow,
 						"abschnitt_flaeche_m2":area,
-						"sis_vegetation_m2":item["vegetation"],
-						"sis_vegetation_pct":100*item["vegetation"]/area,
-						"sis_potentiell_unversiegelt_m2":item["unsealed"],
-						"sis_potentiell_unversiegelt_pct":100*item["unsealed"]/area,
+						"boden_m2":item["vegetation"],
+						"boden_pct":100*item["vegetation"]/area,
+						"nicht_begruent_m2":max(0.,area-item["vegetation"]),
+						"nicht_begruent_pct":100*max(0.,area-item["vegetation"])/area,
 						"grm_kronen_m2":item["crown"] if grm_root is not None else None,
 						"grm_kronen_pct":100*item["crown"]/area if grm_root is not None else None,
 						"kachelteile":item["parts"]}
@@ -159,9 +155,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				"strassenraum_m2":balance["strassenraum_m2"],
 				"abschnittsflaeche_m2":balance["abschnitte_m2"],
 				"ungeklaert_m2":balance["ungeklaert_m2"],
-				"vegetations_belag_codes":sorted(VEGETATION),
-				"potentiell_unversiegelt_belag_codes":sorted(POTENTIALLY_UNSEALED),
-				"warnung":"BELAG-Zuordnung vorläufig; potenziell unversiegelt bedeutet nicht nachgewiesen entsiegelt. Keine Kreuzungs-Neuabgrenzung."}
+				"boden_belag_codes":sorted(VEGETATION),
+				"klassifikation":"SIS BELAG BL/ST/WI = begrünt; alle anderen BELAG = nicht begrünt; alle TYPE einschließlich M1/M2 enthalten",
+				"kreuzungen":"Kein Kreuzungsausschluss; reine Voronoi-Zuordnung"}
 			(stage/"bericht.json").write_text(json.dumps(report,ensure_ascii=False,
 				indent=2)+"\n",encoding="utf-8")
 			stage.replace(out_dir)
