@@ -128,7 +128,6 @@ class GIP2GeometryTests(unittest.TestCase):
 			self.assertGreater(report["voronoi_sites"],2)
 			self.assertEqual(report["knoten"],1)
 			self.assertEqual(report["kreuzungshuelle"],1)
-			self.assertEqual(report["nodes_nur_base_type_7_verworfen"],0)
 			self.assertEqual(report["index_method"],"gip2-local-edge-turn-use-v1")
 			self.assertNotIn("knotenradius_m",report)
 			with sqlite3.connect(target) as db:
@@ -136,7 +135,7 @@ class GIP2GeometryTests(unittest.TestCase):
 				self.assertAlmostEqual(area,200,delta=.05)
 				self.assertEqual(db.execute("SELECT COUNT(*) FROM axes").fetchone()[0],2)
 
-	def test_only_base_type_7_suppresses_hull_but_mixed_keeps_it(self):
+	def test_only_base_type_7_and_mixed_both_produce_hulls(self):
 		with tempfile.TemporaryDirectory() as folder:
 			root = Path(folder)
 			to_wgs = Transformer.from_crs("EPSG:31256","EPSG:4326",
@@ -179,12 +178,12 @@ class GIP2GeometryTests(unittest.TestCase):
 						{"object_id":node+"-2","via_node_id":node,
 						"base_type":7 if node=="only7" else 3})
 			report=build(source,manifest,root/"index.sqlite")
-			self.assertEqual(report["nodes_nur_base_type_7_verworfen"],1)
-			self.assertEqual(report["kreuzungshuelle"],1)
+			self.assertNotIn("nodes_nur_base_type_7_verworfen",report)
+			self.assertEqual(report["kreuzungshuelle"],2)
 			with sqlite3.connect(root/"index.sqlite") as db:
-				self.assertEqual(db.execute("SELECT node_id FROM junctions").fetchall(),[("mixed",)])
+				self.assertEqual({r[0] for r in db.execute("SELECT node_id FROM junctions")},{"mixed","only7"})
 				self.assertEqual(db.execute("SELECT result FROM junction_audit WHERE node_id='only7'").fetchone()[0],
-					"nur_base_type_7")
+					"polygon")
 
 
 if __name__=="__main__":
