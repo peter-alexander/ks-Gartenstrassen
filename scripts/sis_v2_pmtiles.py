@@ -38,7 +38,7 @@ def run(source, output, *, min_area=100):
 		raise ValueError("Keine Features erfüllen Mindestfläche")
 	output.parent.mkdir(parents=True,exist_ok=True)
 	filtered = output.with_suffix(".filtered.geojson.tmp")
-	staged = output.with_suffix(".pmtiles.tmp")
+	staged = output.with_suffix(".tmp.pmtiles")
 	if filtered.exists() or staged.exists():
 		raise FileExistsError("Vorhandene temporäre Exportdatei")
 	try:
