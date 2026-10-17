@@ -1,3 +1,38 @@
+## Wienweiter SIS-Lauf mit externem Datenspeicher
+
+Die große Wien-Variante verwendet konsequent `/mnt/e/Gartenstrassen/`
+(WSL-Mount einer externen/zweiten Windows-Partition). Rohdaten, zentrale
+SQLite und alle großen Analysezwischenstände werden **nicht** im Repository
+und nicht auf der primären SSD abgelegt.
+
+- `/mnt/e/Gartenstrassen/wfs-kacheln/`: originale WFS-Antworten als
+  `.geojson.xz` (LZMA2, Preset 6), mit Metadaten und Prüfsummen
+- `/mnt/e/Gartenstrassen/sis-wien.sqlite`: eindeutige SIS-Features
+  (OBJECTID oder WFS-ID), vollständige metrische Geometrien, R-Tree
+  und transaktionssicheres Importprotokoll
+- `/mnt/e/Gartenstrassen/aoi/wien.geojson`: amtliche Wien-Grenze
+- `/mnt/e/Gartenstrassen/analysis/wien/`: GIP-Index, Straßenraum,
+  Rohpartition, gekürzte Voronoi-Partition, QA und Ergebnisdateien
+
+Die WFS-Requests umfassen 1.900 × 1.900 m (1.700-m-Kern plus jeweils
+100 m Überlappung). Die Originalfeatures werden **nicht** an WFS-
+Requestgrenzen abgeschnitten. Der Import schreibt ausschließlich fehlende
+Features, prüft widersprüchliche Dubletten und commitet jede Kachel atomar.
+Nach erfolgreichem Import aller Kacheln erfolgt der Rechenlauf aus dem
+zentralen räumlichen Index. Der vorhandene Testausschnitt-Lauf bleibt erhalten.
+
+Ausführung unter WSL mit vorhandenem `/mnt/e`, Python-Venv und lokaler
+GIP2-Quelle:
+
+```bash
+bash scripts/run-sis-v2-wien.sh
+```
+
+Das Skript lädt fehlende Kacheln nach und setzt bei vorhandenen Imports fort.
+Es löscht den Rohcache nicht. **Der vollständige Wien-Lauf ist noch nicht
+mit den echten Gesamtdaten validiert**; insbesondere müssen Ressourcenbedarf
+und Voronoi-Grenzen im Gesamtbestand geprüft werden.
+
 # SIS-Belagsflächen – V2-Pilot (17.10.2026)
 
 ## Eingabe
