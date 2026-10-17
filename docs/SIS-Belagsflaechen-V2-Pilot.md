@@ -141,6 +141,37 @@ Mindestfläche 100 m²: 710 GIP-IDs sind enthalten, 26 kleinere IDs mit
 zusammen 795,877 m² bleiben nur in den vollständigen Ergebnisdateien.
 Die Referenzwerte bleiben 40 % Bodenbegrünung und 60 % Überschirmung.
 
+## GIP 2.0 / TURN_USE-Kreuzungshüllen (experimenteller Folgelauf)
+
+Die aktuelle Pipeline verwendet **keinen Wiener GIP-WFS** mehr.
+Zusätzlich zur lokalen SIS-Datei wird `data/raw/gip_network_ogd.gpkg` benötigt.
+
+- `EDGE`: alle FOW-Klassen als Voronoi-Achsen, 5-m-Sites in EPSG:31256.
+- `NODE`: Knotenmittelpunkte innerhalb der SIS-Bounding-Box.
+- `TURN_USE`: alle Linien mit `via_node_id = NODE.object_id`.
+- Pro NODE: konvexe Hülle sämtlicher TURN_USE-Stützpunkte. Nichtpolygonale
+  Hüllen werden protokolliert, nicht künstlich aufgeweitet.
+- Alle Hüllen werden räumlich vereinigt und mit SIS geschnitten;
+  nur der verbleibende Straßenraum wird den EDGE-Voronoi-Achsen zugeteilt.
+- Die Kreuzungsflächen bleiben als `knotenbereiche` in `qa.gpkg` sichtbar.
+  `junction_audit` und `junctions` in `gip.sqlite` enthalten
+  Anzahl und Geometrie der konstruierten Hüllen.
+- Verbindungsidentifikatoren sind GIP-2.0-UUIDs; ein Abgleich mit
+  numerischen Wiener GIP_OBJECTIDs ist nicht erforderlich.
+- SIS-Bodenbegrünung und GRM2023-Überschirmung bleiben unverändert definiert.
+
+**Achtung:** Der Parser erwartet GeoPackage-Spatial-Indizes
+`rtree_EDGE_geom`, `rtree_NODE_geom` und `rtree_TURN_USE_geom`.
+Der neue Lauf überschreibt beim Start den bekannten V2-Arbeitsordner,
+nicht die `data/raw`-Quelldateien. Bisher wurde er noch **nicht**
+gegen die lokale GIP-2.0-Datei erfolgreich durchgetestet.
+
+~~~bash
+git pull --ff-only
+.venv/bin/python -m unittest tests.test_sis_gip2 -v
+bash scripts/run-sis-v2-pilot.sh
+~~~
+
 ## Noch offen / nächster Validierungsschritt
 
 
