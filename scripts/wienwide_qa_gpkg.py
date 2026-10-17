@@ -28,7 +28,8 @@ from shapely.wkb import dumps, loads
 from scripts.wienwide_grid import checksum, read_manifest
 from scripts.wienwide_partition import SCHEMA as PARTITION_SCHEMA, report_results
 
-LAYERS = ("gip_abschnitte", "ausgeschlossen_fc_1_2", "knotenbereiche", "sonderachsen", "nicht_zugeordnet")
+LAYERS = ("gip_abschnitte", "knotenbereiche", "sonderachsen", "nicht_zugeordnet")
+EXCLUDED_LAYER = "ausgeschlossen_fc_1_2"
 SOURCE_GROUP = {"knotenbereich": "knotenbereiche",
 	"sonderachse": "sonderachsen", "nicht_zugeordnet": "nicht_zugeordnet"}
 EPSG = 31256
@@ -58,7 +59,7 @@ def gpkg_blob(geometry):
 
 def init_gpkg(db, layers=None):
 	if layers is None:
-		layers = tuple(x for x in LAYERS if x != "ausgeschlossen_fc_1_2")
+		layers = LAYERS
 	db.executescript("""
 		PRAGMA application_id=1196444487;
 		PRAGMA user_version=10200;
@@ -233,7 +234,7 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		else:
 			axes={row["gip"]:(row["name"],row["fow"],row["node_from"],row["node_to"],None)
 				for row in gip.execute("SELECT gip,name,fow,node_from,node_to FROM axes")}
-		layers = LAYERS if gip2 else tuple(x for x in LAYERS if x != "ausgeschlossen_fc_1_2")
+		layers = LAYERS + (EXCLUDED_LAYER,) if gip2 else LAYERS
 		counts=Counter()
 		areas=Counter()
 		per_tile=defaultdict(lambda:Counter())
