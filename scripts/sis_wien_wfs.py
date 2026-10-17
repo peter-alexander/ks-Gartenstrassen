@@ -18,15 +18,15 @@ from scripts.wienwide_grid import load_aoi
 
 SERVICE = "https://data.wien.gv.at/daten/geo"
 LAYER = "ogdwien:SISBELAGOGD"
-CORE_M = 1850
-HALO_M = 25
+CORE_M = 1700
+HALO_M = 100
 REQUEST_M = CORE_M + 2 * HALO_M
 MAX_BYTES = 32 * 1024 * 1024
 MAX_FEATURES = 10000
 
 
 def tiles(aoi):
-	"""Nur AOI-schneidende 1.850-m-Kerne; Requests sind 1.900 m breit."""
+	"""Nur AOI-schneidende 1.700-m-Kerne; Requests sind 1.900 m breit."""
 	metric = aoi
 	x0, y0, x1, y1 = metric.bounds
 	import math
@@ -183,8 +183,12 @@ def merge_cached(cached, output):
 	return {"eindeutige_features":unique,"entfernte_dubletten":duplicates}
 
 
-def run(aoi_path, cache, output):
-	cache, output = Path(cache), Path(output)
+def run(aoi_path, cache, output=None, *, import_root=None):
+	cache = Path(cache)
+	output = Path(output) if output is not None else None
+	import_root = Path(import_root) if import_root is not None else None
+	if output is None and import_root is None:
+		raise ValueError("Entweder --out oder --import-root angeben")
 	aoi = load_aoi(aoi_path)  # EPSG:31256
 	grid = list(tiles(aoi))
 	if not grid:
@@ -195,15 +199,22 @@ def run(aoi_path, cache, output):
 		path, count, downloaded = fetch_tile(name,bounds,cache)
 		files.append(path)
 		fetched += int(downloaded)
+		if import_root is not None:
+			from scripts.sis_belagsflaechen import build
+			destination = import_root / name
+			if not (destination / "sis.sqlite").is_file():
+				build(path, destination)
 		print(f"SIS WFS {i}/{len(grid)}: {name}: {count} Features "
 			f"({'neu' if downloaded else 'Cache'})", flush=True)
-	result = merge_cached(files, output)
+	result = merge_cached(files, output) if output is not None else {}
 	report = {**result,"tiles":len(files),"neu_geladen":fetched,
 		"aus_cache":len(files)-fetched,"wfs_kachel_m":REQUEST_M,
 		"ueberlappung_zwischen_kacheln_m":2*HALO_M,
-		"cache":str(cache),"merged":str(output)}
-	output.with_suffix(".bericht.json").write_text(
-		json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+		"cache":str(cache),"merged":str(output) if output else None,
+		"import_root":str(import_root) if import_root else None}
+	if output is not None:
+		output.with_suffix(".bericht.json").write_text(
+			json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
 	return report
 
 
@@ -211,9 +222,12 @@ def main():
 	p = argparse.ArgumentParser(description=__doc__)
 	p.add_argument("--aoi",type=Path,required=True)
 	p.add_argument("--cache",type=Path,default=Path("data/raw/sis-wien-tiles"))
-	p.add_argument("--out",type=Path,required=True)
+	p.add_argument("--out",type=Path,
+		help="Optionales dedupliziertes Gesamt-GeoJSON (komprimiert)")
+	p.add_argument("--import-root",type=Path,
+		help="Jede gecachte XZ-Kachel sofort einzeln in SIS-SQLite importieren")
 	a = p.parse_args()
-	print(json.dumps(run(a.aoi,a.cache,a.out),ensure_ascii=False,indent=2))
+	print(json.dumps(run(a.aoi,a.cache,a.out,import_root=a.import_root),ensure_ascii=False,indent=2))
 
 
 if __name__ == "__main__":
