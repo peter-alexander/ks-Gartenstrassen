@@ -56,7 +56,9 @@ def gpkg_blob(geometry):
 		dumps(geom,hex=False,big_endian=False,output_dimension=2))
 
 
-def init_gpkg(db):
+def init_gpkg(db, layers=None):
+	if layers is None:
+		layers = tuple(x for x in LAYERS if x != "ausgeschlossen_fc_1_2")
 	db.executescript("""
 		PRAGMA application_id=1196444487;
 		PRAGMA user_version=10200;
@@ -93,7 +95,7 @@ def init_gpkg(db):
 		("Undefined Cartesian SRS",-1,"NONE",-1,"undefined",""),
 		("Undefined geographic SRS",0,"NONE",0,"undefined",""),
 		(srs.name,EPSG,"EPSG",EPSG,srs.to_wkt(version="WKT1_GDAL"),"")])
-	for layer in LAYERS:
+	for layer in layers:
 		db.execute(f"""CREATE TABLE "{layer}"(
 			fid INTEGER PRIMARY KEY AUTOINCREMENT,
 			geom MULTIPOLYGON NOT NULL,
@@ -231,14 +233,15 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		else:
 			axes={row["gip"]:(row["name"],row["fow"],row["node_from"],row["node_to"],None)
 				for row in gip.execute("SELECT gip,name,fow,node_from,node_to FROM axes")}
+		layers = LAYERS if gip2 else tuple(x for x in LAYERS if x != "ausgeschlossen_fc_1_2")
 		counts=Counter()
 		areas=Counter()
 		per_tile=defaultdict(lambda:Counter())
-		limits={name:None for name in LAYERS}
+		limits={name:None for name in layers}
 		output.parent.mkdir(parents=True,exist_ok=True)
 		try:
 			with closing(sqlite3.connect(tmp)) as target, target:
-				init_gpkg(target)
+				init_gpkg(target, layers=layers)
 				for row in src.execute("""SELECT tile_id,kind,gip_id,area,geom
 					FROM parts ORDER BY tile_id,kind,gip_id"""):
 					tid,kind,gid,stored_area=row["tile_id"],row["kind"],row["gip_id"],row["area"]
@@ -293,7 +296,7 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 						("parts",total),("assigned",assigned),
 						("unresolved",unresolved))):
 						raise ValueError(f"{tid}: Teilflächensummen stimmen nicht")
-				for layer in LAYERS:
+				for layer in layers:
 					finish_layer(target,layer,limits[layer])
 				if (abs(areas["gip_abschnitte"]+areas["ausgeschlossen_fc_1_2"]-balance["abschnitte_m2"])>.05
 					or abs(sum(areas[layer] for layer in SOURCE_GROUP.values())-
