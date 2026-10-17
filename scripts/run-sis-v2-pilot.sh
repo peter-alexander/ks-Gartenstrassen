@@ -96,7 +96,7 @@ for ((i=start;i<=end;i++)); do
 			"$PYTHON" -m scripts.wienwide_partition \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
 				--street-root "$ROOT/strassenraum" --out "$ROOT/aufteilung.sqlite" \
-				--all-fow --gip2-hulls;;
+				--all-fow --no-junctions --gip2-local;;
 		qa)
 			[[ -e "$ROOT/qa.gpkg" ]] || "$PYTHON" -m scripts.wienwide_qa_gpkg \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
