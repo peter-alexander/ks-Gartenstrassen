@@ -33,6 +33,10 @@ FIELDS = ("gip_id", "strassenname", "fow", "abschnitt_flaeche_m2",
 
 
 def _mask(db, core, categories):
+	meta = dict(db.execute("SELECT key,value FROM metadata"))
+	if meta.get("schema") == "sis-wien-index-v1":
+		from scripts.sis_wien_source import mask as city_mask
+		return city_mask(db,core,categories)
 	parts = []
 	for kind, blob in db.execute("SELECT belag,geom FROM surfaces"):
 		if kind not in categories:
@@ -50,8 +54,9 @@ def _vegetation_mask(db, core):
 	green = _mask(db, core, VEGETATION)
 	if green is None:
 		return None
+	table = "features" if dict(db.execute("SELECT key,value FROM metadata")).get("schema") == "sis-wien-index-v1" else "surfaces"
 	non_green = _mask(db, core, {row[0] for row in db.execute(
-		"SELECT DISTINCT belag FROM surfaces") if row[0] not in VEGETATION})
+		f"SELECT DISTINCT belag FROM {table}") if row[0] not in VEGETATION})
 	return green.difference(non_green) if non_green is not None else green
 
 
