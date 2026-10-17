@@ -11,7 +11,11 @@ ANALYSIS="$ROOT/analysis/wien"
 DB="$ROOT/sis-wien.sqlite"
 CACHE="$ROOT/wfs-kacheln"
 
-[[ -d /mnt/e ]] || { echo "Externes Laufwerk /mnt/e nicht eingehängt" >&2; exit 1; }
+[[ -d /mnt/e ]] && mountpoint -q /mnt/e || {
+	echo "Abbruch: /mnt/e ist kein eingehängtes Laufwerk (Schutz der primären SSD)" >&2
+	exit 1
+}
+[[ -w /mnt/e ]] || { echo "Abbruch: /mnt/e ist nicht beschreibbar" >&2; exit 1; }
 [[ -f "$GIP2" ]] || { echo "GIP2-Quelle fehlt: $GIP2" >&2; exit 1; }
 mkdir -p "$ROOT/aoi" "$ANALYSIS"
 if [[ ! -f "$AOI" ]]; then
