@@ -24,9 +24,10 @@ class SISBelagsflaechenTests(unittest.TestCase):
 			always_xy=True).transform(16.36, 48.22)
 		self.polys = [box(x,y,x+20,y+20), box(x+10,y,x+30,y+20)]
 		self.doc = {"type": "FeatureCollection", "features": [
-			{"type": "Feature", "properties": {"TYPE": kind},
+			{"type": "Feature", "properties": {"TYPE": kind, "BELAG": belag, "BELAG_TXT": belag_txt},
 				"geometry": mapping(transform(to_wgs, poly))}
-			for kind, poly in zip(("GG", "WI"), self.polys)
+			for kind, belag, belag_txt, poly in zip(("GG", "EE"), ("GA", "WI"),
+			("Gussasphalt Gehsteig", "Wiese"), self.polys)
 		]}
 		self.source = self.base/"source.json"
 		self.source.write_text(json.dumps(self.doc), encoding="utf-8")
@@ -34,14 +35,15 @@ class SISBelagsflaechenTests(unittest.TestCase):
 	def test_preserves_all_types_and_area_union(self):
 		report = build(self.source, self.base/"out")
 		self.assertEqual(report["features"], 2)
-		self.assertEqual(set(report["type_klassen"]), {"GG","WI"})
+		self.assertEqual(set(report["type_klassen"]), {"GG","EE"})
+		self.assertEqual(set(report["belag_klassen"]), {"GA","WI"})
 		self.assertAlmostEqual(report["vereinigte_strassenbelagsflaeche_m2"], 600, delta=.05)
 		self.assertAlmostEqual(report["ueberlagerungsflaeche_m2"], 200, delta=.05)
 		with sqlite3.connect(self.base/"out"/"sis.sqlite") as db:
 			street = loads(db.execute("SELECT geom FROM street").fetchone()[0])
 			self.assertAlmostEqual(street.area, 600, delta=.05)
-			rows = db.execute("SELECT type FROM surfaces ORDER BY id").fetchall()
-			self.assertEqual(rows, [("GG",), ("WI",)])
+			rows = db.execute("SELECT type,belag FROM surfaces ORDER BY id").fetchall()
+			self.assertEqual(rows, [("GG","GA"), ("EE","WI")])
 			bbox = db.execute("SELECT minx,maxx,miny,maxy FROM surface_index WHERE id=0").fetchone()
 			self.assertAlmostEqual(bbox[0], self.polys[0].bounds[0], delta=.2)
 			self.assertAlmostEqual(bbox[1], self.polys[0].bounds[2], delta=.2)
