@@ -25,7 +25,7 @@ def run(manifest_path, sis_db, out_root):
 		metadata = dict(db.execute("SELECT key,value FROM metadata"))
 		if metadata.get("schema") != SIS_SCHEMA or metadata.get("crs") != "EPSG:31256":
 			raise ValueError("Unpassender SIS-Pilotindex")
-		source = sis_db.parent/"SISBELAGOGD.json"
+		source = Path(metadata.get("source_path",sis_db.parent/"SISBELAGOGD.json"))
 		if checksum(source) != metadata.get("sha256"):
 			raise ValueError("SIS-Quelldatei stimmt nicht mit Index überein")
 		row = db.execute("SELECT geom FROM street").fetchone()
