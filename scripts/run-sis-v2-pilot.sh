@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
-ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-all-fow-run}"
+ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
 SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
 STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
@@ -20,7 +20,7 @@ Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
-  SIS_V2_ROOT: separates Ausgabeverzeichnis (Standard: data/processed/sis-v2-all-fow-run)
+  SIS_V2_ROOT: separates Ausgabeverzeichnis (Standard: data/processed/sis-v2-run)
   PYTHON: Python aus requirements-analysis.txt
 
 V2 nutzt für Straßenflächen ausschließlich SIS. GIP-Kanten und GRM 2023
@@ -53,6 +53,17 @@ for i in "${!STAGES[@]}"; do
 done
 if ((start < 0 || end < start)); then
 	echo "Ungültige Phasenfolge" >&2; exit 2
+fi
+if [[ "$FROM" == sis && "$ROOT" == "data/processed/sis-v2-run" ]]; then
+	# Explizit gewünschter Neulauf: ausschließlich den bekannten V2-Ausgabeordner löschen.
+	# Keine benutzerdefinierten Pfade oder Quelldaten automatisch entfernen.
+	if [[ -L "$ROOT" ]]; then
+		echo "SIS-V2-Ausgabepfad ist ein Symlink; Abbruch" >&2; exit 1
+	fi
+	if [[ -d "$ROOT" ]]; then
+		echo "== Lösche bisherigen SIS-V2-Testlauf: $ROOT =="
+		rm -rf -- "$ROOT"
+	fi
 fi
 mkdir -p "$ROOT"
 
