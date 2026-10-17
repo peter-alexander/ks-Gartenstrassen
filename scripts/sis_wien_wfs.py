@@ -6,20 +6,18 @@ Kein Feature wird räumlich an den Request-Bounds abgeschnitten.
 import argparse
 import hashlib
 import json
+import lzma
 from pathlib import Path
 import sqlite3
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from shapely.geometry import box, shape
-from shapely.ops import transform
-from pyproj import Transformer
+from shapely.geometry import box
 
 from scripts.wienwide_grid import load_aoi
 
 SERVICE = "https://data.wien.gv.at/daten/geo"
 LAYER = "ogdwien:SISBELAGOGD"
-TO_METRIC = Transformer.from_crs("EPSG:4326", "EPSG:31256", always_xy=True).transform
 CORE_M = 1850
 HALO_M = 25
 REQUEST_M = CORE_M + 2 * HALO_M
@@ -77,18 +75,22 @@ def validate(raw, *, tile):
 
 def fetch_tile(name, bounds, cache):
 	url = request_url(bounds)
-	path = cache / f"{name}.geojson"
+	path = cache / f"{name}.geojson.xz"
 	meta_path = cache / f"{name}.json"
-	expected = {"url": url, "bbox_31256": list(bounds), "layer": LAYER}
+	expected = {"url": url, "bbox_31256": list(bounds), "layer": LAYER,
+		"compression": "xz-lzma2", "preset": 6}
 	if path.exists() or meta_path.exists():
 		if not path.exists() or not meta_path.exists():
 			raise ValueError(f"{name}: unvollständige Cache-Dateien")
 		metadata = json.loads(meta_path.read_text(encoding="utf-8"))
 		if any(metadata.get(k) != v for k,v in expected.items()):
 			raise ValueError(f"{name}: Cache-Abfrageparameter geändert")
-		raw = path.read_bytes()
-		if hashlib.sha256(raw).hexdigest() != metadata.get("sha256"):
+		compressed = path.read_bytes()
+		if hashlib.sha256(compressed).hexdigest() != metadata.get("sha256_xz"):
 			raise ValueError(f"{name}: Cache-Prüfsumme falsch")
+		raw = lzma.decompress(compressed, format=lzma.FORMAT_XZ)
+		if hashlib.sha256(raw).hexdigest() != metadata.get("sha256_raw"):
+			raise ValueError(f"{name}: dekomprimierte Cache-Prüfsumme falsch")
 		doc = validate(raw, tile=name)
 		if len(doc["features"]) != metadata.get("features"):
 			raise ValueError(f"{name}: Cache-Featurezahl falsch")
@@ -100,15 +102,17 @@ def fetch_tile(name, bounds, cache):
 	if len(raw) > MAX_BYTES:
 		raise ValueError(f"{name}: Antwort über 32 MiB, Kachel muss verkleinert werden")
 	doc = validate(raw, tile=name)
-	temp = path.with_suffix(".download")
+	compressed = lzma.compress(raw, format=lzma.FORMAT_XZ, preset=6)
+	temp = path.with_suffix(".xz.download")
 	if temp.exists():
 		raise FileExistsError(temp)
 	cache.mkdir(parents=True, exist_ok=True)
 	try:
 		with temp.open("xb") as target:
-			target.write(raw)
+			target.write(compressed)
 		temp.replace(path)
-		meta = {**expected, "sha256": hashlib.sha256(raw).hexdigest(),
+		meta = {**expected, "sha256_raw": hashlib.sha256(raw).hexdigest(),
+			"sha256_xz": hashlib.sha256(compressed).hexdigest(),
 			"features": len(doc["features"])}
 		meta_temp = meta_path.with_suffix(".json.tmp")
 		meta_temp.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
@@ -131,3 +135,86 @@ def feature_identity(feature):
 		return "WFS_ID:" + str(identifier)
 	raise ValueError("SIS-Feature ohne OBJECTID/WFS-ID: sichere Deduplikation unmöglich")
 
+
+def merge_cached(cached, output):
+	"""Deduplizieren BEVOR das GeoJSON zusammengefügt wird; keine Featureliste im RAM."""
+	output = Path(output)
+	if not output.name.endswith(".geojson.xz"):
+		raise ValueError("Zusammengeführte Daten müssen .geojson.xz sein")
+	if output.exists():
+		raise FileExistsError(output)
+	temp = output.with_suffix(".tmp")
+	if temp.exists():
+		raise FileExistsError(temp)
+	seen_db = output.with_suffix(".dedup.tmp.sqlite")
+	if seen_db.exists():
+		raise FileExistsError(seen_db)
+	unique = duplicates = 0
+	try:
+		with sqlite3.connect(seen_db) as seen, lzma.open(temp, "wt", encoding="utf-8", preset=6) as out:
+			seen.execute("CREATE TABLE features(id TEXT PRIMARY KEY,signature TEXT)")
+			out.write('{"type":"FeatureCollection","features":[')
+			for tile_file in cached:
+				with lzma.open(tile_file, "rb") as source:
+					doc = validate(source.read(MAX_BYTES + 1), tile=tile_file.name)
+				for feature in doc["features"]:
+					key = feature_identity(feature)
+					signature = hashlib.sha256(json.dumps(
+						{"properties": feature["properties"],"geometry": feature["geometry"]},
+						sort_keys=True, separators=(",",":"), ensure_ascii=False
+					).encode("utf-8")).hexdigest()
+					previous = seen.execute(
+						"SELECT signature FROM features WHERE id=?", (key,)).fetchone()
+					if previous:
+						if previous[0] != signature:
+							raise ValueError(f"Quell-ID {key}: widersprüchliche Dubletten")
+						duplicates += 1
+						continue
+					seen.execute("INSERT INTO features VALUES (?,?)", (key, signature))
+					if unique:
+						out.write(",")
+					out.write(json.dumps(feature, ensure_ascii=False, separators=(",",":")))
+					unique += 1
+			out.write("]}\n")
+		temp.replace(output)
+	finally:
+		temp.unlink(missing_ok=True)
+		seen_db.unlink(missing_ok=True)
+	return {"eindeutige_features":unique,"entfernte_dubletten":duplicates}
+
+
+def run(aoi_path, cache, output):
+	cache, output = Path(cache), Path(output)
+	aoi = load_aoi(aoi_path)  # EPSG:31256
+	grid = list(tiles(aoi))
+	if not grid:
+		raise ValueError("Keine Wien-Kacheln im Untersuchungsgebiet")
+	files = []
+	fetched = 0
+	for i,(name,bounds) in enumerate(grid,1):
+		path, count, downloaded = fetch_tile(name,bounds,cache)
+		files.append(path)
+		fetched += int(downloaded)
+		print(f"SIS WFS {i}/{len(grid)}: {name}: {count} Features "
+			f"({'neu' if downloaded else 'Cache'})", flush=True)
+	result = merge_cached(files, output)
+	report = {**result,"tiles":len(files),"neu_geladen":fetched,
+		"aus_cache":len(files)-fetched,"wfs_kachel_m":REQUEST_M,
+		"ueberlappung_zwischen_kacheln_m":2*HALO_M,
+		"cache":str(cache),"merged":str(output)}
+	output.with_suffix(".bericht.json").write_text(
+		json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+	return report
+
+
+def main():
+	p = argparse.ArgumentParser(description=__doc__)
+	p.add_argument("--aoi",type=Path,required=True)
+	p.add_argument("--cache",type=Path,default=Path("data/raw/sis-wien-tiles"))
+	p.add_argument("--out",type=Path,required=True)
+	a = p.parse_args()
+	print(json.dumps(run(a.aoi,a.cache,a.out),ensure_ascii=False,indent=2))
+
+
+if __name__ == "__main__":
+	main()
