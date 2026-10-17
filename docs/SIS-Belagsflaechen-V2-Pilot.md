@@ -81,6 +81,7 @@ SIS-Werten umetikettiert. Stattdessen gelten ausdrücklich neue Felder:
 `sis_potentiell_unversiegelt_pct`.
 
 **Vorläufige Arbeitsklassifikation der Belagsarten (noch fachlich zu prüfen):**
+Die Codes beziehen sich auf das Feld **BELAG**, nicht **TYPE**.
 Vegetation: BL, ST, WI; potenziell unversiegelt: BL, ST, WI, KB, MW, GO.
 Insbesondere KB (kein Belag), MW (wassergebundener Makadam) und GO
 (Großsteinpflaster ohne Fugenverguss) dürfen **nicht** ohne Validierung
@@ -89,8 +90,8 @@ Der Begriff „potenziell unversiegelt“ ist daher absichtlich vorsichtig.
 Diese Zuordnung muss am Originaldatensatz und anhand der amtlichen
 Felddefinitionen fachlich geprüft werden.
 
-Die V2-Zuordnung verwendet bis zur Prüfung der Kreuzungsplateaus
-noch unverändert die V0-GIP-Regel mit 7-m-Kreuzungskreisen. Es gab
+Die V2-Zuordnung verwendet auf ausdrücklichen Wunsch zunächst ausschließlich
+Voronoi-Flächen ohne Abzug von Kreuzungskreisen. V0 bleibt unverändert. Es gab
 bislang **keinen echten Durchlauf** mit der angegebenen SIS-Datei
 und keinen bestätigten GRM/GIP-Pilotdatenlauf.
 
@@ -104,6 +105,6 @@ und keinen bestätigten GRM/GIP-Pilotdatenlauf.
 2. SIS-`TYPE`-Klassifikation gegen amtliche Definitionen und die
    tatsächlich im Pilot vorkommenden Kategorien bestätigen.
 3. Kreuzungsplateaus erst nach fachlicher GIP-Prüfung abgrenzen;
-   bisherige 7-m-Kreuzungskreise nicht stillschweigend ändern.
+   V2 enthält vorerst ausdrücklich **keinen** Kreuzungsausschluss.
 4. Realtest der gesamten Kette und visuelle GIS-Prüfung; Ausgabe
    erst nach nachvollziehbarer QA für die Kartensammlung freigeben.
