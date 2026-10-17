@@ -1,5 +1,6 @@
 """Offline-Tests für den eigenständigen SIS-Testkachel-Provider."""
 import json
+import lzma
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -55,6 +56,18 @@ class SISBelagsflaechenTests(unittest.TestCase):
 			self.source.read_bytes())
 		with self.assertRaises(FileExistsError):
 			build(self.source, self.base/"out")
+
+	def test_imports_xz_without_uncompressed_copy(self):
+		archived = self.base/"cached.geojson.xz"
+		archived.write_bytes(lzma.compress(self.source.read_bytes(), preset=6))
+		report = build(archived, self.base/"xz-out")
+		self.assertEqual(report["features"],2)
+		self.assertFalse((self.base/"xz-out"/"SISBELAGOGD.json").exists())
+		self.assertEqual(list((self.base/"xz-out").glob("*.geojson")),[])
+		with sqlite3.connect(self.base/"xz-out"/"sis.sqlite") as db:
+			meta = dict(db.execute("SELECT key,value FROM metadata"))
+			self.assertEqual(meta["source_path"],str(archived.resolve()))
+			self.assertEqual(meta["provider"],"SISBELAGOGD")
 
 	def test_overlap_fails_without_writing(self):
 		doc = json.loads(self.source.read_text(encoding="utf-8"))
