@@ -67,8 +67,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		config = dict(partition.execute("SELECT key,value FROM config"))
 		expected = {"schema_version":"1", "manifest_sha256":checksum(manifest_path),
 			"gip_sha256":checksum(gip_path)}
-		if config != expected:
-			raise ValueError("GIP-Partition passt nicht zum Testgebiet")
+		if config != {**expected,"junction_policy":"none"}:
+			raise ValueError("SIS V2 benötigt die Voronoi-Partition ohne Kreuzungsabzug")
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
 			"SELECT gip,name,fow FROM axes")}
