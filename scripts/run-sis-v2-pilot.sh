@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
 ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
-SIS="${SIS_V2_SOURCE:-/data/raw/SISBELAGOGD.json}"
+SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
 STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=pmtiles
@@ -19,7 +19,7 @@ bash scripts/run-sis-v2-pilot.sh [--from PHASE] [--until PHASE] [--no-grm]
 Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
-  SIS_V2_SOURCE: lokale SIS-Datei (Standard: /data/raw/SISBELAGOGD.json)
+  SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
   SIS_V2_ROOT: separates Ausgabeverzeichnis (kein V0-Pfad!)
   PYTHON: Python aus requirements-analysis.txt
 
