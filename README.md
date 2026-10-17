@@ -57,13 +57,12 @@ Für die Weiterentwicklung nach dem Feedback zur Straßenraumabgrenzung
 steht ein **vollständig getrennter SIS-Pilotpfad** zur Verfügung.
 Die Straßenflächen werden darin ausschließlich aus SIS-Belagsflächen
 abgeleitet, nicht mehr aus FMZK und Kataster. GIP-Abschnitte werden
-erneut auf diesen SIS-Flächen partitioniert, Bodenkennzahlen aus SIS-TYPE
+erneut auf diesen SIS-Flächen partitioniert, Bodenkennzahlen aus SIS-BELAG
 und Baumkronen weiterhin aus GRM2023 berechnet. Eine eigene QA,
 CSV/GeoJSON und PMTiles-Ausgabe sind vorbereitet.
 
 **Noch nicht durch echte Daten und vollständigen CI-Lauf abgenommen.**
-Die SIS-Klassenzuordnung ist vorläufig; die Kreuzungsabgrenzung
-verwendet vorerst weiterhin die V0-Regel mit 7-m-Radius. Die hier
+Die Regel ist BL/ST/WI = begrünt, alle übrigen BELAG = nicht begrünt; die V2-Voronoi-Aufteilung schließt Kreuzungen vorerst nicht aus. Die hier
 darunter dokumentierten V0-Kennzahlen bleiben historisch und werden
 durch die neue Methodik nicht rückwirkend umgedeutet.
 
