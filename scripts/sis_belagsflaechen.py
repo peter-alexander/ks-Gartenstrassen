@@ -107,7 +107,7 @@ def build(source, output):
 				db.execute("INSERT INTO surfaces VALUES (?,?,?,?)",
 					(index, kind, geom.area, dumps(geom)))
 				db.execute("INSERT INTO surface_index VALUES (?,?,?,?,?)",
-					(index, *geom.bounds))
+					(index, geom.bounds[0], geom.bounds[2], geom.bounds[1], geom.bounds[3]))
 			db.execute("INSERT INTO street VALUES (?)", (dumps(street),))
 			for key, value in {"schema": SCHEMA, "crs": "EPSG:31256",
 				"sha256": sha, "provider": "SISBELAGOGD",
