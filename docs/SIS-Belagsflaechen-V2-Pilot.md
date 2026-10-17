@@ -75,6 +75,9 @@ Abrufmodul für dieses Gebiet bezogen.
 kann die Kronenberechnung zunächst ausgelassen werden; in diesem Fall
 bleiben Kronenwerte im Ergebnis `null`.
 
+
+**Functional-Class-Filter nach der Voronoi-Aufteilung:** Sämtliche lokalen GIP-2.0-EDGE-Achsen bleiben Voronoi-Nachbarn. Erst danach werden Abschnitte mit `functional_class` 1 oder 2 aus CSV, GeoJSON, Kennzahlen und PMTiles ausgelassen. Die zugehörigen Polygonflächen erscheinen ausschließlich in `qa.gpkg` im Layer `ausgeschlossen_fc_1_2`; `ergebnisse/bericht.json` dokumentiert ausgeschlossene IDs und Flächen sowie die Bilanz vor und nach dem Filter. Der Kreuzungsausschluss und der GIS-Quellgraph bleiben unverändert.
+
 V2-Ausgaben:
 
 - `qa.gpkg`: vollständige GIP-Voronoi-Partition nach Abzug der aus TURN_USE
