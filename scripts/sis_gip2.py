@@ -139,7 +139,7 @@ def build(source, manifest_path, output):
 					(cur.lastrowid,metric.x,metric.x,metric.y,metric.y))
 				dst.execute("INSERT INTO node_degrees VALUES (?,?)",
 					(node_id,row["edge_degree"] or 0))
-				node_ids[node_id] = []
+				node_ids[node_id] = {"points": [], "base_types": set(), "turn_count": 0}
 			if not node_ids:
 				raise ValueError("Keine NODE-Punkte innerhalb der SIS-BBOX")
 			# via_node_id is the authoritative join; read only lines in the local area.
@@ -153,11 +153,21 @@ def build(source, manifest_path, output):
 				if g.geom_type not in ("LineString","MultiLineString"):
 					raise ValueError(f"TURN_USE {row['object_id']}: keine Linie")
 				metric = transform(TO_METRIC,g)
+				group = node_ids[node_id]
+				group["turn_count"] += 1
+				group["base_types"].add(row["base_type"])
 				for line in (metric.geoms if metric.geom_type=="MultiLineString" else (metric,)):
-					node_ids[node_id].extend(line.coords)
+					group["points"].extend(line.coords)
 			polygon_count = 0
-			for node_id, coords in node_ids.items():
-				num = len(coords)
+			excluded_only_7 = 0
+			for node_id, group in node_ids.items():
+				num = group["turn_count"]
+				if num and group["base_types"] == {7}:
+					dst.execute("INSERT INTO junction_audit VALUES (?,?,?,?)",
+						(node_id,num,"nur_base_type_7",0.))
+					excluded_only_7 += 1
+					continue
+				coords = group["points"]
 				hull = MultiPoint(coords).convex_hull if coords else None
 				if hull is None or hull.geom_type != "Polygon" or hull.area <= 0:
 					dst.execute("INSERT INTO junction_audit VALUES (?,?,?,?)",
@@ -175,7 +185,10 @@ def build(source, manifest_path, output):
 				"knotenradius_m":7,"max_axis_distance_m":25,
 				"achsen":axes,"voronoi_sites":sites,
 				"identische_sites_ausgelassen":duplicate_sites,"knoten":len(node_ids),
-				"kreuzungshuelle":polygon_count,"crs":"EPSG:31256"}
+				"kreuzungshuelle":polygon_count,
+				"nodes_nur_base_type_7_verworfen":excluded_only_7,
+				"kreuzungshuelle_filter":"Nur TURN_USE base_type=7 je NODE -> ausschließen",
+				"crs":"EPSG:31256"}
 			for k,v in meta.items():
 				dst.execute("INSERT INTO meta VALUES (?,?)",(k,json.dumps(v)))
 		temp.replace(output)
