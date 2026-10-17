@@ -23,28 +23,38 @@ def run(manifest_path, sis_db, out_root):
 	out_root, sis_db = Path(out_root), Path(sis_db)
 	with sqlite3.connect(f"file:{sis_db.resolve()}?mode=ro", uri=True) as db:
 		metadata = dict(db.execute("SELECT key,value FROM metadata"))
-		if metadata.get("schema") != SIS_SCHEMA or metadata.get("crs") != "EPSG:31256":
+		is_city = metadata.get("schema") == "sis-wien-index-v1"
+		if (metadata.get("schema") not in (SIS_SCHEMA,"sis-wien-index-v1")
+			or metadata.get("crs") != "EPSG:31256"):
 			raise ValueError("Unpassender SIS-Pilotindex")
-		source = Path(metadata.get("source_path",sis_db.parent/"SISBELAGOGD.json"))
-		if checksum(source) != metadata.get("sha256"):
-			raise ValueError("SIS-Quelldatei stimmt nicht mit Index überein")
-		row = db.execute("SELECT geom FROM street").fetchone()
-		if row is None:
-			raise ValueError("SIS-Union fehlt")
-		union = loads(row[0])
-		if union.is_empty or not union.is_valid:
-			raise ValueError("Ungültige SIS-Union")
+		if is_city:
+			from scripts.sis_wien_source import mask as city_mask
+			if not metadata.get("sha256"):
+				raise ValueError("Wien-Index nicht abgeschlossen")
+		else:
+			source = Path(metadata.get("source_path",sis_db.parent/"SISBELAGOGD.json"))
+			if checksum(source) != metadata.get("sha256"):
+				raise ValueError("SIS-Quelldatei stimmt nicht mit Index überein")
+			row = db.execute("SELECT geom FROM street").fetchone()
+			if row is None:
+				raise ValueError("SIS-Union fehlt")
+			union = loads(row[0])
+			if union.is_empty or not union.is_valid:
+				raise ValueError("Ungültige SIS-Union")
 		results = []
 		for tile in manifest["tiles"]:
 			core = box(*tile["bounds_31256"]).intersection(aoi)
-			clipped = union.intersection(core)
+			clipped = (city_mask(db,core) if is_city else union.intersection(core))
+			if clipped is None:
+				from shapely.geometry import Polygon
+				clipped = Polygon()
 			if not clipped.is_valid or clipped.difference(core).area > .01:
 				raise ValueError(f"{tile['id']}: ungültiger SIS-Schnitt")
 			path = out_root/tile["id"]/"street.sqlite"
 			meta = {"schema_version": "1", "crs": "EPSG:31256",
 				"tile_id": tile["id"], "strassenraum_regel_version": VERSION,
 				"sis_sha256": metadata["sha256"],
-				"sis_index_sha256": checksum(sis_db),
+				"sis_index_sha256": metadata["sha256"] if is_city else checksum(sis_db),
 				"manifest_sha256": checksum(manifest_path),
 				"strassenraum_m2": repr(clipped.area)}
 			if path.exists():
