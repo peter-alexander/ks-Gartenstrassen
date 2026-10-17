@@ -3,7 +3,7 @@
 Schreibt eine neue Partition, mit unveränderten Quellflächen und voller Bilanz.
 """
 import argparse
-from collections import Counter, defaultdict
+from collections import Counter
 import json
 from pathlib import Path
 import sqlite3
@@ -59,20 +59,23 @@ def run(gip_index, source_partition, output):
 			if method != "gip2-local-edge-turn-use-v1":
 				raise ValueError("Querschnittsversuch benötigt lokalen GIP2-Index")
 			src.backup(dst)
-			by_id = defaultdict(list)
-			for gid, blob in src.execute("SELECT gip_id,geom FROM parts "
-					"WHERE kind='abschnitt'"):
-				by_id[gid].append(loads(blob))
-			axes = dict(gip.execute("SELECT gip,wkb FROM axes"))
+			# Pro EDGE alle Kachelteile zu einer vollständigen lokalen
+			# Voronoi-Fläche vereinigen. Nicht alle Wiener Geometrien in RAM halten.
 			masks = {}
-			for gid, pieces in sorted(by_id.items()):
-				if gid not in axes:
-					raise ValueError(f"Fehlende GIP-EDGE {gid}")
-				axis = loads(axes[gid])
+			axis_rows = gip.execute("SELECT gip,wkb FROM axes")
+			edge_count = 0
+			for gid,axis_blob in axis_rows:
+				edge_count += 1
+				parts = [loads(blob) for (blob,) in src.execute(
+					"SELECT geom FROM parts WHERE kind='abschnitt' AND gip_id=?",
+					(gid,))]
+				if not parts:
+					continue
+				axis = loads(axis_blob)
 				if axis.geom_type != "LineString":
 					stats["multi_edge_uebersprungen"] += 1
 					continue
-				polygon = unary_union(pieces)
+				polygon = unary_union(parts)
 				candidates = []
 				for reverse in (False, True):
 					result, cross = evaluate(axis, polygon, reverse=reverse)
@@ -160,7 +163,7 @@ def run(gip_index, source_partition, output):
 		temp.unlink(missing_ok=True)
 		raise
 	return {"geschnittene_flaeche_m2":removed_total,
-		"achsen_mit_voronoi":len(by_id), "statistik":dict(stats)}
+		"gepruefte_gip_achsen":edge_count, "statistik":dict(stats)}
 
 
 def main():
