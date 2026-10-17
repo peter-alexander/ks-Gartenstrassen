@@ -191,7 +191,7 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		src.row_factory=sqlite3.Row
 		gip.row_factory=sqlite3.Row
 		actual=dict(src.execute("SELECT key,value FROM config"))
-		if actual!=expected:
+		if actual!=expected and actual!={**expected,"junction_policy":"none"}:
 			raise ValueError("Partition gehört zu anderem Manifest/GIP-Index")
 		gip_meta={row["key"]:json.loads(row["value"])
 			for row in gip.execute("SELECT key,value FROM meta")}
