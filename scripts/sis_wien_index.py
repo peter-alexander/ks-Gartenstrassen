@@ -135,6 +135,13 @@ def run(aoi_path, cache, database):
 			print(f"{i}/{len(grid)} {name}: {count} WFS-Features, "
 				f"{result['status']}, {'neu' if downloaded else 'XZ-Cache'}",
 				flush=True)
+		# Versionierter Fingerabdruck der vollständig importierten Quellkacheln.
+		rows = db.execute("SELECT tile_id,source_sha256,bbox_json "
+			"FROM imported_tiles ORDER BY tile_id").fetchall()
+		digest = hashlib.sha256(json.dumps(rows,separators=(",",":")).encode()).hexdigest()
+		with db:
+			db.execute("INSERT OR REPLACE INTO metadata VALUES (?,?)",
+				("sha256",digest))
 		stats["gesamte_eindeutige_features"] = db.execute(
 			"SELECT COUNT(*) FROM features").fetchone()[0]
 		stats["gesamte_importierte_kacheln"] = db.execute(
