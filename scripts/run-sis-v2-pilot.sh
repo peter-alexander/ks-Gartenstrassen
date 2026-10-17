@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SIS-basierte V2-Pilotanalyse – vollständig getrennter Arbeitsbereich.
-# Nutzt SIS statt FMZK+Kataster und lokale GIP2-TURN_USE-Kreuzungshüllen.
+# Nutzt SIS statt FMZK+Kataster und lokale GIP2-EDGE-Achsen ohne Kreuzungsausschnitte.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,7 +26,7 @@ Optionale Umgebung:
   PYTHON: Python aus requirements-analysis.txt
 
 V2 nutzt SIS und ausschließlich lokale GIP2 EDGE/NODE/TURN_USE.
-Konvexe TURN_USE-Kreuzungshüllen werden aus SIS ausgeschnitten.
+In diesem Versuch werden keine Kreuzungsflächen ausgeschnitten.
 HELP
 }
 
