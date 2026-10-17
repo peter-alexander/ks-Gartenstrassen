@@ -572,8 +572,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 					junction_polygon=union_all(hulls) if hulls else None
 				try:
 					results,unknown,stats=split_tile(street,core,sites,axes,nodes,
-						exclude_junctions=exclude_junctions, all_fow=all_fow,
-						junction_polygon=junction_polygon)
+						exclude_junctions=exclude_junctions and not gip2_hulls,
+						all_fow=all_fow, junction_polygon=junction_polygon)
 				except (ValueError,GEOSException) as exc:
 					raise ValueError(f"{tile['id']}: {exc}") from exc
 				elapsed=perf_counter()-start
