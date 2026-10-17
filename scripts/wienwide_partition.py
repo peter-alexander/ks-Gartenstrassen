@@ -329,7 +329,8 @@ def _empty_tile_stats():
 
 
 def split_tile(street, core, sites, axes, nodes,
-	*, radius=7, max_distance=25, diagnostic=None, exclude_junctions=True, all_fow=False):
+	*, radius=7, max_distance=25, diagnostic=None, exclude_junctions=True, all_fow=False,
+		junction_polygon=None):
 	"""Identische Semantik zu V0, Voronoi-Sites aus globalem Index.
 
 	Voraussetzung: halo >= max_distance + 5 + 7. Schnitt erfolgt
@@ -345,8 +346,9 @@ def split_tile(street, core, sites, axes, nodes,
 		repair_events=repair_events)
 	if mask is None:
 		return {},{},_empty_tile_stats()
-	junction=_polygon(union_all([node.buffer(radius,resolution=12)
-		for node in nodes]).intersection(mask) if nodes and exclude_junctions else None,
+	junction=_polygon(junction_polygon.intersection(mask) if junction_polygon is not None
+		else (union_all([node.buffer(radius,resolution=12) for node in nodes]).intersection(mask)
+		if nodes and exclude_junctions else None),
 		"Knotenbereich",repair_events=repair_events)
 	remaining=mask.difference(junction) if junction is not None else mask
 	assigned=defaultdict(list)
@@ -508,7 +510,7 @@ def report_results(db, manifest):
 
 
 def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
-		exclude_junctions=True, all_fow=False):
+		exclude_junctions=True, all_fow=False, gip2_hulls=False):
 	manifest,aoi=read_manifest(manifest_path)
 	street_root,output=Path(street_root),Path(output)
 	from scripts.wienwide_street import load_street_tile
@@ -533,6 +535,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 				expected["junction_policy"]="none"
 			if all_fow:
 				expected["fow_policy"]="all"
+			if gip2_hulls:
+				expected["junction_policy"]="gip2-turn-use-convex-hull"
 			if not orig_config:
 				with target:
 					for key,value in expected.items():
@@ -556,9 +560,20 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 				street=load_street_tile(source,core)
 				sites,axes,nodes=graph_context(gip,tile["bounds_31256"],
 					halo=manifest["halo_m"])
+				junction_polygon=None
+				if gip2_hulls:
+					bounds=core.bounds
+					from shapely import union_all
+					from shapely.wkb import loads
+					hulls=[loads(r[0]) for r in gip.execute("""
+						SELECT j.geom FROM junctions j JOIN junction_spatial s ON s.pk=j.rowid
+						WHERE s.maxx>=? AND s.minx<=? AND s.maxy>=? AND s.miny<=?""",
+						(bounds[0],bounds[2],bounds[1],bounds[3]))]
+					junction_polygon=union_all(hulls) if hulls else None
 				try:
 					results,unknown,stats=split_tile(street,core,sites,axes,nodes,
-						exclude_junctions=exclude_junctions, all_fow=all_fow)
+						exclude_junctions=exclude_junctions, all_fow=all_fow,
+						junction_polygon=junction_polygon)
 				except (ValueError,GEOSException) as exc:
 					raise ValueError(f"{tile['id']}: {exc}") from exc
 				elapsed=perf_counter()-start
@@ -582,6 +597,8 @@ def main():
 	p.add_argument("--street-root",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--limit-tiles",type=int,help="Begrenzter Diagnoselauf")
+	p.add_argument("--gip2-hulls",action="store_true",
+		help="Kreuzungsausschluss aus lokalen GIP2 NODE/TURN_USE-Hüllen")
 	p.add_argument("--all-fow",action="store_true",
 		help="Alle GIP-Achsen unabhängig von FOW zuordnen")
 	p.add_argument("--no-junctions",action="store_true",
@@ -589,7 +606,8 @@ def main():
 	args=p.parse_args()
 	try:
 		report=run(args.manifest,args.gip_index,args.street_root,args.out,
-			limit_tiles=args.limit_tiles, exclude_junctions=not args.no_junctions, all_fow=args.all_fow)
+			limit_tiles=args.limit_tiles, exclude_junctions=not args.no_junctions, all_fow=args.all_fow,
+			gip2_hulls=args.gip2_hulls)
 		print(json.dumps(report,ensure_ascii=False,indent=2))
 	except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
 		p.exit(1,f"Fehler: {exc}\n")
