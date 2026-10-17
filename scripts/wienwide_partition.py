@@ -529,7 +529,7 @@ def report_results(db, manifest):
 
 
 def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
-		exclude_junctions=True, all_fow=False, gip2_hulls=False):
+		exclude_junctions=True, all_fow=False, gip2_hulls=False, gip2_local=False):
 	manifest,aoi=read_manifest(manifest_path)
 	street_root,output=Path(street_root),Path(output)
 	from scripts.wienwide_street import load_street_tile
@@ -537,7 +537,7 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 		metadata=dict((r["key"],json.loads(r["value"]))
 			for r in gip.execute("SELECT key,value FROM meta"))
 		_validate_index_metadata(metadata,checksum(manifest_path),
-			gip2_hulls=gip2_hulls)
+			gip2_hulls=gip2_hulls or gip2_local)
 		tiles=manifest["tiles"]
 		if limit_tiles is not None:
 			if limit_tiles<1:raise ValueError("limit_tiles muss positiv sein")
@@ -614,6 +614,8 @@ def main():
 	p.add_argument("--street-root",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--limit-tiles",type=int,help="Begrenzter Diagnoselauf")
+	p.add_argument("--gip2-local",action="store_true",
+		help="Lokaler GIP2-EDGE-Index ohne Kreuzungsausschnitt")
 	p.add_argument("--gip2-hulls",action="store_true",
 		help="Kreuzungsausschluss aus lokalen GIP2 NODE/TURN_USE-Hüllen")
 	p.add_argument("--all-fow",action="store_true",
@@ -624,7 +626,7 @@ def main():
 	try:
 		report=run(args.manifest,args.gip_index,args.street_root,args.out,
 			limit_tiles=args.limit_tiles, exclude_junctions=not args.no_junctions, all_fow=args.all_fow,
-			gip2_hulls=args.gip2_hulls)
+			gip2_hulls=args.gip2_hulls, gip2_local=args.gip2_local)
 		print(json.dumps(report,ensure_ascii=False,indent=2))
 	except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
 		p.exit(1,f"Fehler: {exc}\n")
