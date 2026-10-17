@@ -329,7 +329,7 @@ def _empty_tile_stats():
 
 
 def split_tile(street, core, sites, axes, nodes,
-	*, radius=7, max_distance=25, diagnostic=None):
+	*, radius=7, max_distance=25, diagnostic=None, exclude_junctions=True):
 	"""Identische Semantik zu V0, Voronoi-Sites aus globalem Index.
 
 	Voraussetzung: halo >= max_distance + 5 + 7. Schnitt erfolgt
@@ -346,7 +346,7 @@ def split_tile(street, core, sites, axes, nodes,
 	if mask is None:
 		return {},{},_empty_tile_stats()
 	junction=_polygon(union_all([node.buffer(radius,resolution=12)
-		for node in nodes]).intersection(mask) if nodes else None,
+		for node in nodes]).intersection(mask) if nodes and exclude_junctions else None,
 		"Knotenbereich",repair_events=repair_events)
 	remaining=mask.difference(junction) if junction is not None else mask
 	assigned=defaultdict(list)
@@ -507,7 +507,8 @@ def report_results(db, manifest):
 	}
 
 
-def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None):
+def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
+		exclude_junctions=True):
 	manifest,aoi=read_manifest(manifest_path)
 	street_root,output=Path(street_root),Path(output)
 	from scripts.wienwide_street import load_street_tile
@@ -528,6 +529,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None):
 			orig_config=dict(target.execute("SELECT key,value FROM config"))
 			expected={"manifest_sha256":checksum(manifest_path),
 				"gip_sha256":checksum(gip_path),"schema_version":str(SCHEMA)}
+			if not exclude_junctions:
+				expected["junction_policy"]="none"
 			if not orig_config:
 				with target:
 					for key,value in expected.items():
@@ -552,7 +555,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None):
 				sites,axes,nodes=graph_context(gip,tile["bounds_31256"],
 					halo=manifest["halo_m"])
 				try:
-					results,unknown,stats=split_tile(street,core,sites,axes,nodes)
+					results,unknown,stats=split_tile(street,core,sites,axes,nodes,
+						exclude_junctions=exclude_junctions)
 				except (ValueError,GEOSException) as exc:
 					raise ValueError(f"{tile['id']}: {exc}") from exc
 				elapsed=perf_counter()-start
