@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SIS-basierte V2-Pilotanalyse – vollständig getrennter Arbeitsbereich.
-# Nutzt SIS statt FMZK+Kataster, GIP V0-Kreuzungsregel bis zur fachlichen Prüfung.
+# Nutzt SIS statt FMZK+Kataster, GIP-Voronoi ohne Kreuzungsausschluss.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
 ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
-SIS="${SIS_V2_SOURCE:-}"
+SIS="${SIS_V2_SOURCE:-/data/raw/SISBELAGOGD.json}"
 STAGES=(sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=pmtiles
@@ -19,12 +19,12 @@ bash scripts/run-sis-v2-pilot.sh [--from PHASE] [--until PHASE] [--no-grm]
 Phasen: sis aoi grid gip-fetch gip-index street partition qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
-  SIS_V2_SOURCE: lokal vorhandenes SISBELAGOGD.json; sonst Download Testquelle
+  SIS_V2_SOURCE: lokale SIS-Datei (Standard: /data/raw/SISBELAGOGD.json)
   SIS_V2_ROOT: separates Ausgabeverzeichnis (kein V0-Pfad!)
   PYTHON: Python aus requirements-analysis.txt
 
 V2 nutzt für Straßenflächen ausschließlich SIS. GIP-Kanten und GRM 2023
-werden wie bisher eingelesen, die alte V0-Kreuzungsregel bleibt vorläufig.
+werden wie bisher eingelesen; Kreuzungen werden noch nicht ausgeschnitten.
 HELP
 }
 
@@ -62,11 +62,8 @@ for ((i=start;i<=end;i++)); do
 	case "$step" in
 		sis)
 			if [[ ! -e "$ROOT/sis/sis.sqlite" ]]; then
-				if [[ -n "$SIS" ]]; then
-					"$PYTHON" -m scripts.sis_belagsflaechen --source-file "$SIS" --out-dir "$ROOT/sis"
-				else
-					"$PYTHON" -m scripts.sis_belagsflaechen --out-dir "$ROOT/sis"
-				fi
+				[[ -f "$SIS" ]] || { echo "SIS-Datei fehlt: $SIS" >&2; exit 1; }
+				"$PYTHON" -m scripts.sis_belagsflaechen --source-file "$SIS" --out-dir "$ROOT/sis"
 			fi;;
 		aoi)
 			[[ -e "$ROOT/aoi.geojson" ]] || "$PYTHON" -m scripts.sis_v2_aoi \
