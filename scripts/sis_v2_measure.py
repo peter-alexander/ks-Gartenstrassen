@@ -75,10 +75,12 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		if meta.get("crs") != "EPSG:31256" or meta.get("provider") != "SISBELAGOGD":
 			raise ValueError("Ungültiger SIS-Index")
 		config = dict(partition.execute("SELECT key,value FROM config"))
+		config.pop("querschnitt_regel",None)
 		expected = {"schema_version":"1", "manifest_sha256":checksum(manifest_path),
 			"gip_sha256":checksum(gip_path)}
 		if config not in ({**expected,"junction_policy":"none","fow_policy":"all"},
-			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"}):
+			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"},
+			{**expected,"junction_policy":"voronoi-stable-width-v1","fow_policy":"all"}):
 			raise ValueError("SIS V2 benötigt eine unterstützte Voronoi-Partition")
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
