@@ -115,6 +115,25 @@ def import_tile(db, tile_id, bbox, path):
 	return {"tile":tile_id,"status":"importiert","neu":new,"duplikate":duplicate}
 
 
+def verify_complete(db, grid):
+	"""Explizite Vollständigkeitsprüfung vor Freigabe der Analyse."""
+	expected = {name: json.dumps(list(bounds)) for name,bounds in grid}
+	actual = {name: bbox for name,bbox in db.execute(
+		"SELECT tile_id,bbox_json FROM imported_tiles")}
+	if expected != actual:
+		missing = sorted(set(expected) - set(actual))
+		excess = sorted(set(actual) - set(expected))
+		changed = sorted(name for name in set(expected) & set(actual)
+			if expected[name] != actual[name])
+		raise ValueError(f"SIS-Wien-Import unvollständig oder abweichend: "
+			f"fehlend={missing[:5]}, zusätzlich={excess[:5]}, "
+			f"abweichende BBOX={changed[:5]}")
+	if db.execute("SELECT COUNT(*) FROM feature_index").fetchone()[0] != (
+			db.execute("SELECT COUNT(*) FROM features").fetchone()[0]):
+		raise ValueError("SIS-R-Tree unvollständig")
+	return True
+
+
 def run(aoi_path, cache, database):
 	aoi = load_aoi(aoi_path)
 	grid = list(tiles(aoi))
@@ -135,6 +154,7 @@ def run(aoi_path, cache, database):
 			print(f"{i}/{len(grid)} {name}: {count} WFS-Features, "
 				f"{result['status']}, {'neu' if downloaded else 'XZ-Cache'}",
 				flush=True)
+		verify_complete(db,grid)
 		# Versionierter Fingerabdruck der vollständig importierten Quellkacheln.
 		rows = db.execute("SELECT tile_id,source_sha256,bbox_json "
 			"FROM imported_tiles ORDER BY tile_id").fetchall()
