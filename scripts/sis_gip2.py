@@ -90,6 +90,7 @@ def build(source, manifest_path, output):
 			axes = 0
 			sites = 0
 			seen = {}
+			duplicate_sites = 0
 			for row in spatial("EDGE", wgs_bounds):
 				g = gpkg_geom(row["geom"])
 				if g is None or g.is_empty:
@@ -111,7 +112,11 @@ def build(source, manifest_path, output):
 					pt = g.interpolate((i+.5)/n, normalized=True)
 					if not search.covers(pt):
 						continue
-					# Shared coordinates at parallel/overlapping edges are legal in GIP 2.0.
+					key = (round(pt.x, 7), round(pt.y, 7))
+					if key in seen:
+						duplicate_sites += 1
+						continue
+					seen[key] = edge_id
 					dst.execute("INSERT INTO sites(axis_pk,x,y) VALUES (?,?,?)",
 						(cur.lastrowid, pt.x,pt.y))
 					dst.execute("INSERT INTO site_spatial VALUES (?,?,?,?,?)",
@@ -168,7 +173,8 @@ def build(source, manifest_path, output):
 			meta = {"manifest_sha256":checksum(manifest_path),"source_sha256":checksum(source),
 				"source":"gip_network_ogd.gpkg","sampling_m":5,
 				"knotenradius_m":7,"max_axis_distance_m":25,
-				"achsen":axes,"voronoi_sites":sites,"knoten":len(node_ids),
+				"achsen":axes,"voronoi_sites":sites,
+				"identische_sites_ausgelassen":duplicate_sites,"knoten":len(node_ids),
 				"kreuzungshuelle":polygon_count,"crs":"EPSG:31256"}
 			for k,v in meta.items():
 				dst.execute("INSERT INTO meta VALUES (?,?)",(k,json.dumps(v)))
