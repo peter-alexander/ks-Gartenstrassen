@@ -329,7 +329,7 @@ def _empty_tile_stats():
 
 
 def split_tile(street, core, sites, axes, nodes,
-	*, radius=7, max_distance=25, diagnostic=None, exclude_junctions=True):
+	*, radius=7, max_distance=25, diagnostic=None, exclude_junctions=True, all_fow=False):
 	"""Identische Semantik zu V0, Voronoi-Sites aus globalem Index.
 
 	Voraussetzung: halo >= max_distance + 5 + 7. Schnitt erfolgt
@@ -394,7 +394,7 @@ def split_tile(street, core, sites, axes, nodes,
 			if near is None:
 				continue
 			remaining=remaining.difference(near)
-			if axis["fow"]==3:
+			if all_fow or axis["fow"]==3:
 				assigned[axis["id"]].append(near)
 			else:
 				special.append(near)
@@ -508,7 +508,7 @@ def report_results(db, manifest):
 
 
 def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
-		exclude_junctions=True):
+		exclude_junctions=True, all_fow=False):
 	manifest,aoi=read_manifest(manifest_path)
 	street_root,output=Path(street_root),Path(output)
 	from scripts.wienwide_street import load_street_tile
@@ -531,6 +531,8 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 				"gip_sha256":checksum(gip_path),"schema_version":str(SCHEMA)}
 			if not exclude_junctions:
 				expected["junction_policy"]="none"
+			if all_fow:
+				expected["fow_policy"]="all"
 			if not orig_config:
 				with target:
 					for key,value in expected.items():
@@ -556,7 +558,7 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 					halo=manifest["halo_m"])
 				try:
 					results,unknown,stats=split_tile(street,core,sites,axes,nodes,
-						exclude_junctions=exclude_junctions)
+						exclude_junctions=exclude_junctions, all_fow=all_fow)
 				except (ValueError,GEOSException) as exc:
 					raise ValueError(f"{tile['id']}: {exc}") from exc
 				elapsed=perf_counter()-start
@@ -580,12 +582,14 @@ def main():
 	p.add_argument("--street-root",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--limit-tiles",type=int,help="Begrenzter Diagnoselauf")
+	p.add_argument("--all-fow",action="store_true",
+		help="Alle GIP-Achsen unabhängig von FOW zuordnen")
 	p.add_argument("--no-junctions",action="store_true",
 		help="Nur Voronoi: keine Kreuzungsflächen abziehen")
 	args=p.parse_args()
 	try:
 		report=run(args.manifest,args.gip_index,args.street_root,args.out,
-			limit_tiles=args.limit_tiles, exclude_junctions=not args.no_junctions)
+			limit_tiles=args.limit_tiles, exclude_junctions=not args.no_junctions, all_fow=args.all_fow)
 		print(json.dumps(report,ensure_ascii=False,indent=2))
 	except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
 		p.exit(1,f"Fehler: {exc}\n")
