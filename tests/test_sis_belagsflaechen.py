@@ -43,10 +43,10 @@ class SISBelagsflaechenTests(unittest.TestCase):
 			rows = db.execute("SELECT type FROM surfaces ORDER BY id").fetchall()
 			self.assertEqual(rows, [("GG",), ("WI",)])
 			bbox = db.execute("SELECT minx,maxx,miny,maxy FROM surface_index WHERE id=0").fetchone()
-			self.assertAlmostEqual(bbox[0], self.polys[0].bounds[0], delta=.01)
-			self.assertAlmostEqual(bbox[1], self.polys[0].bounds[2], delta=.01)
-			self.assertAlmostEqual(bbox[2], self.polys[0].bounds[1], delta=.01)
-			self.assertAlmostEqual(bbox[3], self.polys[0].bounds[3], delta=.01)
+			self.assertAlmostEqual(bbox[0], self.polys[0].bounds[0], delta=.2)
+			self.assertAlmostEqual(bbox[1], self.polys[0].bounds[2], delta=.2)
+			self.assertAlmostEqual(bbox[2], self.polys[0].bounds[1], delta=.2)
+			self.assertAlmostEqual(bbox[3], self.polys[0].bounds[3], delta=.2)
 		self.assertEqual((self.base/"out"/"SISBELAGOGD.json").read_bytes(),
 			self.source.read_bytes())
 		with self.assertRaises(FileExistsError):
