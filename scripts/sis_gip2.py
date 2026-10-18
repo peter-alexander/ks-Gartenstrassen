@@ -36,7 +36,7 @@ def gpkg_geom(blob):
 
 
 def read_only(path):
-	return sqlite3.connect("file:" + quote(str(Path(path).resolve()), safe="/") + "?mode=ro", uri=True)
+	return sqlite3.connect("file:" + quote(str(Path(path).resolve()), safe="/") + "?mode=ro&immutable=1", uri=True)
 
 
 def build(source, manifest_path, output):
