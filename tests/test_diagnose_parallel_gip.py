@@ -3,12 +3,13 @@ import json
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, box
 from shapely.wkb import dumps
 
-from scripts.diagnose_parallel_gip import Axis, find_parallel_pairs, read_axes, run
+from scripts.diagnose_parallel_gip import Axis, find_parallel_pairs, read_axes, run, require_complete_wien
 
 
 def edge(gid, points, *, name="Hauptstraße", fow=3, start="s", end="e"):
@@ -81,6 +82,36 @@ class GIPParallelTests(unittest.TestCase):
 			self.assertEqual(features["features"][0]["properties"]["gruppe"], 1)
 			with self.assertRaises(FileExistsError):
 				run(index, out)
+
+
+	def test_wien_validation_rejects_pilot_and_wrong_index(self):
+		with TemporaryDirectory() as tmp:
+			index = Path(tmp) / "gip.sqlite"
+			manifest = Path(tmp) / "raster.json"
+			manifest.write_text("synthetic checksum source")
+			with sqlite3.connect(index) as db:
+				db.execute("CREATE TABLE meta (key TEXT, value TEXT)")
+				db.execute("CREATE TABLE axes (gip TEXT)")
+				db.executemany("INSERT INTO axes VALUES (?)",
+					((str(i),) for i in range(10_000)))
+				db.executemany("INSERT INTO meta VALUES (?,?)", (
+					("manifest_sha256", json.dumps("verified")),
+					("achsen", json.dumps(10_000)),
+					("crs", json.dumps("EPSG:31256")),
+				))
+			tiles = [{"id": i} for i in range(500)]
+			with patch("scripts.diagnose_parallel_gip.checksum", return_value="verified"):
+				with patch("scripts.diagnose_parallel_gip.read_manifest",
+						return_value=({"tiles": tiles}, box(0, 0, 1000, 1000))):
+					with self.assertRaisesRegex(ValueError, "Kein Wien-Gesamtgebiet"):
+						require_complete_wien(index, manifest)
+				with patch("scripts.diagnose_parallel_gip.read_manifest",
+						return_value=({"tiles": tiles}, box(0, 0, 20000, 20000))):
+					self.assertEqual(require_complete_wien(index, manifest)["axes"], 10_000)
+			with patch("scripts.diagnose_parallel_gip.read_manifest",
+					return_value=({"tiles": tiles}, box(0, 0, 20000, 20000))):
+				with self.assertRaisesRegex(ValueError, "gehört nicht"):
+					require_complete_wien(index, manifest)
 
 
 if __name__ == "__main__":
