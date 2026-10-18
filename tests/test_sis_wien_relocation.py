@@ -1,5 +1,6 @@
 """Umzug des Wiener SIS-Arbeitsverzeichnisses ohne Änderung der Provenienz."""
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -29,6 +30,8 @@ class SISWienRelocationTests(unittest.TestCase):
 			"EPSG:31256", "EPSG:4326", always_xy=True
 		).transform
 		x, y = to_metric(16.36, 48.22)
+		x = math.floor(x / 250) * 250 + 50
+		y = math.floor(y / 250) * 250 + 50
 		self.old_aoi = self.old / "aoi.geojson"
 		self.old_aoi.write_text(
 			json.dumps(mapping(transform(to_wgs, box(x, y, x + 20, y + 20)))),
