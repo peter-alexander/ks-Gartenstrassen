@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Wienweiter SIS-V2-Lauf: wählbarer Datenordner; Standard bleibt /mnt/e.
+# Wienweiter SIS-V2-Lauf: Wiener Arbeitsdaten im lokalen Repo (data/wien, gitignored).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ROOT="${SIS_WIEN_ROOT:-/mnt/e/Gartenstrassen}"
+REPO_ROOT="$(pwd)"
+ROOT="${SIS_WIEN_ROOT:-$REPO_ROOT/data/wien}"
 PYTHON="${PYTHON:-.venv/bin/python}"
 GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
 AOI="${SIS_WIEN_AOI:-$ROOT/aoi/wien.geojson}"
