@@ -8,6 +8,7 @@ import argparse
 from collections import defaultdict
 from contextlib import closing
 import csv
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -80,6 +81,15 @@ def _intersect_area(part, mask):
 	return part.intersection(mask).area if mask is not None else 0.
 
 
+def _grm_source_fingerprint(tiles, grm_root):
+	"""SHA-256-gebundener Nachweis der GRM-Masken für alle Kacheln."""
+	if grm_root is None:
+		return None
+	entries = [(tile["id"],checksum(Path(grm_root)/"masken"/tile["id"]/"crown.sqlite"))
+		for tile in tiles]
+	return hashlib.sha256(json.dumps(entries,separators=(",",":")).encode()).hexdigest()
+
+
 def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		out_dir, grm_root=None, grm_raw_root=None, *, resume=False):
 	manifest, aoi = read_manifest(manifest_path)
@@ -117,7 +127,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				or report.get("sis_source_sha256") != meta["sha256"]
 				or report.get("gip_sha256") != gip_sha
 				or report.get("partition_sha256") != partition_sha
-				or report.get("grm_available") != (grm_root is not None)):
+				or report.get("grm_available") != (grm_root is not None)
+				or report.get("grm_masks_sha256") != _grm_source_fingerprint(
+					manifest["tiles"], grm_root)):
 				raise ValueError("Vorhandene Messausgabe gehört zu anderen Eingaben")
 			for name,key in (("gip_abschnitte.csv","csv_sha256"),
 					("gip_abschnitte.geojson","geojson_sha256")):
@@ -249,6 +261,14 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		total_area = sum(item["area"] for item in groups.values())
 		total_vegetation = sum(item["vegetation"] for item in groups.values())
 		total_crown = sum(item["crown"] for item in groups.values())
+		grm_fingerprint = None
+		if grm_root is not None:
+			entries = list(checkpoint.execute(
+				"SELECT tile_id,grm_sha FROM tiles ORDER BY tile_id"))
+			if len(entries) != len(manifest["tiles"]):
+				raise ValueError("GRM-Messcheckpoint nicht vollständig")
+			grm_fingerprint = hashlib.sha256(json.dumps(entries,
+				separators=(",",":")).encode()).hexdigest()
 		stage.mkdir(parents=True)
 		try:
 			with (stage/"gip_abschnitte.csv").open("w",newline="",encoding="utf-8") as target, \
@@ -281,7 +301,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			report = {"provider":VERSION, "manifest_sha256":manifest_sha,
 				"sis_source_sha256":meta["sha256"],"sis_index_sha256":checksum(sis_path),
 				"gip_sha256":gip_sha,"partition_sha256":partition_sha,
-				"grm_available":grm_root is not None,"gip_ids":len(groups),
+				"grm_available":grm_root is not None,
+				"grm_masks_sha256":grm_fingerprint,"gip_ids":len(groups),
 				"strassenraum_m2":balance["strassenraum_m2"],
 				"abschnittsflaeche_m2":balance["abschnitte_m2"],
 				"ungeklaert_m2":balance["ungeklaert_m2"],
