@@ -73,6 +73,7 @@ fi
 
 for ((i=start;i<=end;i++)); do
 	step="${STAGES[$i]}"
+	step_start=$SECONDS
 	echo "== SIS V2: $step =="
 	case "$step" in
 		sis)
@@ -124,17 +125,12 @@ for ((i=start;i<=end;i++)); do
 					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023" "${grm_args[@]}"
 			fi;;
 		pmtiles)
-			geojson="$ROOT/ergebnisse/gip_abschnitte.geojson"
-			archive="$ROOT/gartenstrassen_sis_v2.pmtiles"
-			if [[ -n "$PUBLISH" ]]; then
-				geojson="$PUBLISH/gip_abschnitte.geojson"
-				archive="$PUBLISH/gartenstrassen.pmtiles"
-				mkdir -p "$PUBLISH"
-			fi
-			[[ -f "$geojson" ]] || { echo "GeoJSON-Ausgabe fehlt: $geojson" >&2; exit 1; }
-			"$PYTHON" -m scripts.sis_v2_pmtiles \
-				--geojson "$geojson" --out "$archive" \
-				--min-area-m2 100 --replace;;
+			# Kein Mischen alter und neuer Veröffentlichungsdateien.
+			# Der Zwischenordner liegt nur während des Exports unter output/.
+			source="$ROOT/ergebnisse"
+			[[ -f "$source/bericht.json" ]] || source="$PUBLISH"
+			"$PYTHON" -m scripts.publish_wien \
+				--source "$source" --out "$PUBLISH";;
 		measure)
 			args=()
 			if ((WITH_GRM)); then
@@ -144,14 +140,8 @@ for ((i=start;i<=end;i++)); do
 			"$PYTHON" -m scripts.sis_v2_measure \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
 				--sis-db "$SIS_DB" --street-root "$ROOT/strassenraum" \
-				--partition-db "$ROOT/aufteilung.sqlite" --out-dir "$ROOT/ergebnisse" "${args[@]}"
-			if [[ -n "$PUBLISH" ]]; then
-				mkdir -p "$PUBLISH"
-				for name in gip_abschnitte.geojson gip_abschnitte.csv bericht.json; do
-					[[ ! -L "$PUBLISH/$name" ]] || { echo "Symlink in Ausgabe: $name" >&2; exit 1; }
-					cp -- "$ROOT/ergebnisse/$name" "$PUBLISH/$name.tmp"
-					mv -f -- "$PUBLISH/$name.tmp" "$PUBLISH/$name"
-				done
-			fi;;
+				--partition-db "$ROOT/aufteilung.sqlite" --out-dir "$ROOT/ergebnisse" \
+				--resume "${args[@]}";;
 	esac
+	echo "== $step abgeschlossen in $((SECONDS-step_start)) s =="
 done
