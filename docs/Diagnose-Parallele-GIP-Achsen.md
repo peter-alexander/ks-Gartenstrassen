@@ -35,12 +35,12 @@ Oder auf dem wienweiten GIP-WFS-Index:
 	--out-dir data/processed/wienweit/wien/gip-parallel-20m
 ~~~
 
-Der Parameter \`--distance-m\` ist optional (Standard: \`20\`). Die Ziele müssen neu sein oder noch keine der Diagnoseausgaben enthalten. Das Skript überschreibt keine vorhandenen Berichte.
+Der Parameter `--distance-m` ist optional (Standard: `20`). Die Ziele müssen neu sein oder noch keine der Diagnoseausgaben enthalten. Das Skript überschreibt keine vorhandenen Berichte.
 
 Ausgaben:
 
-- \`parallelpaare.json\`: Parameter, Zahl räumlicher Kandidaten und akzeptierter Paare, beidseitige Deckungsgrade/Richtungsanteile, FOW, Namensgleichheit, gemeinsame Knoten und verbundene Kandidatengruppen.
-- \`parallelpaare.geojson\`: die ursprünglichen Achsen beider Seiten jedes akzeptierten Paares, mit Paar- und Gruppenkennungen, um sie direkt in einem GIS oder im Kartenwerkzeug zu prüfen (EPSG:4326).
+- `parallelpaare.json`: Parameter, Zahl räumlicher Kandidaten und akzeptierter Paare, beidseitige Deckungsgrade/Richtungsanteile, FOW, Namensgleichheit, gemeinsame Knoten und verbundene Kandidatengruppen.
+- `parallelpaare.geojson`: die ursprünglichen Achsen beider Seiten jedes akzeptierten Paares, mit Paar- und Gruppenkennungen, um sie direkt in einem GIS oder im Kartenwerkzeug zu prüfen (EPSG:4326).
 
 Für die fachliche Prüfung zuerst getrennte Fahrbahn-/Radwegpaare, parallele benachbarte Straßen, Brücken/Unterführungen, Kreuzungsnähe und Gruppen mit mehr als zwei Achsen betrachten. Erst nach dieser Prüfung über die Gruppierung **der exklusiven Straßenflächen** entscheiden; GIP-Quellkanten und IDs nicht destruktiv verschmelzen.
 
