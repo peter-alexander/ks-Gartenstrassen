@@ -66,7 +66,9 @@ if ((start < 0 || end < start)); then
 	echo "Ungültige Phasenfolge" >&2
 	exit 2
 fi
-mkdir -p "$ROOT"
+if [[ "$FROM" != "pmtiles" ]]; then
+	mkdir -p "$ROOT"
+fi
 
 for ((i=start;i<=end;i++)); do
 	step="${STAGES[$i]}"
