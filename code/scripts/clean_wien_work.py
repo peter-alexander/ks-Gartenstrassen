@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import sqlite3
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -66,6 +67,20 @@ def verify(repo):
 	measurement = work / "wien" / "ergebnisse" / "bericht.json"
 	if not measurement.is_file() or checksum(measurement) != checksum(files["bericht.json"]):
 		raise ValueError("Veröffentlichter Bericht entspricht nicht dem aktuellen Arbeitslauf")
+	# Vor dem Entfernen der einzigen temporären QA-Geopackage zusätzlich
+	# prüfen, ob sie zur eben veröffentlichten Partition gehört.
+	qa = work / "wien" / "qa.gpkg"
+	if qa.is_symlink() or not qa.is_file():
+		raise FileNotFoundError("Wiener QA-GeoPackage fehlt")
+	with sqlite3.connect(f"file:{qa.resolve()}?mode=ro",uri=True) as db:
+		provenance = {key:json.loads(value) for key,value in
+			db.execute("SELECT key,value FROM qa_provenienz")}
+		if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+			raise ValueError("Wiener QA-Datenbank beschädigt")
+	if (provenance.get("manifest_sha256") != report["manifest_sha256"]
+		or provenance.get("gip_sha256") != report.get("gip_sha256")
+		or provenance.get("partition_sha256") != report.get("partition_sha256")):
+		raise ValueError("Wiener QA gehört nicht zur veröffentlichten Berechnung")
 	manifest = work / "wien" / "raster.json"
 	if not manifest.is_file() or report.get("manifest_sha256") != checksum(manifest):
 		raise ValueError("Ausgabe und Wiener Rastermanifest stimmen nicht überein")
