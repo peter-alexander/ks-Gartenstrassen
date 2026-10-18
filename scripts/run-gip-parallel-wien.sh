@@ -10,7 +10,7 @@ ANALYSIS="$ROOT/wien"
 
 [[ -d "$ROOT" ]] || {
 	echo "Abbruch: Wiener Daten fehlen: $ROOT" >&2
-	echo "Zuerst scripts/consolidate-wien-data.py --apply prüfen/ausführen." >&2
+	echo "Der GIP-Index wird beim Wien-Lauf in work/wien/ erzeugt." >&2
 	exit 1
 }
 [[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
