@@ -18,6 +18,7 @@ from scripts.wienwide_grm2023 import (
 	_verify_transparent_outside_aoi,build,chunks,decode_chunk,fetch,
 	mask_path,read_mask,verify_chunk,
 )
+from scripts.wienwide_grid import checksum
 
 
 class WienwideGrm2023Tests(unittest.TestCase):
@@ -163,16 +164,41 @@ class WienwideGrm2023Tests(unittest.TestCase):
 			manifest=self.manifest,aoi=self.aoi)
 		self.assertAlmostEqual(rebuilt.area,.25,delta=.001)
 
-	def test_transparent_white_inside_aoi_aborts_without_zero_mask(self):
+	def test_transparent_white_inside_aoi_never_enters_reusable_cache(self):
 		with Image.new("RGBA",(500,500),(235,235,235,255)) as image:
 			image.putpixel((self.px,self.py),(255,255,255,0))
 			buf=BytesIO()
 			image.save(buf,format="PNG")
-		self._fetch(buf.getvalue())
 		with self.assertRaisesRegex(ValueError,
 			"transparentes WMS-Weiß innerhalb Wiener AOI"):
-			build(self.manifest,self.root_cache)
+			self._fetch(buf.getvalue())
+		self.assertFalse((self.root_cache/"png"/self.tile["id"] /
+			(self.name+".png")).exists())
 		self.assertFalse(mask_path(self.root_cache,self.tile).exists())
+
+	def test_invalid_cached_png_is_quarantined_then_refetched(self):
+		self._fetch(self._png())
+		png=self.root_cache/"png"/self.tile["id"]/(self.name+".png")
+		meta=png.with_suffix(".json")
+		with Image.new("RGBA",(500,500),(235,235,235,255)) as image:
+			image.putpixel((self.px,self.py),(255,255,255,0))
+			buf=BytesIO()
+			image.save(buf,format="PNG")
+		png.write_bytes(buf.getvalue())
+		report=json.loads(meta.read_text(encoding="utf-8"))
+		report["png_sha256"]=checksum(png)
+		meta.write_text(json.dumps(report),encoding="utf-8")
+		fresh=self._png()
+		with patch("scripts.wienwide_grm2023.request_bytes",
+			side_effect=[b"cap",fresh]), patch(
+			"scripts.wienwide_grm2023.parse_capabilities",
+			return_value={"unterstuetzte_srs":["EPSG:31256"]}):
+			report=fetch(self.manifest,self.root_cache,pause_s=0)
+		self.assertEqual(report["neu_geladen"],1)
+		self.assertEqual(report["quarantaene"],1)
+		self.assertTrue((self.root_cache/"ungueltige_wms_antworten" /
+			self.tile["id"]).is_dir())
+		self.assertEqual(build(self.manifest,self.root_cache)["fertige_kacheln"],1)
 
 	def test_transparency_checks_pixel_footprint_not_only_center(self):
 		# Die transparente Zelle [1,2]x[3,4] trifft die
@@ -216,9 +242,10 @@ class WienwideGrm2023Tests(unittest.TestCase):
 			decode_chunk(png,self.geo,label="fehlende AOI")
 
 	def test_invalid_color_aborts_without_fake_zero_mask(self):
-		self._fetch(self._png(corrupt=True))
 		with self.assertRaisesRegex(ValueError,"unbekannte/transparente"):
-			build(self.manifest,self.root_cache)
+			self._fetch(self._png(corrupt=True))
+		self.assertFalse((self.root_cache/"png"/self.tile["id"] /
+			(self.name+".png")).exists())
 		self.assertFalse(mask_path(self.root_cache,self.tile).exists())
 
 	def test_empty_tree_but_fully_classified_raster_is_valid_zero(self):
