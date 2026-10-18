@@ -6,6 +6,7 @@ Keine FMZK-/Kataster-Abhängigkeiten, keine stillen NULL->0-Umwandlungen.
 """
 import argparse
 from collections import defaultdict
+from contextlib import closing
 import csv
 import json
 from pathlib import Path
@@ -86,6 +87,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 	out_dir, sis_path = Path(out_dir), Path(sis_path)
 	if out_dir.exists() and not resume:
 		raise FileExistsError(out_dir)
+	checkpoint_path = out_dir.parent / "messung.sqlite"
 	stage = out_dir.with_name(out_dir.name + ".tmp")
 	if stage.exists():
 		if stage.is_symlink() or not stage.is_dir():
@@ -94,7 +96,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		shutil.rmtree(stage)
 	with sqlite3.connect(f"file:{sis_path.resolve()}?mode=ro", uri=True) as sis, \
 			sqlite3.connect(f"file:{Path(partition_path).resolve()}?mode=ro", uri=True) as partition, \
-			connect_gip(gip_path) as gip:
+			connect_gip(gip_path) as gip, \
+			closing(sqlite3.connect(checkpoint_path)) as checkpoint:
 		meta = dict(sis.execute("SELECT key,value FROM metadata"))
 		if meta.get("crs") != "EPSG:31256" or meta.get("provider") != "SISBELAGOGD":
 			raise ValueError("Ungültiger SIS-Index")
@@ -128,6 +131,23 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			"SELECT gip,name,fow FROM axes")}
 		groups = defaultdict(lambda:{"area":0.,"vegetation":0.,
 			"crown":0.,"parts":0,"geometries":[]})
+		checkpoint.execute("PRAGMA journal_mode=DELETE")
+		checkpoint.executescript("""
+			CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+			CREATE TABLE IF NOT EXISTS tiles(
+				tile_id TEXT PRIMARY KEY, street_sha TEXT NOT NULL,
+				grm_sha TEXT NOT NULL, contributions_json TEXT NOT NULL);
+		""")
+		contract = {"schema":"sis-v2-measure-checkpoint-v1",
+			"manifest_sha256":manifest_sha,"sis_source_sha256":meta["sha256"],
+			"gip_sha256":gip_sha,"partition_sha256":partition_sha,
+			"with_grm":str(grm_root is not None)}
+		stored = dict(checkpoint.execute("SELECT key,value FROM metadata"))
+		if stored and stored != contract:
+			raise ValueError("Messcheckpoint gehört zu anderen Quellen")
+		if not stored:
+			with checkpoint:
+				checkpoint.executemany("INSERT INTO metadata VALUES (?,?)",contract.items())
 		is_city_sis = sis.execute(
 			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='features'"
 		).fetchone() is not None
@@ -137,6 +157,41 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			tid = tile["id"]
 			core = box(*tile["bounds_31256"]).intersection(aoi)
 			street_path = Path(street_root)/tid/"street.sqlite"
+			street_sha = checksum(street_path)
+			psha = partition.execute("SELECT street_sha256 FROM tiles WHERE id=?",
+				(tid,)).fetchone()
+			if psha is None or psha[0] != street_sha:
+				raise ValueError(f"{tid}: Partition für andere Straßenraumkachel")
+			grm_sha = (checksum(Path(grm_root)/"masken"/tid/"crown.sqlite")
+				if grm_root is not None else "")
+			cached = checkpoint.execute(
+				"SELECT street_sha,grm_sha,contributions_json FROM tiles WHERE tile_id=?",
+				(tid,)).fetchone()
+			if cached is not None:
+				if cached[:2] != (street_sha,grm_sha):
+					raise ValueError(f"{tid}: Messcheckpoint für andere Straßenraum-/GRM-Daten")
+				metrics = {gid:(area,veg,crown) for gid,area,veg,crown in
+					json.loads(cached[2])}
+				count = 0
+				for gid,stored_area,blob in partition.execute(
+					"SELECT gip_id,area,geom FROM parts WHERE tile_id=? AND kind='abschnitt'",(tid,)):
+					gid = str(gid)
+					if gid not in metrics or abs(metrics[gid][0]-stored_area) > max(.01,stored_area*1e-8):
+						raise ValueError(f"{tid}/{gid}: Messcheckpoint passt nicht zur Partition")
+					item = groups[gid]
+					item["area"] += stored_area
+					item["vegetation"] += metrics[gid][1]
+					item["crown"] += metrics[gid][2]
+					item["parts"] += 1
+					item["geometries"].append(loads(blob))
+					count += 1
+				if count != len(metrics):
+					raise ValueError(f"{tid}: Messcheckpoint unvollständig")
+				if tile_number == 1 or tile_number % 50 == 0 or tile_number == tile_count:
+					print(f"SIS V2 measure {tile_number}/{tile_count}: "
+						f"Checkpoint wiederverwendet | Laufzeit {_duration(monotonic()-started)}",
+						flush=True)
+				continue
 			with sqlite3.connect(f"file:{street_path.resolve()}?mode=ro", uri=True) as street:
 				street_meta = dict(street.execute("SELECT key,value FROM metadata"))
 				if (street_meta.get("strassenraum_regel_version") != VERSION
@@ -146,15 +201,12 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				street_geom = loads(street.execute("SELECT geom FROM street").fetchone()[0])
 				if not street_geom.is_valid or street_geom.difference(core).area > .01:
 					raise ValueError(f"{tid}: Straßenraum ungültig")
-			psha = partition.execute("SELECT street_sha256 FROM tiles WHERE id=?",
-				(tid,)).fetchone()
-			if psha is None or psha[0] != checksum(street_path):
-				raise ValueError(f"{tid}: Partition für andere Straßenraumkachel")
 			vegetation = _vegetation_mask(sis,core,city=is_city_sis)
 			crown = None
 			if grm_root is not None:
 				crown, _ = read_grm(grm_root,tile,manifest=manifest_path,aoi=aoi,
 					manifest_sha256=manifest_sha,raw_root=grm_raw_root)
+			contributions = []
 			for gid,stored_area,blob in partition.execute(
 				"SELECT gip_id,area,geom FROM parts WHERE tile_id=? AND kind='abschnitt'", (tid,)):
 				gid = str(gid)
@@ -175,6 +227,13 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				item["crown"] += c
 				item["parts"] += 1
 				item["geometries"].append(part)
+				contributions.append((gid,stored_area,v,c))
+			# Abschlussmarker und Kennzahlen atomar; nach einem Abbruch
+			# kann ausschließlich die unvollendete Kachel neu gemessen werden.
+			with checkpoint:
+				checkpoint.execute("INSERT INTO tiles VALUES (?,?,?,?)",
+					(tid,street_sha,grm_sha,json.dumps(contributions,
+						separators=(",",":"),allow_nan=False)))
 			if tile_number == 1 or tile_number % 50 == 0 or tile_number == tile_count:
 				elapsed = monotonic() - started
 				eta = elapsed / tile_number * (tile_count - tile_number)
