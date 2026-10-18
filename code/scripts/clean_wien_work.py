@@ -36,12 +36,36 @@ def verify(repo):
 		if file.is_symlink() or not file.is_file() or file.stat().st_size == 0:
 			raise FileNotFoundError(f"Vollständige Ausgabe fehlt: {file}")
 		files[name] = file
+	# Der Freigabemarker wird erst nach erfolgreicher Veröffentlichung
+	# aller vier Dateien geschrieben. Einzelne Restdateien zählen nicht.
+	marker = out / "freigabe.json"
+	if marker.is_symlink() or not marker.is_file():
+		raise FileNotFoundError("Keine vollständig freigegebene Wiener Ausgabe")
+	release = json.loads(marker.read_text(encoding="utf-8"))
+	if release.get("schema") != "gartenstrassen-wien-output-v1":
+		raise ValueError("Unbekannter Wiener Ausgabevertrag")
+	for name,file in files.items():
+		if release.get("files_sha256",{}).get(name) != checksum(file):
+			raise ValueError(f"Freigabe-Prüfsumme von {name} widerspricht der Datei")
 	with files["gartenstrassen.pmtiles"].open("rb") as file:
 		if file.read(8) != b"PMTiles\x03":
 			raise ValueError("Ungültiger PMTiles-v3-Header")
 	report = json.loads(files["bericht.json"].read_text(encoding="utf-8"))
 	if not isinstance(report.get("gip_ids"), int) or report["gip_ids"] < 10000:
 		raise ValueError("Bericht enthält keine Wien-weiten GIP-Abschnitte")
+	if report.get("grm_available") is not True:
+		raise ValueError("Baumkronen-Auswertung fehlt; work/ bleibt erhalten")
+	if (release.get("manifest_sha256") != report.get("manifest_sha256")
+		or release.get("gip_ids") != report["gip_ids"]
+		or release.get("publication_fow") != [2,3,14]
+		or release.get("min_area_m2") != 100):
+		raise ValueError("Freigabemarker widerspricht Messbericht/FOW-Regel")
+	if (report.get("geojson_sha256") != release["files_sha256"]["gip_abschnitte.geojson"]
+		or report.get("csv_sha256") != release["files_sha256"]["gip_abschnitte.csv"]):
+		raise ValueError("GeoJSON/CSV-Messquellen sind nicht identisch mit der Freigabe")
+	measurement = work / "wien" / "ergebnisse" / "bericht.json"
+	if not measurement.is_file() or checksum(measurement) != checksum(files["bericht.json"]):
+		raise ValueError("Veröffentlichter Bericht entspricht nicht dem aktuellen Arbeitslauf")
 	manifest = work / "wien" / "raster.json"
 	if not manifest.is_file() or report.get("manifest_sha256") != checksum(manifest):
 		raise ValueError("Ausgabe und Wiener Rastermanifest stimmen nicht überein")
