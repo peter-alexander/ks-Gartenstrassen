@@ -230,14 +230,11 @@ def fetch(manifest_path,root,*,pause_s=.4,raw_root=None):
 		png,report=chunk_paths(raw_root,tile,name)
 		core=box(*tile["bounds_31256"]).intersection(aoi)
 		if png.exists() or report.exists():
-			cached,record=verify_chunk(raw_root,tile,name,geo,url)
+			cached,_=verify_chunk(raw_root,tile,name,geo,url)
 			try:
-				# SHA-256, URL und Pixelgeometrie wurden bereits geprüft.
-				# Neuere Cache-Dateien bestätigen zusätzlich die erfolgreiche
-				# vollständige AOI-/Transparenzklassifikation beim Erstabruf.
-				# Alte Metadaten werden weiter wie bisher neu klassifiziert.
-				if record.get("aoi_validation_schema") != 1:
-					decode_chunk(cached,geo,label=f"{tile['id']}/{name}",core=core)
+				# Stets erneut auf unzulässige Transparenz innerhalb der AOI
+				# prüfen; auch aktualisierte Cache-Metadaten ersetzen dies nicht.
+				decode_chunk(cached,geo,label=f"{tile['id']}/{name}",core=core)
 			except ValueError as exc:
 				quarantine_chunk(raw_root,tile,name,cached,report,reason=str(exc))
 				quarantined.append(f"{tile['id']}/{name}")
