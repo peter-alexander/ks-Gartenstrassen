@@ -80,15 +80,18 @@ def _intersect_area(part, mask):
 
 
 def run(manifest_path, gip_path, sis_path, street_root, partition_path,
-		out_dir, grm_root=None, grm_raw_root=None):
+		out_dir, grm_root=None, grm_raw_root=None, *, resume=False):
 	manifest, aoi = read_manifest(manifest_path)
 	manifest_sha = checksum(manifest_path)
 	out_dir, sis_path = Path(out_dir), Path(sis_path)
-	if out_dir.exists():
+	if out_dir.exists() and not resume:
 		raise FileExistsError(out_dir)
 	stage = out_dir.with_name(out_dir.name + ".tmp")
 	if stage.exists():
-		raise FileExistsError(stage)
+		if stage.is_symlink() or not stage.is_dir():
+			raise FileExistsError(stage)
+		# Unvollständiger temporärer Export kann erneut erzeugt werden.
+		shutil.rmtree(stage)
 	with sqlite3.connect(f"file:{sis_path.resolve()}?mode=ro", uri=True) as sis, \
 			sqlite3.connect(f"file:{Path(partition_path).resolve()}?mode=ro", uri=True) as partition, \
 			connect_gip(gip_path) as gip:
@@ -98,12 +101,28 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		config = dict(partition.execute("SELECT key,value FROM config"))
 		config.pop("querschnitt_regel",None)
 		gip_sha = checksum(gip_path)
+		partition_sha = checksum(partition_path)
 		expected = {"schema_version":"1", "manifest_sha256":manifest_sha,
 			"gip_sha256":gip_sha}
 		if config not in ({**expected,"junction_policy":"none","fow_policy":"all"},
 			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"},
 			{**expected,"junction_policy":"voronoi-stable-width-v1","fow_policy":"all"}):
 			raise ValueError("SIS V2 benötigt eine unterstützte Voronoi-Partition")
+		if out_dir.exists():
+			report = json.loads((out_dir/"bericht.json").read_text(encoding="utf-8"))
+			if (report.get("manifest_sha256") != manifest_sha
+				or report.get("sis_source_sha256") != meta["sha256"]
+				or report.get("gip_sha256") != gip_sha
+				or report.get("partition_sha256") != partition_sha
+				or report.get("grm_available") != (grm_root is not None)):
+				raise ValueError("Vorhandene Messausgabe gehört zu anderen Eingaben")
+			for name,key in (("gip_abschnitte.csv","csv_sha256"),
+					("gip_abschnitte.geojson","geojson_sha256")):
+				if key not in report or checksum(out_dir/name) != report[key]:
+					raise ValueError(f"Messausgabe beschädigt: {name}")
+			print("SIS V2 measure: fertiges GeoJSON und CSV wiederverwendet",
+				flush=True)
+			return report
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
 			"SELECT gip,name,fow FROM axes")}
@@ -202,7 +221,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				geo.write("]}\n")
 			report = {"provider":VERSION, "manifest_sha256":manifest_sha,
 				"sis_source_sha256":meta["sha256"],"sis_index_sha256":checksum(sis_path),
-				"gip_sha256":gip_sha,"partition_sha256":checksum(partition_path),
+				"gip_sha256":gip_sha,"partition_sha256":partition_sha,
 				"grm_available":grm_root is not None,"gip_ids":len(groups),
 				"strassenraum_m2":balance["strassenraum_m2"],
 				"abschnittsflaeche_m2":balance["abschnitte_m2"],
@@ -219,7 +238,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				"boden_belag_codes":sorted(VEGETATION),
 				"boden_ueberlagerungsregel":"BL/ST/WI nur außerhalb aller übrigen BELAG-Flächen begrünt; Konfliktflächen konservativ nicht begrünt",
 				"klassifikation":"SIS BELAG BL/ST/WI = begrünt; alle anderen BELAG = nicht begrünt; alle TYPE einschließlich M1/M2 enthalten",
-				"kreuzungen":config["junction_policy"]}
+				"kreuzungen":config["junction_policy"],
+				"geojson_sha256":checksum(stage/"gip_abschnitte.geojson"),
+				"csv_sha256":checksum(stage/"gip_abschnitte.csv")}
 			(stage/"bericht.json").write_text(json.dumps(report,ensure_ascii=False,
 				indent=2)+"\n",encoding="utf-8")
 			stage.replace(out_dir)
@@ -235,10 +256,12 @@ def main():
 		p.add_argument("--"+name,required=True,type=Path)
 	p.add_argument("--grm-root",type=Path)
 	p.add_argument("--grm-raw-root",type=Path)
+	p.add_argument("--resume",action="store_true",
+		help="Vorhandene fertige Messergebnisse bei identischer Provenienz übernehmen")
 	a = vars(p.parse_args())
 	print(json.dumps(run(a["manifest"],a["gip_index"],a["sis_db"],
 		a["street_root"],a["partition_db"],a["out_dir"],a["grm_root"],
-		a["grm_raw_root"]),
+		a["grm_raw_root"],resume=a["resume"]),
 		ensure_ascii=False,indent=2))
 
 
