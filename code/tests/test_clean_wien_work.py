@@ -32,10 +32,31 @@ class CleanWienWorkTests(unittest.TestCase):
 			writer.writerow(["gip_id", "fow", "abschnitt_flaeche_m2"])
 			for i in range(10000):
 				writer.writerow([i, 3, 100])
-		(out / "bericht.json").write_text(json.dumps({
-			"gip_ids": 10000,
-			"manifest_sha256": checksum(work / "raster.json"),
-		}), encoding="utf-8")
+		fingerprint = checksum(work / "raster.json")
+		report = {"gip_ids": 10000, "manifest_sha256": fingerprint,
+			"grm_available": True, "gip_sha256": "gip-sha",
+			"partition_sha256": "partition-sha",
+			"geojson_sha256":checksum(out / "gip_abschnitte.geojson"),
+			"csv_sha256":checksum(out / "gip_abschnitte.csv")}
+		(out / "bericht.json").write_text(json.dumps(report),encoding="utf-8")
+		(work / "ergebnisse").mkdir()
+		(work / "ergebnisse" / "bericht.json").write_text(
+			json.dumps(report),encoding="utf-8")
+		with sqlite3.connect(work / "qa.gpkg") as db:
+			db.execute("CREATE TABLE qa_provenienz(key TEXT,value TEXT)")
+			db.executemany("INSERT INTO qa_provenienz VALUES (?,?)", [
+				("manifest_sha256",json.dumps(fingerprint)),
+				("gip_sha256",json.dumps("gip-sha")),
+				("partition_sha256",json.dumps("partition-sha")),
+			])
+		names = ("gip_abschnitte.geojson", "gip_abschnitte.csv",
+			"bericht.json", "gartenstrassen.pmtiles")
+		(out / "freigabe.json").write_text(json.dumps({
+			"schema":"gartenstrassen-wien-output-v1",
+			"manifest_sha256":fingerprint, "gip_ids":10000,
+			"publication_fow":[2,3,14], "min_area_m2":100,
+			"files_sha256":{name:checksum(out/name) for name in names},
+		}),encoding="utf-8")
 
 	def test_preview_never_deletes(self):
 		self.assertEqual(verify(self.root)["gip_ids"], 10000)
@@ -56,6 +77,13 @@ class CleanWienWorkTests(unittest.TestCase):
 
 	def test_invalid_archive_prevents_deletion(self):
 		(self.root / "output" / "gartenstrassen.pmtiles").write_bytes(b"garbage")
+		# Prüfsumme im Freigabemarker passend aktualisieren, damit hier
+		# gezielt die zusätzliche Magic-Header-Prüfung getestet wird.
+		marker_path = self.root / "output" / "freigabe.json"
+		marker = json.loads(marker_path.read_text(encoding="utf-8"))
+		marker["files_sha256"]["gartenstrassen.pmtiles"] = checksum(
+			self.root / "output" / "gartenstrassen.pmtiles")
+		marker_path.write_text(json.dumps(marker),encoding="utf-8")
 		with self.assertRaisesRegex(ValueError, "PMTiles"):
 			clean(self.root, apply=True)
 		self.assertTrue((self.root / "work" / "wien").exists())
