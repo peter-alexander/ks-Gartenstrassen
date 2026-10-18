@@ -17,25 +17,28 @@ In der [RgE-Analyse](https://github.com/peter-alexander/kartensammlung-overlay-b
 
 **Wichtig:** Das ist eine bewusst großzügige Kandidatensuche. Benachbarte, eigenständige Straßen können trotz Nähe und gleicher Richtung Treffer sein. Darüber hinaus können verkettete Paare transitive Gruppen bilden, obwohl ihre äußersten Kanten nicht zueinander passen. Solche Gruppen sind **keine automatisch freigegebenen Straßenabschnitte**. Für die eigentliche Zusammenfassung braucht es eine Prüfung von Namen, Graphverbindungen, Kreuzungen, FOW, Mehrfachzuordnungen und räumlicher Topologie.
 
-## Ausführen
+## Ausführen – ausschließlich Wien gesamt
 
-Mit vorhandenem SIS/GIP2-Index:
-
-~~~bash
-.venv/bin/python -m scripts.diagnose_parallel_gip \
-	--gip-index data/processed/sis-v2-run/gip.sqlite \
-	--out-dir data/processed/sis-v2-run/gip-parallel-20m
-~~~
-
-Oder auf dem wienweiten GIP-WFS-Index:
+Nach dem lokalen Umzug nach `data/wien`:
 
 ~~~bash
-.venv/bin/python -m scripts.diagnose_parallel_gip \
-	--gip-index data/processed/wienweit/wien/gip.sqlite \
-	--out-dir data/processed/wienweit/wien/gip-parallel-20m
+bash scripts/run-gip-parallel-wien.sh
 ~~~
 
-Der Parameter `--distance-m` ist optional (Standard: `20`). Die Ziele müssen neu sein oder noch keine der Diagnoseausgaben enthalten. Das Skript überschreibt keine vorhandenen Berichte.
+Der Einstiegspunkt verwendet immer `data/wien/analysis/wien/gip.sqlite` und
+`raster.json` (oder den explizit angegebenen `SIS_WIEN_ROOT`).
+Vor der Berechnung werden die echte Wien-AOI über das Rastermanifest geprüft
+(350–500 km², mindestens 400 Rasterkacheln), die Manifest-SHA im GIP-Index
+abgeglichen und mindestens 10.000 GIP-Achsen sowie die Index-Metadaten verlangt.
+Eine Testkachel oder ein Alsergrund-Pilot wird damit abgewiesen.
+
+Direktaufrufe von `scripts.diagnose_parallel_gip` benötigen nun verpflichtend
+`--manifest` zusätzlich zu `--gip-index` und `--out-dir`.
+Die 20 m bleiben über `--distance-m` konfigurierbar.
+Bereits vorhandene Diagnoseausgaben werden nicht überschrieben.
+
+Den Umzug von `~/Gartenstrassen` in das lokale Repository beschreibt
+[Wien-Datenumzug](Wien-Datenumzug.md).
 
 Ausgaben:
 

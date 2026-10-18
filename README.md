@@ -73,6 +73,22 @@ Methodik nicht rückwirkend umgedeutet.
 Ausführung und fachliche Einschränkungen:
 [**SIS-Belagsflächen – V2-Pilot**](docs/SIS-Belagsflaechen-V2-Pilot.md).
 
+## Wiener Arbeitsdaten und GIP-Parallelkantenanalyse
+
+Die vollständigen Wiener SIS-/GIP2-Daten werden **lokal innerhalb des
+Repositorys unter `data/wien/`** gespeichert (`data/` bleibt Git-ignored).
+Zum verlustarmen Verschieben des bisherigen WSL-Verzeichnisses
+`~/Gartenstrassen` gibt es einen geprüften
+[Datenumzug](docs/Wien-Datenumzug.md). Bestehende WFS-/GRM-Kacheln
+und SQLite-Dateien sollen **nicht neu heruntergeladen oder blind gelöscht** werden.
+
+Die [20-m-Parallelkantenanalyse](docs/Diagnose-Parallele-GIP-Achsen.md)
+prüft standardmäßig den **kompletten Wien-GIP2-Graphen** mit
+`bash scripts/run-gip-parallel-wien.sh`. Test-/Bezirks-AOIs werden
+anhand des Rastermanifests und der Datenbankmetadaten abgewiesen.
+Die Ausgabe dient ausschließlich zur Sichtkontrolle; noch keine
+automatische Vereinigung der Straßenabschnitte.
+
 ## Stand und Ergebnisse
 
 Der **erste vollständige Wien-Durchgang** ist erfolgreich abgeschlossen

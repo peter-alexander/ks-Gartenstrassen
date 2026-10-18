@@ -19,6 +19,8 @@ from shapely.geometry import mapping
 from shapely.ops import transform
 from shapely.wkb import loads
 
+from scripts.wienwide_grid import checksum, read_manifest
+
 DISTANCE_M = 20.0
 SHORT_COVER = 0.85
 LONG_COVER = 0.60
@@ -171,6 +173,38 @@ def read_axes(index):
 			raise ValueError("Kein kompatibler GIP-Index (axes/meta benötigt)") from exc
 
 
+
+def require_complete_wien(index_path, manifest_path):
+	"""Reject small pilot areas and indices from a different raster.
+
+	An AOI at Vienna scale plus a matching GIP-index manifest checksum
+	prevents the old test-tile path from being silently used.
+	"""
+	manifest, aoi = read_manifest(manifest_path)
+	area_km2 = aoi.area / 1_000_000
+	if not 350 <= area_km2 <= 500 or len(manifest["tiles"]) < 400:
+		raise ValueError(
+			f"Kein Wien-Gesamtgebiet: {area_km2:.2f} km², "
+			f"{len(manifest['tiles'])} Rasterkacheln; Test- und Bezirksgebiete "
+			"werden für diese Diagnose abgewiesen")
+	uri = "file:" + quote(str(Path(index_path).resolve()), safe="/") + "?mode=ro"
+	with sqlite3.connect(uri, uri=True) as db:
+		meta = {key: json.loads(value) for key, value in db.execute(
+			"SELECT key,value FROM meta WHERE key IN "
+			"('manifest_sha256','achsen','crs')")}
+		actual_axes = db.execute("SELECT COUNT(*) FROM axes").fetchone()[0]
+	if meta.get("manifest_sha256") != checksum(manifest_path):
+		raise ValueError("GIP-Index gehört nicht zu diesem Wiener Rastermanifest")
+	if meta.get("achsen") != actual_axes:
+		raise ValueError("GIP-Index Achsenzahl widerspricht seinen Metadaten")
+	if meta.get("crs", "EPSG:31256") != "EPSG:31256":
+		raise ValueError("GIP-Index benötigt metrisches EPSG:31256")
+	if actual_axes < 10_000:
+		raise ValueError(f"Zu wenige GIP-Achsen für Wien gesamt: {actual_axes}")
+	return {"aoi_km2": round(area_km2, 3), "tiles": len(manifest["tiles"]),
+		"axes": actual_axes, "manifest_sha256": checksum(manifest_path)}
+
+
 def run(index, output, *, distance_m=DISTANCE_M):
 	output = Path(output)
 	json_file = output / "parallelpaare.json"
@@ -212,9 +246,14 @@ def run(index, output, *, distance_m=DISTANCE_M):
 def main():
 	parser = argparse.ArgumentParser(description="Parallele GIP-Achsen prüfen; keine produktive Vereinigung")
 	parser.add_argument("--gip-index", type=Path, required=True, help="Vorhandene gip.sqlite in EPSG:31256")
+	parser.add_argument("--manifest", type=Path, required=True,
+		help="Zum GIP-Index gehörendes vollständiges Wiener raster.json; Pflichtprüfung")
 	parser.add_argument("--out-dir", type=Path, required=True, help="Separates Ausgabeverzeichnis")
 	parser.add_argument("--distance-m", type=float, default=DISTANCE_M)
 	args = parser.parse_args()
+	checked = require_complete_wien(args.gip_index, args.manifest)
+	print(f"Geprüfter Wien-Datensatz: {checked['aoi_km2']:.2f} km², "
+		f"{checked['tiles']} Rasterkacheln, {checked['axes']} GIP-Achsen", flush=True)
 	result = run(args.gip_index, args.out_dir, distance_m=args.distance_m)
 	print(f"GIP-Parallelprüfung: {result['achsen']} Achsen, "
 		f"{result['raumliche_kandidaten']} Nähepaare, "

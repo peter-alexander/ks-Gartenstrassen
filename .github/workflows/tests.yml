@@ -30,5 +30,7 @@ jobs:
           python-version: "3.12"
       - name: Python GIS-Pakete installieren
         run: python -m pip install -r requirements-analysis.txt
+      - name: Wiener Shell-Einstiegspunkte syntaktisch prüfen
+        run: bash -n scripts/migrate-wien-data-into-repo.sh scripts/run-gip-parallel-wien.sh scripts/run-sis-v2-wien.sh
       - name: Tests ohne Geodaten und ohne Netzabfragen ausführen
         run: python -m unittest discover -s tests -v
