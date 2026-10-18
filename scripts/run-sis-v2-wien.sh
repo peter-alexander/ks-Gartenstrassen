@@ -1,55 +1,60 @@
 #!/usr/bin/env bash
-# Wienweiter SIS-V2-Lauf: Wiener Arbeitsdaten im lokalen Repo (data/wien, gitignored).
+# Ein einziger Wien-Lauf: unveränderliche Rohdaten, berechenbare Arbeitsdaten, Ergebnisse.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO_ROOT="$(pwd)"
-ROOT="${SIS_WIEN_ROOT:-$REPO_ROOT/data/wien}"
+REPO="$(pwd -P)"
+RAW="$REPO/raw"
+WORK="$REPO/work"
+OUT="$REPO/output"
+ANALYSIS="$WORK/wien"
+DB="$WORK/sis-wien.sqlite"
+CACHE="$RAW/sis/wfs-kacheln"
+GIP2="$RAW/gip_network_ogd.gpkg"
+AOI="$RAW/aoi/wien.geojson"
 PYTHON="${PYTHON:-.venv/bin/python}"
-GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
-AOI="${SIS_WIEN_AOI:-$ROOT/aoi/wien.geojson}"
-ANALYSIS="$ROOT/analysis/wien"
-DB="$ROOT/sis-wien.sqlite"
-CACHE="$ROOT/wfs-kacheln"
 
-# Auf Windows-Mounts muss die eigentliche Partition eingehängt sein.
-# Für native WSL-Pfade ist das Zielverzeichnis bewusst vorab anzulegen;
-# ein Tippfehler darf keinen stillen Daten-Neulauf starten.
-case "$ROOT" in
-	/mnt/e/*)
-		[[ -d /mnt/e ]] && mountpoint -q /mnt/e || {
-			echo "Abbruch: /mnt/e ist kein eingehängtes Laufwerk" >&2
-			exit 1
-		}
-		;;
-	/*)
-		[[ -d "$ROOT" ]] || {
-			echo "Abbruch: SIS_WIEN_ROOT existiert nicht: $ROOT" >&2
-			exit 1
-		}
-		;;
-	*)
-		echo "Abbruch: SIS_WIEN_ROOT muss ein absoluter Pfad sein" >&2
-		exit 1
-		;;
-esac
-mkdir -p "$ROOT"
-[[ -w "$ROOT" ]] || { echo "Abbruch: Datenverzeichnis nicht beschreibbar: $ROOT" >&2; exit 1; }
-[[ -f "$GIP2" ]] || { echo "GIP2-Quelle fehlt: $GIP2" >&2; exit 1; }
-mkdir -p "$ROOT/aoi" "$ANALYSIS"
+if [[ -n "${SIS_WIEN_ROOT:-}" ]]; then
+	echo "SIS_WIEN_ROOT ist veraltet. Nur noch raw/, work/, output/ verwenden." >&2
+	exit 2
+fi
+
+[[ -d "$RAW" && ! -L "$RAW" ]] || {
+	echo "Rohdatenverzeichnis fehlt: $RAW. Zuerst Datenmigration durchführen." >&2
+	exit 1
+}
+[[ ! -L "$WORK" && ! -L "$OUT" ]] || {
+	echo "work/ und output/ dürfen keine Symlinks sein." >&2
+	exit 1
+}
+[[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
+
+# PMTiles-Nachbau benötigt nur das fertige GeoJSON, keine erneute WFS-Indexierung.
+if [[ "${1:-}" == "--from" && "${2:-}" == "pmtiles" ]]; then
+	SIS_V2_RAW_ROOT="$RAW" SIS_V2_ROOT="$ANALYSIS" \
+	SIS_V2_PUBLISH_DIR="$OUT" SIS_V2_GRM_RAW_ROOT="$RAW/grm2023" \
+		PYTHON="$PYTHON" bash scripts/run-sis-v2-pilot.sh "$@"
+	exit 0
+fi
+
+[[ -f "$GIP2" ]] || { echo "GIP2-Original fehlt: $GIP2" >&2; exit 1; }
+[[ -d "$CACHE" ]] || { echo "SIS-WFS-Kacheln fehlen: $CACHE" >&2; exit 1; }
+mkdir -p "$RAW/aoi" "$ANALYSIS"
 if [[ ! -f "$AOI" ]]; then
-	"$PYTHON" -m scripts.wienwide_aoi --wien --out-dir "$ROOT/aoi"
+	"$PYTHON" -m scripts.wienwide_aoi --wien --out-dir "$RAW/aoi"
 fi
 [[ -f "$AOI" ]] || { echo "Wien-AOI fehlt: $AOI" >&2; exit 1; }
 
-# Bereits abgeschlossene WFS-Kacheln und SQLite-Features werden wiederverwendet.
+# Vorhandene WFS-Rohantworten bleiben im raw/-Cache. Der Index ist temporär.
 "$PYTHON" -m scripts.sis_wien_index --aoi "$AOI" --cache "$CACHE" --database "$DB"
 if [[ ! -f "$ANALYSIS/aoi.geojson" ]]; then
 	cp -- "$AOI" "$ANALYSIS/aoi.geojson"
 elif ! cmp -s "$AOI" "$ANALYSIS/aoi.geojson"; then
-	echo "Wien-AOI hat sich geändert; vorhandenen Analysezustand nicht überschreiben" >&2
+	echo "AOI wurde geändert; vorhandene Wiener Arbeitsdaten nicht überschreiben." >&2
 	exit 1
 fi
 
-PYTHON="$PYTHON" GIP2_SOURCE="$GIP2" SIS_V2_ROOT="$ANALYSIS" SIS_V2_INDEX="$DB" \
+SIS_V2_RAW_ROOT="$RAW" SIS_V2_ROOT="$ANALYSIS" \
+	SIS_V2_INDEX="$DB" SIS_V2_PUBLISH_DIR="$OUT" \
+	SIS_V2_GRM_RAW_ROOT="$RAW/grm2023" GIP2_SOURCE="$GIP2" PYTHON="$PYTHON" \
 	bash scripts/run-sis-v2-pilot.sh --from grid "$@"
