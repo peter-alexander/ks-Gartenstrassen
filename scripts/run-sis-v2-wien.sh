@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Wienweiter SIS-V2-Lauf: alle großen Daten ausschließlich auf /mnt/e.
+# Wienweiter SIS-V2-Lauf: wählbarer Datenordner; Standard bleibt /mnt/e.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ROOT="/mnt/e/Gartenstrassen"
+ROOT="${SIS_WIEN_ROOT:-/mnt/e/Gartenstrassen}"
 PYTHON="${PYTHON:-.venv/bin/python}"
 GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
 AOI="${SIS_WIEN_AOI:-$ROOT/aoi/wien.geojson}"
@@ -11,11 +11,29 @@ ANALYSIS="$ROOT/analysis/wien"
 DB="$ROOT/sis-wien.sqlite"
 CACHE="$ROOT/wfs-kacheln"
 
-[[ -d /mnt/e ]] && mountpoint -q /mnt/e || {
-	echo "Abbruch: /mnt/e ist kein eingehängtes Laufwerk (Schutz der primären SSD)" >&2
-	exit 1
-}
-[[ -w /mnt/e ]] || { echo "Abbruch: /mnt/e ist nicht beschreibbar" >&2; exit 1; }
+# Auf Windows-Mounts muss die eigentliche Partition eingehängt sein.
+# Für native WSL-Pfade ist das Zielverzeichnis bewusst vorab anzulegen;
+# ein Tippfehler darf keinen stillen Daten-Neulauf starten.
+case "$ROOT" in
+	/mnt/e/*)
+		[[ -d /mnt/e ]] && mountpoint -q /mnt/e || {
+			echo "Abbruch: /mnt/e ist kein eingehängtes Laufwerk" >&2
+			exit 1
+		}
+		;;
+	/*)
+		[[ -d "$ROOT" ]] || {
+			echo "Abbruch: SIS_WIEN_ROOT existiert nicht: $ROOT" >&2
+			exit 1
+		}
+		;;
+	*)
+		echo "Abbruch: SIS_WIEN_ROOT muss ein absoluter Pfad sein" >&2
+		exit 1
+		;;
+esac
+mkdir -p "$ROOT"
+[[ -w "$ROOT" ]] || { echo "Abbruch: Datenverzeichnis nicht beschreibbar: $ROOT" >&2; exit 1; }
 [[ -f "$GIP2" ]] || { echo "GIP2-Quelle fehlt: $GIP2" >&2; exit 1; }
 mkdir -p "$ROOT/aoi" "$ANALYSIS"
 if [[ ! -f "$AOI" ]]; then

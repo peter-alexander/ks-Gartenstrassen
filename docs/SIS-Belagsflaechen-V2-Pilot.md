@@ -14,6 +14,54 @@ und nicht auf der primären SSD abgelegt.
 - `/mnt/e/Gartenstrassen/analysis/wien/`: GIP-Index, Straßenraum,
   Rohpartition, gekürzte Voronoi-Partition, QA und Ergebnisdateien
 
+### Bereits vorhandene Wiener Daten nach WSL ext4 umziehen
+
+Der Wien-Treiber kann statt `/mnt/e/Gartenstrassen` ein explizites natives
+Linux-Verzeichnis über `SIS_WIEN_ROOT` verwenden. Die bisherige Voreinstellung
+bleibt zur Rückwärtskompatibilität unverändert.
+
+**Nur bei vollständig gestopptem Analyseprozess** kopieren, damit SQLite-Dateien
+und mögliche Zwischenstände konsistent sind:
+
+~~~bash
+# In WSL als openclaw; alten Datenbestand zunächst erhalten.
+mkdir -p "$HOME/Gartenstrassen"
+rsync -a --info=progress2 /mnt/e/Gartenstrassen/ "$HOME/Gartenstrassen/"
+# Prüft alle kopierten Dateiinhalte anhand ihrer Prüfsummen.
+rsync -a -c -n --itemize-changes /mnt/e/Gartenstrassen/ "$HOME/Gartenstrassen/"
+~~~
+
+Der letzte Befehl darf keine zu übertragenden geänderten Dateien auflisten.
+Auch das vollständige Verzeichnis `analysis/wien` samt `raster.json`,
+`aoi.geojson`, `strassenraum`, `aufteilung.sqlite`, `grm2023` sowie
+`sis-wien.sqlite` und `wfs-kacheln` wird kopiert. **Nicht** `raster.json`
+manuell umschreiben: seine SHA-256-Prüfsumme ist in bereits berechneten
+Datenbanken und GRM-Metadaten hinterlegt. Beim Einlesen darf die Pipeline
+statt des alten absoluten AOI-Pfads eine byteidentische `aoi.geojson` neben
+`raster.json` verwenden; der gespeicherte Fingerabdruck wird trotzdem geprüft.
+
+Für einen erneuten Gesamt-Treiberlauf:
+
+~~~bash
+SIS_WIEN_ROOT="$HOME/Gartenstrassen" bash scripts/run-sis-v2-wien.sh
+~~~
+
+Wenn die vorherigen Phasen bereits fertig sind, kann die Messung direkt
+ohne erneuten WFS-Import gestartet werden:
+
+~~~bash
+SIS_V2_ROOT="$HOME/Gartenstrassen/analysis/wien" \
+SIS_V2_INDEX="$HOME/Gartenstrassen/sis-wien.sqlite" \
+bash scripts/run-sis-v2-pilot.sh --from measure
+~~~
+
+Dieser Aufruf führt nach der Messung auch `pmtiles` aus. Er verwendet
+weiterhin die lokale `data/raw/gip_network_ogd.gpkg` des Repositories.
+Vor einem Lauf prüfen, dass `ergebnisse` bzw. `ergebnisse.tmp` nicht
+von einem vorherigen unterbrochenen Versuch vorhanden sind. Keine
+unbestätigten Zwischenstände automatisch löschen und den alten Datenträger
+erst nach erfolgreicher Validierung freigeben.
+
 Die WFS-Requests umfassen 1.900 × 1.900 m (1.700-m-Kern plus jeweils
 100 m Überlappung). Die Originalfeatures werden **nicht** an WFS-
 Requestgrenzen abgeschnitten. Der Import schreibt ausschließlich fehlende

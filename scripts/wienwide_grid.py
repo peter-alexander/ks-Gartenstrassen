@@ -122,9 +122,21 @@ def read_manifest(path):
 	data = json.loads(Path(path).read_text(encoding="utf-8"))
 	if data.get("schema_version") != GRID_VERSION or data.get("crs") != "EPSG:31256":
 		raise ValueError("Unbekanntes Wienraster-Manifest")
-	if checksum(data["aoi_geojson"]) != data["aoi_sha256"]:
-		raise ValueError("AOI-Datei seit Manifest-Erstellung verändert")
-	aoi = load_aoi(data["aoi_geojson"])
+	# Beim Kopieren eines vollständigen Arbeitsverzeichnisses kann der im
+	# Manifest gespeicherte absolute AOI-Pfad auf das alte Laufwerk zeigen.
+	# Das Manifest selbst darf nicht geändert werden: sein SHA-256 ist in
+	# Straßenraum, Partition und GRM als Herkunftsnachweis hinterlegt.
+	# Eine lokale Kopie wird nur bei identischem SHA-256 verwendet.
+	local_aoi = Path(path).parent / "aoi.geojson"
+	recorded_aoi = Path(data["aoi_geojson"])
+	aoi_path = None
+	for candidate in dict.fromkeys((local_aoi, recorded_aoi)):
+		if candidate.is_file() and checksum(candidate) == data["aoi_sha256"]:
+			aoi_path = candidate
+			break
+	if aoi_path is None:
+		raise ValueError("AOI-Datei seit Manifest-Erstellung verändert oder fehlt")
+	aoi = load_aoi(aoi_path)
 	expected = plan(aoi, size=data["tile_size_m"], halo=data["halo_m"])
 	if len(expected) != len(data.get("tiles", [])) or any(
 		a["id"] != b.get("id") or a["bounds_31256"] != b.get("bounds_31256")
