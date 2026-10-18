@@ -4,9 +4,11 @@ import lzma
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from shapely.geometry import box
-from scripts.sis_wien_wfs import tiles, feature_identity, merge_cached, validate
+from scripts.sis_wien_wfs import (OversizedTileError, feature_identity,
+	fetch_tile, fetch_tile_parts, merge_cached, split_bounds, tiles, validate)
 
 
 def feature(oid):
@@ -58,6 +60,37 @@ class SISWienWFSTests(unittest.TestCase):
 		f["properties"].pop("OBJECTID")
 		with self.assertRaisesRegex(ValueError,"sichere Deduplikation"):
 			feature_identity(f)
+
+	def test_overfull_logical_tile_is_split_into_audited_part_requests(self):
+		with tempfile.TemporaryDirectory() as folder:
+			root = Path(folder)
+			bounds = (0,0,1900,1900)
+			calls = []
+			def fake_fetch(name, request_bounds, cache):
+				calls.append((name,request_bounds))
+				if name == "root":
+					raise OversizedTileError("root: 10000 Features")
+				return Path(cache)/(name+".geojson.xz"),10,True
+			with patch("scripts.sis_wien_wfs.fetch_tile",side_effect=fake_fetch):
+				parts,count,downloaded = fetch_tile_parts("root",bounds,root)
+			self.assertEqual(count,40)
+			self.assertTrue(downloaded)
+			self.assertEqual(len(parts),4)
+			self.assertEqual([request for _,request in calls[1:]],list(split_bounds(bounds)))
+			self.assertEqual(sum(box(*request).area for _,request in calls[1:]),box(*bounds).area)
+			manifest = json.loads((root/"root.parts.json").read_text())
+			self.assertEqual(manifest["bbox_31256"],list(bounds))
+			self.assertEqual(len(manifest["parts"]),4)
+
+	def test_transport_limit_is_an_oversized_tile_for_recursive_split(self):
+		with tempfile.TemporaryDirectory() as folder:
+			response = MagicMock()
+			response.read.return_value = b"abc"
+			response.__enter__.return_value = response
+			with patch("scripts.sis_wien_wfs.MAX_BYTES", 2), patch(
+				"scripts.sis_wien_wfs.urlopen", return_value=response):
+				with self.assertRaisesRegex(OversizedTileError, "TeilKacheln|Teilkacheln"):
+					fetch_tile("large", (0,0,1,1), Path(folder))
 
 
 if __name__=="__main__":
