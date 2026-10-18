@@ -1,7 +1,8 @@
 __pycache__/
 *.py[cod]
 .venv/
-/data/  # bis zum geprüften Abschluss der lokalen Migration
+# Altes Datenlayout bis zur bestätigten lokalen Bereinigung schützen
+/data/
 /raw/
 /work/
 /output/
