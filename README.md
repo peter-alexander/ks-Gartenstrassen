@@ -1,15 +1,21 @@
 # Wiener Gartenstraßen – datenbasierte Bestandsanalyse
 
-**Aktueller Wiener Datenlauf (SIS-V2):** Es gibt nur noch drei Datenbereiche am
-Repository-Root: `raw/` (dauerhaft heruntergeladene Quellen), `work/`
-(berechnete und nach einem erfolgreichen Lauf löschbare Zwischendaten) und
-`output/` (aktuelle GeoJSON-/CSV-/PMTiles-Ergebnisse). Der
-[Umzug aus den älteren data/-Verzeichnissen](docs/Wien-Datenumzug.md)
-verwendet zuerst eine vollständig schreibgeschützte Vorschau. Ein Wiener Lauf
-wird mit `bash scripts/run-sis-v2-wien.sh` gestartet; die historische V0 ist
-standardmäßig deaktiviert. Die ausführlichen älteren V0-/Pilot-Dokumente
-stehen weiter unten nur noch als Methodenprotokoll.
+**Aktueller Wiener Lauf (SIS-V2):** Nach dem bewussten Entfernen des alten
+`data/`-Verzeichnisses wird Wien wieder vollständig und ohne Pilot-/V0-Daten
+berechnet. Das Original-GeoPackage
+`/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg` wird ausschließlich
+gelesen; `FMZK_WIEN_GP.gpkg` im selben Verzeichnis bleibt unangetastet.
+Weder Downloads noch deren Metadaten werden beschrieben.
 
+- `raw/`: neue heruntergeladene Wiener WFS-/WMS-Kacheln und ihre Metadaten
+- `work/`: während der Ausführung neu berechnete Indizes und Masken
+- `output/`: aktuelle GeoJSON-/CSV-/PMTiles-Ausgaben und Bericht
+
+Start: `bash scripts/run-sis-v2-wien.sh`. Nach einem erfolgreichen
+Gesamtlauf und Ergebnisprüfung wird `work/` automatisch entfernt.
+Bei Fehlern bleibt es für die Fortsetzung vorhanden.
+Die [Anleitung zum sauberen Neustart](docs/Wien-Datenumzug.md) enthält
+die Befehle. Historische V0-Methodik bleibt unten nur dokumentiert.
 
 ## Methodik des ersten Wien-Durchgangs (Oktober 2026)
 
@@ -84,25 +90,19 @@ Methodik nicht rückwirkend umgedeutet.
 Ausführung und fachliche Einschränkungen:
 [**SIS-Belagsflächen – V2-Pilot**](docs/SIS-Belagsflaechen-V2-Pilot.md).
 
-## Wiener Arbeitsdaten und GIP-Parallelkantenanalyse
+## Wiener Daten und GIP-Parallelkantenanalyse
 
-Die vollständigen Wiener SIS-/GIP2-Daten werden **lokal innerhalb des
-Repositorys unter `data/wien/`** gespeichert (`data/` bleibt Git-ignored).
-Zum verlustarmen Verschieben des bisherigen WSL-Verzeichnisses
-`~/Gartenstrassen` gibt es einen geprüften
-[Datenumzug](docs/Wien-Datenumzug.md). Bestehende WFS-/GRM-Kacheln
-und SQLite-Dateien sollen **nicht neu heruntergeladen oder blind gelöscht** werden.
+Die historische `data/`-Struktur wird nicht mehr verwendet. Der neue
+Wien-GIP-Index entsteht unter `work/wien/gip.sqlite` aus der
+schreibgeschützt gelesenen GIP2-Originaldatei. Nach dem Wien-Lauf ist
+`work/` im Normalfall bereits aufgeräumt. Für die
+[20-m-Parallelkanten-Diagnose](docs/Diagnose-Parallele-GIP-Achsen.md)
+kann er mit `SIS_WIEN_KEEP_WORK=1` erhalten bleiben.
 
-Die [20-m-Parallelkantenanalyse](docs/Diagnose-Parallele-GIP-Achsen.md)
-prüft standardmäßig den **kompletten Wien-GIP2-Graphen** mit
-`bash scripts/run-gip-parallel-wien.sh`. Test-/Bezirks-AOIs werden
-anhand des Rastermanifests und der Datenbankmetadaten abgewiesen.
-Die Ausgabe dient ausschließlich zur Sichtkontrolle; noch keine
-automatische Vereinigung der Straßenabschnitte. Für Diagnose und
-SIS-V2-PMTiles gilt eine konservative [FOW-Positivliste](docs/GIP-FOW-Auswahl.md):
-Straßenkandidaten 2/3/14, Fuß- und Radwege 15/504/505 nur als
-begleitende Parallelkanten; Bahn-, Kreuzungs-, Steig-, Objekt- und
-Sondertypen werden nicht veröffentlicht.
+Die Diagnose vereinigt keine Straßen und verändert die Originale nicht.
+Für die Diagnose und SIS-V2-PMTiles gilt die
+[FOW-Positivliste](docs/GIP-FOW-Auswahl.md): Straßenkandidaten 2/3/14,
+begleitende Fuß-/Radwege 15/504/505 ausschließlich beim Parallelabgleich.
 
 ## Stand und Ergebnisse
 
