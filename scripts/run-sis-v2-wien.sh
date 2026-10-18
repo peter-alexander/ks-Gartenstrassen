@@ -15,7 +15,7 @@ AOI="$RAW/aoi/wien.geojson"
 PYTHON="${PYTHON:-.venv/bin/python}"
 
 if [[ -n "${SIS_WIEN_ROOT:-}" ]]; then
-	echo "SIS_WIEN_ROOT existiert nicht mehr; neue Daten liegen in raw/, work/, output/." >&2
+	echo "SIS_WIEN_ROOT ist veraltet; neue Daten liegen in raw/, work/, output/." >&2
 	exit 2
 fi
 
