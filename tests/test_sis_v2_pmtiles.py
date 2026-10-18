@@ -1,5 +1,6 @@
 """Tests für den eigenständigen SIS-V2-PMTiles-Export."""
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -82,6 +83,35 @@ class SISV2PMTilesTests(unittest.TestCase):
 			with self.assertRaisesRegex(ValueError, "Keine Features"):
 				run(self.source, self.output)
 		self.assertFalse(self.output.exists())
+
+
+	def test_replace_is_atomic_and_failure_keeps_old_archive(self):
+		self._write()
+		self.output.write_bytes(b"old archive")
+		captured = []
+		def fake_run(command, check):
+			captured.append(command)
+			Path(command[command.index("-o")+1]).write_bytes(b"new archive")
+		with patch("scripts.sis_v2_pmtiles.shutil.which", return_value="tippecanoe"), \
+				patch("scripts.sis_v2_pmtiles.subprocess.run", side_effect=fake_run):
+			report = run(self.source, self.output, replace=True)
+		self.assertEqual(self.output.read_bytes(), b"new archive")
+		self.assertTrue(report["existing_replaced"])
+		self.assertEqual(len(captured), 1)
+		self.assertFalse(self.output.with_suffix(".filtered.geojson.tmp").exists())
+		self.assertFalse(self.output.with_suffix(".tmp.pmtiles").exists())
+
+		self.output.write_bytes(b"previous successful archive")
+		def failing_run(command, check):
+			Path(command[command.index("-o")+1]).write_bytes(b"partial")
+			raise subprocess.CalledProcessError(1, command)
+		with patch("scripts.sis_v2_pmtiles.shutil.which", return_value="tippecanoe"), \
+				patch("scripts.sis_v2_pmtiles.subprocess.run", side_effect=failing_run):
+			with self.assertRaises(subprocess.CalledProcessError):
+				run(self.source, self.output, replace=True)
+		self.assertEqual(self.output.read_bytes(), b"previous successful archive")
+		self.assertFalse(self.output.with_suffix(".filtered.geojson.tmp").exists())
+		self.assertFalse(self.output.with_suffix(".tmp.pmtiles").exists())
 
 
 if __name__ == "__main__":
