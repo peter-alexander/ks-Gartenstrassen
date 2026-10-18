@@ -20,13 +20,29 @@ in Downloads erzeugen.
 - `raw/sis/wfs-kacheln/`: heruntergeladene, komprimierte Originalantworten
 - `raw/grm2023/png/`: GRM-PNGs und Herkunftsmetadaten
 - `work/`: SIS-/GIP-Indizes, Straßenräume, Partitionen, Kronenmasken
-- `output/`: `gip_abschnitte.csv`, `gip_abschnitte.geojson`,
-  `bericht.json`, `gartenstrassen.pmtiles`
+- `output/`: **`gip_abschnitte.geojson` und `gartenstrassen.pmtiles`**,
+  außerdem `gip_abschnitte.csv`, `bericht.json` und `freigabe.json`
+  (SHA-256-Prüfsummen für den gemeinsam freigegebenen Ergebnisstand)
 
 Die heruntergeladenen Dateien werden bei einem unterbrochenen Lauf aus
-`raw/` wiederverwendet. **Nur nach einem erfolgreichen vollständigen Lauf**
-und automatischer Validierung werden die regenerierbaren `work/`-Daten
-entfernt. Bei einem Fehler bleiben diese erhalten.
+`raw/` wiederverwendet. Die Straßenraumkacheln werden bei identischen
+Quellprüfsummen nicht erneut aus SIS vereinigt. In der Messphase hält
+`work/wien/messung.sqlite` nach jeder Kachel **atomar die fertigen
+Kennzahlen** fest. Ein Wiederanlauf übernimmt diese Werte, wenn der SIS-,
+GIP-, Partitionierungs- und GRM-Stand identisch geblieben ist.
+
+GeoJSON und CSV entstehen zuerst unter `work/wien/ergebnisse/`.
+Erst nach erfolgreichem PMTiles-Neubau übernimmt die Veröffentlichung
+die vier Dateien nach `output/` und schreibt **zuletzt**
+`output/freigabe.json` mit ihren SHA-256-Prüfsummen. Ein
+unterbrochener Export ist damit nicht als fertig freigegeben.
+
+**Nur nach einem erfolgreichen vollständigen Lauf** und Prüfung des
+Freigabemarkers, aller Ergebnisprüfsummen, des Wiener Rastermanifests,
+der CSV-Abschnittszahl und der vorhandenen GRM-Werte wird
+`work/` automatisch entfernt. Bei Fehlern bleiben die
+Arbeitsdaten samt Kachelcheckpoints erhalten. Bei einem Lauf mit
+`--no-grm` findet kein automatisches Löschen statt.
 
 Vor einer 20-m-Diagnose den Index aufbewahren:
 
@@ -56,3 +72,21 @@ gestagten Dateien wurden bereits mit PR #7 nach `main` übernommen.
 Vor der Aktualisierung der Arbeitskopie diese ggf. mit
 `git stash push -m "SIS-Optimierungen bereits auf main"` sichern.
 Kein `git reset --hard`.
+
+## Dauerhafte Mess- und Performancehinweise
+
+Die Shell-Pipeline protokolliert pro Phase die benötigten Sekunden.
+Die Berechnung bleibt absichtlich seriell, bis die realen Laufzeiten
+im neuen Wiener Durchgang vorliegen. Die bisherige FOW-Positivliste
+(2, 3, 14 für PMTiles; 15, 504, 505 nur zur Parallelkantenprüfung)
+wird **nicht vor der Voronoi-Zuordnung angewendet**: Ein vorzeitiges
+Entfernen würde die geometrische Partition fachlich verändern.
+
+Der GIP2-Originaldownload in
+`/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg`
+wird ausschließlich im SQLite-Modus `mode=ro&immutable=1`
+gelesen und weder kopiert noch verändert.
+
+Die neuen Implementierungsänderungen sind zunächst nur per Code-Review
+beurteilt; auf ausdrücklichen Wunsch wurden **keine zusätzlichen Tests
+oder Wiener Datenläufe gestartet**.
