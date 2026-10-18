@@ -13,7 +13,7 @@ from pyproj import Transformer
 from shapely.geometry import box,mapping
 from shapely.ops import transform
 
-from scripts.wienwide_grid import build_manifest,write_manifest,read_manifest
+from scripts.wienwide_grid import build_manifest,write_manifest,read_manifest,checksum
 from scripts.wienwide_grm2023 import (
 	_verify_transparent_outside_aoi,build,chunks,decode_chunk,fetch,
 	mask_path,read_mask,verify_chunk,
@@ -75,6 +75,14 @@ class WienwideGrm2023Tests(unittest.TestCase):
 		geom,meta=read_mask(self.root_cache,self.tile,
 			manifest=self.manifest,aoi=self.aoi)
 		self.assertAlmostEqual(geom.area,.25,delta=.001)
+		cached,_=read_mask(self.root_cache,self.tile,
+			manifest=self.manifest,aoi=self.aoi,
+			manifest_sha256=checksum(self.manifest))
+		self.assertTrue(cached.equals(geom))
+		with self.assertRaisesRegex(ValueError,"anderem Bezirksraster"):
+			read_mask(self.root_cache,self.tile,
+				manifest=self.manifest,aoi=self.aoi,
+				manifest_sha256="0"*64)
 		self.assertEqual(len(meta["png_sha256"]),1)
 		# Resume must not perform additional GetMap requests.
 		with patch("scripts.wienwide_grm2023.request_bytes",
