@@ -13,6 +13,8 @@ from contextlib import closing
 from io import BytesIO
 import json
 import math
+import os
+import tempfile
 from pathlib import Path
 import sqlite3
 from time import sleep
@@ -204,12 +206,18 @@ def fetch(manifest_path,root,*,pause_s=.4):
 		# WMS-Fehlerseiten werden verworfen; PNG wird streng validiert.
 		require_png(payload,expected_size=(geo["width"],geo["height"]))
 		png.parent.mkdir(parents=True,exist_ok=True)
-		temp=png.with_suffix(".png.tmp")
-		if temp.exists():
-			raise FileExistsError(f"Temporäres GRM-PNG existiert: {temp}")
+		# Jede Anfrage bekommt eine eigene Temp-Datei im Zielverzeichnis.
+		# Dadurch können fremde/abgebrochene .png.tmp-Dateien keinen
+		# erfolgreichen Abruf mehr blockieren oder verschwinden lassen.
+		temp=None
 		try:
-			temp.write_bytes(payload)
-			temp.replace(png)
+			with tempfile.NamedTemporaryFile(
+					mode="wb",prefix=png.name+".",suffix=".tmp",
+					dir=png.parent,delete=False) as target:
+				temp=Path(target.name)
+				target.write(payload)
+			# Erst nach erfolgreichem Schreiben atomar sichtbar machen.
+			os.replace(temp,png)
 			d={"schema_version":SCHEMA,"tile_id":tile["id"],
 				"raster":geo,"getmap_url":url,"png_sha256":checksum(png),
 				"fachklasse":3,"farb_rgb":list(TREE_RGB),
@@ -219,7 +227,8 @@ def fetch(manifest_path,root,*,pause_s=.4):
 				encoding="utf-8")
 			p.replace(report)
 		except BaseException:
-			temp.unlink(missing_ok=True)
+			if temp is not None:
+				temp.unlink(missing_ok=True)
 			raise
 		results.append(f"{tile['id']}/{name}")
 		print(f"GRM {index}/{len(all_chunks)}: {tile['id']}/{name}")
