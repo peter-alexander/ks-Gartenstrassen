@@ -82,6 +82,43 @@ class SISWienWFSTests(unittest.TestCase):
 			self.assertEqual(manifest["bbox_31256"],list(bounds))
 			self.assertEqual(len(manifest["parts"]),4)
 
+	def test_truncated_http_200_json_is_split_and_only_valid_parts_cached(self):
+		with tempfile.TemporaryDirectory() as folder:
+			root = Path(folder)
+			bounds = (0,0,1900,1900)
+			truncated = (
+				b'{"type":"FeatureCollection","features":[{"type":"Feature",'
+				b'"properties":{"BELAG":"' + b'X' * 2048
+			)
+			valid = json.dumps({"type":"FeatureCollection",
+				"features":[feature(1)]}).encode("utf-8")
+			calls = []
+			def fake_urlopen(req, timeout):
+				calls.append(req.full_url)
+				response = MagicMock()
+				response.read.return_value = truncated if len(calls) == 1 else valid
+				response.__enter__.return_value = response
+				return response
+			with patch("scripts.sis_wien_wfs.urlopen", side_effect=fake_urlopen):
+				parts,count,downloaded = fetch_tile_parts("root",bounds,root)
+				self.assertEqual(count,4)
+				self.assertTrue(downloaded)
+				self.assertEqual(len(calls),5)
+				self.assertEqual(len(parts),4)
+				self.assertFalse((root/"root.geojson.xz").exists())
+				self.assertFalse((root/"root.json").exists())
+				self.assertEqual(len(list(root.glob("*.geojson.xz"))),4)
+				parts2,count2,downloaded2 = fetch_tile_parts("root",bounds,root)
+				self.assertEqual(count2,4)
+				self.assertFalse(downloaded2)
+				self.assertEqual(len(parts2),4)
+				self.assertEqual(len(calls),5)
+
+	def test_json_syntax_error_inside_body_does_not_trigger_split(self):
+		with self.assertRaises(ValueError) as caught:
+			validate(b'{"type": INVALID, "features": []}',tile="bad")
+		self.assertNotIsInstance(caught.exception,OversizedTileError)
+
 	def test_transport_limit_is_an_oversized_tile_for_recursive_split(self):
 		with tempfile.TemporaryDirectory() as folder:
 			response = MagicMock()
