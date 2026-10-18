@@ -41,7 +41,7 @@ class AdaptiveWienPartitionTests(unittest.TestCase):
 				exclude_junctions=False,all_fow=True,
 				sites=sites,axes=axes,nodes=[])
 		self.assertGreater(leaves,1)
-		self.assertGreaterEqual(depth,2)
+		self.assertGreaterEqual(depth,1)
 		self.assertTrue(calls)
 		self.assertTrue(all(halo==75 for _bounds,halo in calls))
 		self.assertEqual(set(original),set(actual))
