@@ -4,9 +4,9 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
-SOURCE="\${GARTEN_SOURCE:-$HOME/Gartenstrassen}"
+SOURCE="${GARTEN_SOURCE:-$HOME/Gartenstrassen}"
 DEST="$REPO/data/wien"
-PYTHON="\${PYTHON:-$REPO/.venv/bin/python}"
+PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
 APPLY=0
 
 usage() {
