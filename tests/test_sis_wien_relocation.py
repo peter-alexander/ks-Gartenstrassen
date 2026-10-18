@@ -74,7 +74,7 @@ class SISWienRelocationTests(unittest.TestCase):
 			text=True, capture_output=True, check=False,
 		)
 		self.assertNotEqual(result.returncode, 0)
-		self.assertIn("existiert nicht", result.stderr)
+		self.assertIn("SIS_WIEN_ROOT ist veraltet", result.stderr)
 		self.assertFalse(missing.exists())
 
 
