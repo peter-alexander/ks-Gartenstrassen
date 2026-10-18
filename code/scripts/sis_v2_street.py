@@ -43,32 +43,42 @@ def run(manifest_path, sis_db, out_root):
 			if union.is_empty or not union.is_valid:
 				raise ValueError("Ungültige SIS-Union")
 		results = []
+		manifest_sha = checksum(manifest_path)
+		sis_index_sha = metadata["sha256"] if is_city else checksum(sis_db)
+		completed = 0
 		for tile in manifest["tiles"]:
 			core = box(*tile["bounds_31256"]).intersection(aoi)
-			clipped = (city_mask(db,core) if is_city else union.intersection(core))
-			if clipped is None:
-				from shapely.geometry import Polygon
-				clipped = Polygon()
-			if not clipped.is_valid or clipped.difference(core).area > .01:
-				raise ValueError(f"{tile['id']}: ungültiger SIS-Schnitt")
 			path = out_root/tile["id"]/"street.sqlite"
-			meta = {"schema_version": "1", "crs": "EPSG:31256",
+			expected = {"schema_version": "1", "crs": "EPSG:31256",
 				"tile_id": tile["id"], "strassenraum_regel_version": VERSION,
 				"sis_sha256": metadata["sha256"],
-				"sis_index_sha256": metadata["sha256"] if is_city else checksum(sis_db),
-				"manifest_sha256": checksum(manifest_path),
-				"strassenraum_m2": repr(clipped.area)}
+				"sis_index_sha256": sis_index_sha,
+				"manifest_sha256": manifest_sha}
 			if path.exists():
+				# Prüfsummen und gespeichertes Polygon validieren, aber die
+				# aufwendige SIS-RTree-Abfrage/Union nicht erneut berechnen.
 				with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as previous:
 					old = dict(previous.execute("SELECT key,value FROM metadata"))
-				if old != meta:
+				if any(old.get(key) != value for key,value in expected.items()):
 					raise ValueError(f"{tile['id']}: SIS-Kachelcache aus anderen Eingaben")
 				stored = load_street_tile(path, core)
-				if stored.symmetric_difference(clipped).area > .01:
-					raise ValueError(f"{tile['id']}: SIS-Kachelgeometrie abweichend")
+				if abs(stored.area - float(old["strassenraum_m2"])) > .01:
+					raise ValueError(f"{tile['id']}: SIS-Kachelfläche verändert")
+				area = stored.area
+				completed += 1
 			else:
+				clipped = (city_mask(db,core) if is_city else union.intersection(core))
+				if clipped is None:
+					from shapely.geometry import Polygon
+					clipped = Polygon()
+				if not clipped.is_valid or clipped.difference(core).area > .01:
+					raise ValueError(f"{tile['id']}: ungültiger SIS-Schnitt")
+				area = clipped.area
+				meta = {**expected,"strassenraum_m2": repr(area)}
 				save_street_tile(path, clipped, meta, allow_empty=True)
-			results.append({"tile": tile["id"], "area_m2": clipped.area})
+			results.append({"tile": tile["id"], "area_m2": area})
+		print(f"SIS-Straßenraum: {len(results)} Kacheln, "
+			f"{completed} gültige Kachelcaches wiederverwendet", flush=True)
 	return {"provider": VERSION, "kacheln": len(results),
 		"strassenraum_m2": sum(r["area_m2"] for r in results),
 		"sis_sha256": metadata["sha256"]}
