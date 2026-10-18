@@ -51,11 +51,13 @@ class GIP2GeometryTests(unittest.TestCase):
 				"bash", "scripts/run-sis-steps.sh",
 				"--from", "gip-index", "--until", "gip-index",
 			], check=True, capture_output=True, text=True, env=environment)
-			self.assertEqual(result.stdout.splitlines()[1:], [
+			self.assertEqual(result.stdout.splitlines()[1:-1], [
 				"-m", "scripts.sis_gip2", "--source", str(source),
 				"--manifest", str(processed/"raster.json"),
 				"--out", str(processed/"gip.sqlite"),
 			])
+			self.assertTrue(result.stdout.splitlines()[-1].startswith(
+				"== gip-index abgeschlossen in "))
 
 	def test_gpkg_geometry_without_envelope(self):
 		g = Point(16.3627,48.1907)
