@@ -19,7 +19,7 @@ from scripts.sis_belagsflaechen import TO_METRIC, _repair_source_polygon
 from scripts.sis_wien_wfs import feature_identity, fetch_tile, tiles, validate
 from scripts.wienwide_grid import load_aoi
 
-DEFAULT_ROOT = Path("/mnt/e/Gartenstrassen")
+DEFAULT_ROOT = Path(__file__).resolve().parents[1] / "data" / "wien"
 SCHEMA = "sis-wien-index-v1"
 
 
