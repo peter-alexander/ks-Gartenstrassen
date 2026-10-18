@@ -80,7 +80,7 @@ def _intersect_area(part, mask):
 
 
 def run(manifest_path, gip_path, sis_path, street_root, partition_path,
-		out_dir, grm_root=None):
+		out_dir, grm_root=None, grm_raw_root=None):
 	manifest, aoi = read_manifest(manifest_path)
 	manifest_sha = checksum(manifest_path)
 	out_dir, sis_path = Path(out_dir), Path(sis_path)
@@ -135,7 +135,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			crown = None
 			if grm_root is not None:
 				crown, _ = read_grm(grm_root,tile,manifest=manifest_path,aoi=aoi,
-					manifest_sha256=manifest_sha)
+					manifest_sha256=manifest_sha,raw_root=grm_raw_root)
 			for gid,stored_area,blob in partition.execute(
 				"SELECT gip_id,area,geom FROM parts WHERE tile_id=? AND kind='abschnitt'", (tid,)):
 				gid = str(gid)
@@ -234,9 +234,11 @@ def main():
 	for name in ("manifest","gip-index","sis-db","street-root","partition-db","out-dir"):
 		p.add_argument("--"+name,required=True,type=Path)
 	p.add_argument("--grm-root",type=Path)
+	p.add_argument("--grm-raw-root",type=Path)
 	a = vars(p.parse_args())
 	print(json.dumps(run(a["manifest"],a["gip_index"],a["sis_db"],
-		a["street_root"],a["partition_db"],a["out_dir"],a["grm_root"]),
+		a["street_root"],a["partition_db"],a["out_dir"],a["grm_root"],
+		a["grm_raw_root"]),
 		ensure_ascii=False,indent=2))
 
 
