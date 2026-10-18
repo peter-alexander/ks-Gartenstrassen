@@ -10,7 +10,7 @@ OUT="$REPO/output"
 ANALYSIS="$WORK/wien"
 DB="$WORK/sis-wien.sqlite"
 CACHE="$RAW/sis/wfs-kacheln"
-GIP2="/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg"
+GIP2="${GIP2_SOURCE:-/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg}"
 AOI="$RAW/aoi/wien.geojson"
 PYTHON="${PYTHON:-.venv/bin/python}"
 
@@ -58,3 +58,9 @@ SIS_V2_RAW_ROOT="$RAW" SIS_V2_ROOT="$ANALYSIS" \
 	SIS_V2_INDEX="$DB" SIS_V2_PUBLISH_DIR="$OUT" \
 	SIS_V2_GRM_RAW_ROOT="$RAW/grm2023" GIP2_SOURCE="$GIP2" PYTHON="$PYTHON" \
 	bash scripts/run-sis-v2-pilot.sh --from grid "$@"
+
+# Nur nach einem vollständigen, erfolgreichen Lauf aufräumen.
+# Teilphasen und fehlgeschlagene Läufe behalten work/ zur Wiederaufnahme.
+if (( $# == 0 )) && [[ "${SIS_WIEN_KEEP_WORK:-0}" != "1" ]]; then
+	"$PYTHON" -m scripts.clean_wien_work --apply
+fi
