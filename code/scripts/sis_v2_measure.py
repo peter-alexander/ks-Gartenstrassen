@@ -85,8 +85,8 @@ def _grm_source_fingerprint(tiles, grm_root):
 	"""SHA-256-gebundener Nachweis der GRM-Masken für alle Kacheln."""
 	if grm_root is None:
 		return None
-	entries = [(tile["id"],checksum(Path(grm_root)/"masken"/tile["id"]/"crown.sqlite"))
-		for tile in tiles]
+	entries = sorted((tile["id"],checksum(Path(grm_root)/"masken"/tile["id"]/"crown.sqlite"))
+		for tile in tiles)
 	return hashlib.sha256(json.dumps(entries,separators=(",",":")).encode()).hexdigest()
 
 
