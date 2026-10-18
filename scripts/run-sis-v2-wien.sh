@@ -10,19 +10,16 @@ OUT="$REPO/output"
 ANALYSIS="$WORK/wien"
 DB="$WORK/sis-wien.sqlite"
 CACHE="$RAW/sis/wfs-kacheln"
-GIP2="$RAW/gip_network_ogd.gpkg"
+GIP2="/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg"
 AOI="$RAW/aoi/wien.geojson"
 PYTHON="${PYTHON:-.venv/bin/python}"
 
 if [[ -n "${SIS_WIEN_ROOT:-}" ]]; then
-	echo "SIS_WIEN_ROOT ist veraltet. Nur noch raw/, work/, output/ verwenden." >&2
+	echo "SIS_WIEN_ROOT existiert nicht mehr; neue Daten liegen in raw/, work/, output/." >&2
 	exit 2
 fi
 
-[[ -d "$RAW" && ! -L "$RAW" ]] || {
-	echo "Rohdatenverzeichnis fehlt: $RAW. Zuerst Datenmigration durchführen." >&2
-	exit 1
-}
+[[ ! -L "$RAW" ]] || { echo "raw/ darf kein Symlink sein" >&2; exit 1; }
 [[ ! -L "$WORK" && ! -L "$OUT" ]] || {
 	echo "work/ und output/ dürfen keine Symlinks sein." >&2
 	exit 1
@@ -37,9 +34,12 @@ if [[ "${1:-}" == "--from" && "${2:-}" == "pmtiles" ]]; then
 	exit 0
 fi
 
-[[ -f "$GIP2" ]] || { echo "GIP2-Original fehlt: $GIP2" >&2; exit 1; }
-[[ -d "$CACHE" ]] || { echo "SIS-WFS-Kacheln fehlen: $CACHE" >&2; exit 1; }
-mkdir -p "$RAW/aoi" "$ANALYSIS"
+[[ -f "$GIP2" && -r "$GIP2" ]] || {
+	echo "Schreibgeschützte GIP2-Quelle fehlt/ist nicht lesbar: $GIP2" >&2
+	exit 1
+}
+# Die Windows-Downloads werden niemals Ziel eines Downloads oder Exports.
+mkdir -p "$RAW/aoi" "$CACHE" "$ANALYSIS" "$OUT"
 if [[ ! -f "$AOI" ]]; then
 	"$PYTHON" -m scripts.wienwide_aoi --wien --out-dir "$RAW/aoi"
 fi
