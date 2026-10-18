@@ -29,10 +29,17 @@ Die Python-Umgebung liegt wie bisher in `.venv/` am Repository-Root.
 bash code/scripts/run-sis-v2-wien.sh
 ```
 
-Die Quellen-Downloads verbleiben in `raw/`, temporäre Daten in `work/` und die
-aktuellen Enddateien in `output/`. Erst nach erfolgreichem vollständigem Lauf
-und Ergebnisprüfung wird `work/` entfernt. Ein abgebrochener Lauf behält seine
-Zwischenprodukte zur Wiederaufnahme.
+Die Quellen-Downloads verbleiben in `raw/`, temporäre Daten in `work/` und
+die aktuellen Enddateien in `output/`. Dort liegen insbesondere
+**`gip_abschnitte.geojson` und `gartenstrassen.pmtiles`** sowie CSV,
+Bericht und `freigabe.json` als gemeinsamer Prüfsummennachweis.
+
+Fertige Straßenraumkacheln und die separat gespeicherten Messkennzahlen
+(`work/wien/messung.sqlite`) werden bei einem Abbruch anhand ihrer
+Quellprüfsummen wiederverwendet. Erst nach erfolgreichem vollständigem
+Lauf, gemeinsamer Veröffentlichung, QA-GPKG- und Ergebnisprüfung
+wird ausschließlich `work/` entfernt. Bei Fehlern bleiben alle
+Zwischenergebnisse zur Wiederaufnahme erhalten.
 
 Für die spätere 20-m-Parallelkanten-Diagnose kann `work/` beibehalten werden:
 
