@@ -19,26 +19,23 @@ In der [RgE-Analyse](https://github.com/peter-alexander/kartensammlung-overlay-b
 
 ## Ausführen – ausschließlich Wien gesamt
 
-Nach dem lokalen Umzug nach `data/wien`:
+Nach dem Wien-Lauf mit behaltenem Arbeitsverzeichnis:
 
 ~~~bash
+SIS_WIEN_KEEP_WORK=1 bash scripts/run-sis-v2-wien.sh
 bash scripts/run-gip-parallel-wien.sh
 ~~~
 
-Der Einstiegspunkt verwendet immer `data/wien/analysis/wien/gip.sqlite` und
-`raster.json` (oder den explizit angegebenen `SIS_WIEN_ROOT`).
-Vor der Berechnung werden die echte Wien-AOI über das Rastermanifest geprüft
-(350–500 km², mindestens 400 Rasterkacheln), die Manifest-SHA im GIP-Index
-abgeglichen und mindestens 10.000 GIP-Achsen sowie die Index-Metadaten verlangt.
-Eine Testkachel oder ein Alsergrund-Pilot wird damit abgewiesen.
+Der Einstiegspunkt liest ausschließlich `work/wien/gip.sqlite` und
+`work/wien/raster.json`. Es wird geprüft, ob das Gesamtgebiet Wien
+vorliegt (350–500 km², mindestens 400 Rasterkacheln), der
+Manifest-Fingerabdruck zum GIP-Index passt und mindestens 10.000
+GIP-Achsen vorhanden sind. Testkacheln werden abgewiesen.
 
-Direktaufrufe von `scripts.diagnose_parallel_gip` benötigen nun verpflichtend
-`--manifest` zusätzlich zu `--gip-index` und `--out-dir`.
-Die 20 m bleiben über `--distance-m` konfigurierbar.
-Bereits vorhandene Diagnoseausgaben werden nicht überschrieben.
-
-Den Umzug von `~/Gartenstrassen` in das lokale Repository beschreibt
-[Wien-Datenumzug](Wien-Datenumzug.md).
+Die Diagnose bleibt ein temporäres Ergebnis unter
+`work/wien/gip-parallel-20m/`; sie verändert die Originaldaten nicht.
+Ein direkter Aufruf benötigt `--manifest`, `--gip-index` und `--out-dir`.
+Details zum neuen Verzeichnislayout: [Wien neu berechnen](Wien-Datenumzug.md).
 
 Ausgaben:
 
