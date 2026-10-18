@@ -42,10 +42,14 @@ def _polygonal_parts(geometry):
 
 def _repair_source_polygon(geom, *, index, identifier, sis_id, reason):
 	"""Ungültige SIS-Fläche nur mit beidseitig belegter Flächentreue reparieren."""
-	# Pilotentscheidung für den tatsächlich belegten Quellfehler: Ein
-	# degenerierter Innenring trägt keine Fläche. Andere Topologiefehler
-	# (z. B. Selbstüberschneidungen) bleiben fachlich mehrdeutig und brechen ab.
-	if not reason.startswith("Too few points in geometry component"):
+	# Freigegebene Quellfehler sind entweder flächenlose, degenerierte
+	# Innenringe oder eine Selbstüberschneidung, deren make_valid-Ergebnis
+	# im metrischen Raum nachweislich exakt dieselbe Fläche beschreibt.
+	# Eine beliebige Selbstüberschneidung (etwa eine Schleife) bleibt
+	# fachlich mehrdeutig und wird durch die untenstehende Symdiff-Prüfung
+	# weiterhin verworfen.
+	if not (reason.startswith("Too few points in geometry component")
+		or reason.startswith("Self-intersection[")):
 		raise ValueError(
 			f"Feature {index} (ID {identifier!r}, SIS_ID {sis_id!r}): "
 			f"ungültige Polygongeometrie: {reason}. "
@@ -63,13 +67,33 @@ def _repair_source_polygon(geom, *, index, identifier, sis_id, reason):
 			raise ValueError("make_valid lieferte keine gültige Polygonfläche")
 		difference = repaired_metric.area - original_metric.area
 		tolerance = max(.01, original_metric.area * 1e-8)
-		symmetric_difference = original_metric.symmetric_difference(repaired_metric).area
+		try:
+			symmetric_difference = original_metric.symmetric_difference(repaired_metric).area
+			verification = "direkte metrische symmetrische Differenz"
+		except GEOSException:
+			# Manche ungültigen Selbstüberschneidungen lassen nicht einmal eine
+			# direkte Symdiff zu. buffer(0) ist hier *nur* eine Vergleichsfläche,
+			# nicht die übernommene Reparatur: make_valid bleibt die Geometrie.
+			reference = original_metric.buffer(0)
+			if reference.is_empty or not reference.is_valid:
+				raise
+			symmetric_difference = reference.symmetric_difference(repaired_metric).area
+			verification = "metrische Symdiff gegen topologiesichere buffer(0)-Referenz"
 		if abs(difference) > tolerance or symmetric_difference > tolerance:
 			raise ValueError(
 				f"Reparatur wäre nicht flächentreu: Delta {difference:+.6f} m², "
 				f"symmetrische Differenz {symmetric_difference:.6f} m², "
 				f"Toleranz {tolerance:.6f} m²")
-	except (GEOSException, ValueError) as exc:
+	except GEOSException as exc:
+		# Für eine ungültige Ursprungsgeometrie kann GEOS die Symdiff selbst
+		# verweigern. Ohne diesen Nachweis ist auch ein scheinbar plausibles
+		# make_valid-Ergebnis keine freigegebene Reparatur.
+		raise ValueError(
+			f"Feature {index} (ID {identifier!r}, SIS_ID {sis_id!r}): "
+			f"ungültige Polygongeometrie: {reason}. "
+			"Keine freigegebene konservative Reparatur: metrische "
+			f"symmetrische Differenz nicht berechenbar: {exc}") from exc
+	except ValueError as exc:
 		raise ValueError(
 			f"Feature {index} (ID {identifier!r}, SIS_ID {sis_id!r}): "
 			f"ungültige Polygongeometrie: {reason}. "
@@ -89,6 +113,7 @@ def _repair_source_polygon(geom, *, index, identifier, sis_id, reason):
 		"flaeche_nachher_m2": repaired_metric.area,
 		"flaechendifferenz_m2": difference,
 		"symmetrische_differenz_m2": symmetric_difference,
+		"flaechentreue_nachweis": verification,
 		"toleranz_m2": tolerance,
 	}
 	return repaired, event

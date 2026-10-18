@@ -23,6 +23,11 @@ HALO_M = 100
 REQUEST_M = CORE_M + 2 * HALO_M
 MAX_BYTES = 32 * 1024 * 1024
 MAX_FEATURES = 10000
+MAX_SPLIT_DEPTH = 4
+
+
+class OversizedTileError(ValueError):
+	"""Eine WFS-Antwort kann an der Servergrenze abgeschnitten sein."""
 
 
 def tiles(aoi):
@@ -50,13 +55,20 @@ def request_url(bounds):
 	return SERVICE + "?" + urlencode(params)
 
 
+def split_bounds(bounds):
+	"""Vier lückenlose Teilabfragen; Überlappungsduplikate werden zentral geprüft."""
+	x0,y0,x1,y1 = bounds
+	xm,ym = (x0+x1)/2,(y0+y1)/2
+	return ((x0,y0,xm,ym),(xm,y0,x1,ym),(x0,ym,xm,y1),(xm,ym,x1,y1))
+
+
 def validate(raw, *, tile):
 	doc = json.loads(raw)
 	if doc.get("type") != "FeatureCollection" or not isinstance(doc.get("features"), list):
 		raise ValueError(f"{tile}: WFS-Antwort ist keine GeoJSON-FeatureCollection")
 	features = doc["features"]
 	if len(features) >= MAX_FEATURES:
-		raise ValueError(f"{tile}: {len(features)} Features – mögliche Serverbegrenzung")
+		raise OversizedTileError(f"{tile}: {len(features)} Features – mögliche Serverbegrenzung")
 	for field in ("numberOfFeatures", "numberMatched"):
 		value = doc.get(field)
 		if value is not None and str(value).isdigit() and int(value) != len(features):
@@ -100,7 +112,11 @@ def fetch_tile(name, bounds, cache):
 	with urlopen(req, timeout=150) as response:
 		raw = response.read(MAX_BYTES + 1)
 	if len(raw) > MAX_BYTES:
-		raise ValueError(f"{name}: Antwort über 32 MiB, Kachel muss verkleinert werden")
+		# Dieselbe fachliche Situation wie die Featuregrenze: Die logische
+		# Anfrage ist für den fest begrenzten, überprüfbaren Transport zu groß.
+		# Sie wird ausschließlich in die exakt abdeckenden Teil-BBOXen zerlegt.
+		raise OversizedTileError(
+			f"{name}: Antwort über 32 MiB, Teilkacheln erforderlich")
 	doc = validate(raw, tile=name)
 	compressed = lzma.compress(raw, format=lzma.FORMAT_XZ, preset=6)
 	temp = path.with_suffix(".xz.download")
@@ -122,6 +138,58 @@ def fetch_tile(name, bounds, cache):
 		temp.unlink(missing_ok=True)
 		raise
 	return path, len(doc["features"]), True
+
+
+def fetch_tile_parts(name, bounds, cache, *, depth=0):
+	"""Lädt eine logische Kachel; teilt ausschließlich übervolle WFS-Antworten."""
+	cache = Path(cache)
+	manifest_path = cache/f"{name}.parts.json"
+	expected = {"schema":"sis-wien-wfs-parts-v1","tile_id":name,
+		"bbox_31256":list(bounds),"depth":depth}
+	if manifest_path.exists():
+		manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+		if any(manifest.get(key) != value for key,value in expected.items()):
+			raise ValueError(f"{name}: Teilkachelmanifest widerspricht Abfrageparametern")
+		entries = manifest.get("parts")
+		if not isinstance(entries,list) or not entries:
+			raise ValueError(f"{name}: ungültiges Teilkachelmanifest")
+		parts = []
+		for entry in entries:
+			if not isinstance(entry,dict) or not isinstance(entry.get("tile_id"),str):
+				raise ValueError(f"{name}: ungültiger Teilkacheleintrag")
+			child_bounds = tuple(entry.get("bbox_31256",()))
+			if len(child_bounds) != 4:
+				raise ValueError(f"{name}: Teilkachel ohne BBOX")
+			child,_,_ = fetch_tile_parts(entry["tile_id"],child_bounds,cache,
+				depth=depth+1)
+			parts.extend(child)
+		return parts,sum(count for _,count,_ in parts),any(downloaded for _,_,downloaded in parts)
+	try:
+		path,count,downloaded = fetch_tile(name,bounds,cache)
+		return [(path,count,downloaded)],count,downloaded
+	except OversizedTileError:
+		if depth >= MAX_SPLIT_DEPTH:
+			raise ValueError(f"{name}: WFS-Featuregrenze auch nach {depth} Teilungen erreicht")
+		parts = []
+		entries = []
+		for index,child_bounds in enumerate(split_bounds(bounds)):
+			child_name = f"{name}__q{index}"
+			child,_,_ = fetch_tile_parts(child_name,child_bounds,cache,
+				depth=depth+1)
+			parts.extend(child)
+			entries.append({"tile_id":child_name,"bbox_31256":list(child_bounds)})
+		cache.mkdir(parents=True,exist_ok=True)
+		temp = manifest_path.with_name(manifest_path.name+".tmp")
+		if temp.exists():
+			raise FileExistsError(temp)
+		try:
+			temp.write_text(json.dumps({**expected,"parts":entries},ensure_ascii=False,
+				indent=2)+"\n",encoding="utf-8")
+			temp.replace(manifest_path)
+		except BaseException:
+			temp.unlink(missing_ok=True)
+			raise
+		return parts,sum(count for _,count,_ in parts),any(downloaded for _,_,downloaded in parts)
 
 
 def feature_identity(feature):

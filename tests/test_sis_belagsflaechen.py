@@ -9,6 +9,7 @@ import unittest
 from pyproj import Transformer
 from shapely.geometry import box, mapping, Polygon
 from shapely.ops import transform
+from shapely.wkt import loads as load_wkt
 from shapely.wkb import loads
 from shapely.wkb import dumps
 
@@ -156,9 +157,55 @@ class SISBelagsflaechenTests(unittest.TestCase):
 		doc = json.loads(self.source.read_text(encoding="utf-8"))
 		doc["features"][0]["geometry"] = mapping(transform(to_wgs, bow))
 		self.source.write_text(json.dumps(doc), encoding="utf-8")
-		with self.assertRaisesRegex(ValueError, "Keine freigegebene konservative Reparatur"):
+		with self.assertRaisesRegex(ValueError, "Reparatur wäre nicht flächentreu|Keine freigegebene konservative Reparatur"):
 			build(self.source, self.base/"out")
 		self.assertFalse((self.base/"out").exists())
+
+	def test_tiny_self_intersection_is_repaired_only_with_exact_footprint_audit(self):
+		# Reale WFS-Form: eine winzige, sich selbst schneidende Spitze. Die
+		# metrische Symdiff zum make_valid-Ergebnis muss exakt null bleiben;
+		# damit unterscheidet sich der Fall von einer mehrdeutigen Schleife.
+		invalid = load_wkt(
+			"POLYGON ((16.3039599 48.18973034, 16.30395219 48.18976363, "
+			"16.30395159 48.18976354, 16.30394695 48.1897628, "
+			"16.30394586 48.18976263, 16.30394621 48.18973969, "
+			"16.30394589 48.18973882, 16.3039439 48.18973522, "
+			"16.30394282 48.18973385, 16.30394013 48.18973122, "
+			"16.30393792 48.18972958, 16.30393587 48.18972832, "
+			"16.30393154 48.1897263, 16.30393083 48.18972603, "
+			"16.30392737 48.18972496, 16.30392409 48.18972423, "
+			"16.30392373 48.18972417, 16.3039599 48.18973034))")
+		self.assertFalse(invalid.is_valid)
+		doc = json.loads(self.source.read_text(encoding="utf-8"))
+		doc["features"] = [{"type": "Feature", "id": "SISBELAGOGD.self-crossing",
+			"properties": {"SIS_ID": 3454278, "TYPE": "PA", "BELAG": "GO",
+				"BELAG_TXT": "Großsteinpflaster"}, "geometry": mapping(invalid)}]
+		self.source.write_text(json.dumps(doc), encoding="utf-8")
+		report = build(self.source, self.base/"out")
+		repair = report["geometriekorrekturen"][0]
+		self.assertIn("Self-intersection", repair["grund"])
+		self.assertAlmostEqual(repair["symmetrische_differenz_m2"], 0, delta=1e-10)
+		self.assertLess(abs(repair["flaechendifferenz_m2"]), .01)
+
+	def test_tiny_self_intersection_can_use_audited_topology_safe_reference(self):
+		# Dieser reale WFS-Fall verhindert eine direkte Symdiff der ungültigen
+		# Quelle. make_valid wird nur akzeptiert, wenn die Abweichung zur
+		# topologiesicheren Referenz unter derselben 0,01-m²-Grenze bleibt.
+		invalid = Polygon([(16.46995095,48.15818239),(16.46995087,48.15818242),
+			(16.46994744,48.15818337),(16.46994512,48.15818366),
+			(16.46994375,48.1581837),(16.46994007,48.15818338),
+			(16.46993903,48.15818317),(16.46993903,48.15818311),
+			(16.469944,48.15818365),(16.46994897,48.15818301),
+			(16.46995095,48.15818239)])
+		# Der synthetische Ring muss tatsächlich selbstschneidend sein.
+		self.assertFalse(invalid.is_valid)
+		doc = json.loads(self.source.read_text(encoding="utf-8"))
+		doc["features"] = [{"type":"Feature", "id":"SISBELAGOGD.buffer-reference",
+			"properties":{"SIS_ID":3176924,"TYPE":"FF","BELAG":"AB","BELAG_TXT":"Asphalt"},
+			"geometry":mapping(invalid)}]
+		self.source.write_text(json.dumps(doc),encoding="utf-8")
+		report=build(self.source,self.base/"out")
+		self.assertIn("buffer(0)-Referenz",report["geometriekorrekturen"][0]["flaechentreue_nachweis"])
 
 	def test_conflicting_non_green_source_has_conservative_precedence(self):
 		with sqlite3.connect(":memory:") as db:

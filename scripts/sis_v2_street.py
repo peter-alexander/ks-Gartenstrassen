@@ -16,6 +16,7 @@ from scripts.wienwide_grid import read_manifest, checksum
 from scripts.wienwide_street import save_street_tile, load_street_tile
 
 VERSION = "sis-belagsflaechen-v2"
+CITY_INDEX_SCHEMAS = frozenset(("sis-wien-index-v4", "sis-wien-index-v5"))
 
 
 def run(manifest_path, sis_db, out_root):
@@ -23,8 +24,8 @@ def run(manifest_path, sis_db, out_root):
 	out_root, sis_db = Path(out_root), Path(sis_db)
 	with sqlite3.connect(f"file:{sis_db.resolve()}?mode=ro", uri=True) as db:
 		metadata = dict(db.execute("SELECT key,value FROM metadata"))
-		is_city = metadata.get("schema") == "sis-wien-index-v1"
-		if (metadata.get("schema") not in (SIS_SCHEMA,"sis-wien-index-v1")
+		is_city = metadata.get("schema") in CITY_INDEX_SCHEMAS
+		if (metadata.get("schema") not in ({SIS_SCHEMA} | CITY_INDEX_SCHEMAS)
 			or metadata.get("crs") != "EPSG:31256"):
 			raise ValueError("Unpassender SIS-Pilotindex")
 		if is_city:

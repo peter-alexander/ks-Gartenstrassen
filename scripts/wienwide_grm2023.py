@@ -80,6 +80,30 @@ def chunk_paths(root,tile,name):
 	return folder/(name+".png"), folder/(name+".json")
 
 
+def quarantine_chunk(root,tile,name,png,meta,*,reason):
+	"""Bewahrt einen formal gültigen, fachlich aber unvollständigen Cache auf.
+
+	Ein transparentes WMS-Bild innerhalb der AOI darf weder als Nullwert
+	weiterverwendet noch kommentarlos überschrieben werden. Die Rohantwort und
+	ihre Metadaten bleiben daher mit Prüfsumme und Fehlermeldung nachvollziehbar
+	im Cache-Audit erhalten; der reguläre Pfad wird anschließend neu geladen.
+	"""
+	digest=checksum(png)
+	dir=Path(root)/"ungueltige_wms_antworten"/tile["id"]
+	dir.mkdir(parents=True,exist_ok=True)
+	base=dir/f"{name}.{digest}"
+	png.replace(base.with_suffix(".png"))
+	meta.replace(base.with_suffix(".json"))
+	(base.with_suffix(".audit.json")).write_text(json.dumps({
+		"schema_version":1,
+		"tile_id":tile["id"],
+		"chunk":name,
+		"png_sha256":digest,
+		"grund":reason,
+	},ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+	return base
+
+
 def verify_chunk(root,tile,name,geo,url):
 	png,meta=chunk_paths(root,tile,name)
 	if not png.is_file() or not meta.is_file():
@@ -187,21 +211,39 @@ def fetch(manifest_path,root,*,pause_s=.4):
 	need_network=any(not chunk_paths(root,tile,name)[0].exists()
 		and not chunk_paths(root,tile,name)[1].exists()
 		for tile,name,geo,url in all_chunks)
-	if need_network:
+	capabilities_checked=False
+	def ensure_capabilities():
+		nonlocal capabilities_checked
+		if capabilities_checked:
+			return
 		caps=parse_capabilities(request_bytes(wms_url("GetCapabilities")),
 			layer="GRM2023OGD")
 		if "EPSG:31256" not in caps["unterstuetzte_srs"]:
 			raise ValueError("GRM2023OGD unterstützt EPSG:31256 nicht")
+		capabilities_checked=True
+	if need_network:
+		ensure_capabilities()
 	results=[]
+	quarantined=[]
 	for index,(tile,name,geo,url) in enumerate(all_chunks,1):
 		png,report=chunk_paths(root,tile,name)
+		core=box(*tile["bounds_31256"]).intersection(aoi)
 		if png.exists() or report.exists():
-			verify_chunk(root,tile,name,geo,url)
-			continue
+			cached,_=verify_chunk(root,tile,name,geo,url)
+			try:
+				decode_chunk(cached,geo,label=f"{tile['id']}/{name}",core=core)
+			except ValueError as exc:
+				quarantine_chunk(root,tile,name,cached,report,reason=str(exc))
+				quarantined.append(f"{tile['id']}/{name}")
+				print(f"GRM {index}/{len(all_chunks)}: ungültigen Cache "
+					f"quarantiniert: {tile['id']}/{name}")
+			else:
+				continue
 		# Nur zwischen tatsächlichen Netzabrufen drosseln.
 		# Geprüfte Cache-Bilder erzeugen keine WMS-Last.
 		if results and pause_s:
 			sleep(pause_s)
+		ensure_capabilities()
 		payload=request_bytes(url,limit=MAX_REQUEST_BYTES)
 		# WMS-Fehlerseiten werden verworfen; PNG wird streng validiert.
 		require_png(payload,expected_size=(geo["width"],geo["height"]))
@@ -216,7 +258,9 @@ def fetch(manifest_path,root,*,pause_s=.4):
 					dir=png.parent,delete=False) as target:
 				temp=Path(target.name)
 				target.write(payload)
-			# Erst nach erfolgreichem Schreiben atomar sichtbar machen.
+			# Die Antwort vor der atomaren Veröffentlichung vollständig
+			# klassifizieren; unvollständige WMS-Bilder dürfen nicht cachen.
+			decode_chunk(temp,geo,label=f"{tile['id']}/{name}",core=core)
 			os.replace(temp,png)
 			d={"schema_version":SCHEMA,"tile_id":tile["id"],
 				"raster":geo,"getmap_url":url,"png_sha256":checksum(png),
@@ -233,7 +277,7 @@ def fetch(manifest_path,root,*,pause_s=.4):
 		results.append(f"{tile['id']}/{name}")
 		print(f"GRM {index}/{len(all_chunks)}: {tile['id']}/{name}")
 	return {"kacheln":len(manifest["tiles"]),"wms_bilder":len(all_chunks),
-		"neu_geladen":len(results)}
+		"neu_geladen":len(results),"quarantaene":len(quarantined)}
 
 
 def mask_path(root,tile):
