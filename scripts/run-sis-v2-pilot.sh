@@ -82,7 +82,7 @@ for ((i=start;i<=end;i++)); do
 				--sis-db "$SIS_DB" --out "$ROOT/aoi.geojson";;
 		grid)
 			[[ -e "$ROOT/raster.json" ]] || "$PYTHON" -m scripts.wienwide_grid \
-				--aoi "$ROOT/aoi.geojson" --tile-m 250 --halo-m 75 --out "$ROOT/raster.json";;
+				--aoi "$ROOT/aoi.geojson" --tile-m "${SIS_V2_TILE_M:-1000}" --halo-m 75 --out "$ROOT/raster.json";;
 		gip-index)
 			[[ -f "$GIP2" ]] || { echo "GIP2-Datei fehlt: $GIP2" >&2; exit 1; }
 			[[ -e "$ROOT/gip.sqlite" ]] || "$PYTHON" -m scripts.sis_gip2 \
