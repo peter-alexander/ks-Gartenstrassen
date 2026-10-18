@@ -20,6 +20,7 @@ from shapely.ops import transform
 from shapely.wkb import loads
 
 from scripts.wienwide_grid import checksum, read_manifest
+from scripts.gartenstrassen_fow import PARALLEL_FOW, is_parallel_fow, is_street_pair
 
 DISTANCE_M = 20.0
 SHORT_COVER = 0.85
@@ -91,6 +92,9 @@ def find_parallel_pairs(axes, *, distance_m=DISTANCE_M, min_short=SHORT_COVER,
 			raise ValueError(f"{name} muss zwischen 0 und 1 liegen")
 	if not 0 <= angle_deg < 90:
 		raise ValueError("angle_deg muss zwischen 0 und 90 liegen")
+	axes = [a for a in axes if is_parallel_fow(a.fow)]
+	if not axes:
+		return [], 0
 	geoms = [a.geom for a in axes]
 	tree = STRtree(geoms)
 
@@ -105,6 +109,8 @@ def find_parallel_pairs(axes, *, distance_m=DISTANCE_M, min_short=SHORT_COVER,
 			if j <= i:
 				continue
 			b = axes[j]
+			if not is_street_pair(a.fow, b.fow):
+				continue
 			if a.id == b.id:
 				continue
 			candidate_count += 1
@@ -161,7 +167,10 @@ def read_axes(index):
 			row = db.execute("SELECT value FROM meta WHERE key='crs'").fetchone()
 			if row and json.loads(row[0]) != "EPSG:31256":
 				raise ValueError("GIP-Index benötigt EPSG:31256")
-			rows = db.execute("SELECT gip,name,fow,node_from,node_to,wkb FROM axes ORDER BY gip")
+			allowed = sorted(PARALLEL_FOW)
+			values = ",".join("?" for _ in allowed)
+			rows = db.execute("SELECT gip,name,fow,node_from,node_to,wkb "
+				f"FROM axes WHERE fow IN ({values}) ORDER BY gip", allowed)
 			result = []
 			for gid, name, fow, start, end, wkb in rows:
 				geom = loads(wkb)
@@ -212,6 +221,9 @@ def run(index, output, *, distance_m=DISTANCE_M):
 	if json_file.exists() or geo_file.exists():
 		raise FileExistsError("Diagnoseausgaben existieren bereits; nicht überschreiben")
 	axes = read_axes(index)
+	uri = "file:" + quote(str(Path(index).resolve()), safe="/") + "?mode=ro"
+	with sqlite3.connect(uri, uri=True) as db:
+		source_axes = db.execute("SELECT COUNT(*) FROM axes").fetchone()[0]
 	pairs, candidates = find_parallel_pairs(axes, distance_m=distance_m)
 	groups = _groups(pairs)
 	group_by_id = {gid: i + 1 for i, group in enumerate(groups) for gid in group}
@@ -219,6 +231,8 @@ def run(index, output, *, distance_m=DISTANCE_M):
 	result = {
 		"schema_version": 1, "status": "nur_diagnose_keine_vereinigung",
 		"input_index": str(Path(index).resolve()), "achsen": len(axes),
+		"quellachsen": source_axes, "fow_ausgeschlossen": source_axes - len(axes),
+		"fow_kandidaten": sorted(PARALLEL_FOW),
 		"parameter": {"max_distance_m": distance_m, "min_cover_short": SHORT_COVER,
 			"min_cover_long": LONG_COVER, "max_angle_deg": MAX_ANGLE_DEG,
 			"direction_sample_spacing_m": SPACING_M},
@@ -255,7 +269,8 @@ def main():
 	print(f"Geprüfter Wien-Datensatz: {checked['aoi_km2']:.2f} km², "
 		f"{checked['tiles']} Rasterkacheln, {checked['axes']} GIP-Achsen", flush=True)
 	result = run(args.gip_index, args.out_dir, distance_m=args.distance_m)
-	print(f"GIP-Parallelprüfung: {result['achsen']} Achsen, "
+	print(f"GIP-Parallelprüfung: {result['achsen']} geeignete Achsen "
+		f"(von {result['quellachsen']} insgesamt), "
 		f"{result['raumliche_kandidaten']} Nähepaare, "
 		f"{result['akzeptierte_paare']} parallele Paare, "
 		f"{len(result['gruppen'])} Diagnosegruppen")
