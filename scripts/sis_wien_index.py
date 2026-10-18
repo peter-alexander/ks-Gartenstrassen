@@ -1,6 +1,7 @@
 """Importiert komprimierte Wiener SIS-WFS-Kacheln in eine deduplizierte SQLite.
 
-Rohkacheln und Ziel-DB liegen standardmäßig auf /mnt/e. Jede Kachel
+Rohkacheln bleiben unter raw/sis/wfs-kacheln; der abgeleitete Index liegt
+unter work/sis-wien.sqlite. Jede Kachel
 wird mit allen Features atomar importiert; Dubletten erfordern identische
 Attribute und Geometrien. Features werden niemals am WFS-Rand gekürzt.
 """
@@ -19,7 +20,9 @@ from scripts.sis_belagsflaechen import TO_METRIC, _repair_source_polygon
 from scripts.sis_wien_wfs import feature_identity, fetch_tile_parts, tiles, validate
 from scripts.wienwide_grid import load_aoi
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[1] / "data" / "wien"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RAW = REPO_ROOT / "raw" / "sis" / "wfs-kacheln"
+DEFAULT_DB = REPO_ROOT / "work" / "sis-wien.sqlite"
 SCHEMA = "sis-wien-index-v5"
 # Der WFS liefert für dieselbe SIS-Geometrie wechselnde Java-Referenzen
 # statt fachlicher Daten. Dieser eine volatile Wert bleibt im Rohcache,
@@ -291,9 +294,9 @@ def main():
 	p = argparse.ArgumentParser(description=__doc__)
 	p.add_argument("--aoi",type=Path,required=True)
 	p.add_argument("--cache",type=Path,
-		default=DEFAULT_ROOT/"wfs-kacheln")
+		default=DEFAULT_RAW)
 	p.add_argument("--database",type=Path,
-		default=DEFAULT_ROOT/"sis-wien.sqlite")
+		default=DEFAULT_DB)
 	a = p.parse_args()
 	print(json.dumps(run(a.aoi,a.cache,a.database),
 		ensure_ascii=False,indent=2))
