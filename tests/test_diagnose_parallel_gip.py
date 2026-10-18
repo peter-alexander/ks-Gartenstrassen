@@ -141,7 +141,7 @@ class GIPParallelTests(unittest.TestCase):
 		crossing = edge("crossing", [(0, 7), (100, 7)], fow=8)
 		pairs, _ = find_parallel_pairs([road, cycleway, footway, train, crossing])
 		self.assertEqual({(p["a"], p["b"]) for p in pairs},
-			{("cycleway", "road"), ("footway", "road")})
+			{("road", "cycleway"), ("road", "footway")})
 		self.assertFalse(is_street_pair(505, 15))
 		self.assertFalse(is_street_pair(3, 102))
 		self.assertTrue(is_street_pair(3, 505))
