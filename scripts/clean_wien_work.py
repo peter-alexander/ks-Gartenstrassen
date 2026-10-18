@@ -37,7 +37,7 @@ def verify(repo):
 			raise FileNotFoundError(f"Vollständige Ausgabe fehlt: {file}")
 		files[name] = file
 	with files["gartenstrassen.pmtiles"].open("rb") as file:
-		if file.read(8) != b"PMTiles\\x03":
+		if file.read(8) != b"PMTiles\x03":
 			raise ValueError("Ungültiger PMTiles-v3-Header")
 	report = json.loads(files["bericht.json"].read_text(encoding="utf-8"))
 	if not isinstance(report.get("gip_ids"), int) or report["gip_ids"] < 10000:
