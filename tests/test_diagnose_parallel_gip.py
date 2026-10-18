@@ -10,6 +10,7 @@ from shapely.geometry import LineString, box
 from shapely.wkb import dumps
 
 from scripts.diagnose_parallel_gip import Axis, find_parallel_pairs, read_axes, run, require_complete_wien
+from scripts.gartenstrassen_fow import STREET_FOW, SUPPORT_FOW, is_parallel_fow, is_street_fow, is_street_pair
 
 
 def edge(gid, points, *, name="Hauptstraße", fow=3, start="s", end="e"):
@@ -112,6 +113,53 @@ class GIPParallelTests(unittest.TestCase):
 					return_value=({"tiles": tiles}, box(0, 0, 20000, 20000))):
 				with self.assertRaisesRegex(ValueError, "gehört nicht"):
 					require_complete_wien(index, manifest)
+
+
+	def test_lookups_cover_all_67_supplied_fow_codes(self):
+		# GIP LUT lut_form_of_way_202607081451.csv, complete code domain.
+		known = {2, 3, 4, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16,
+			17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 101, 102, 103,
+			200, 220, 301, 400, 401, 402, 403, 404, 405, 406,
+			-1, 1, 504, 505, 506, 507, 508, 509, 510, 511, 512,
+			513, 514, 515, 516, 517, 518, 519, 520, 521, 522,
+			523, 524, 525, 526, 527, 528, 599, 601, 701, 702}
+		self.assertEqual(len(known), 67)
+		self.assertEqual(STREET_FOW, {2, 3, 14})
+		self.assertEqual(SUPPORT_FOW, {15, 504, 505})
+		for code in known:
+			self.assertEqual(is_street_fow(code), code in {2, 3, 14}, code)
+			self.assertEqual(is_parallel_fow(code), code in {2, 3, 14, 15, 504, 505}, code)
+		self.assertFalse(is_street_fow(None))
+		self.assertFalse(is_parallel_fow(9999))
+		self.assertFalse(is_parallel_fow(True))
+
+	def test_support_fow_pairs_only_with_street(self):
+		road = edge("road", [(0, 0), (100, 0)], fow=3)
+		cycleway = edge("cycleway", [(0, 10), (100, 10)], fow=505)
+		footway = edge("footway", [(0, 15), (100, 15)], fow=15)
+		train = edge("train", [(0, 5), (100, 5)], fow=101)
+		crossing = edge("crossing", [(0, 7), (100, 7)], fow=8)
+		pairs, _ = find_parallel_pairs([road, cycleway, footway, train, crossing])
+		self.assertEqual({(p["a"], p["b"]) for p in pairs},
+			{("road", "cycleway"), ("road", "footway")})
+		self.assertFalse(is_street_pair(505, 15))
+		self.assertFalse(is_street_pair(3, 102))
+		self.assertTrue(is_street_pair(3, 505))
+		self.assertTrue(is_street_pair(2, 14))
+
+	def test_read_axes_filters_unused_type_before_geometry_loading(self):
+		with TemporaryDirectory() as tmp:
+			index = Path(tmp) / "gip.sqlite"
+			with sqlite3.connect(index) as db:
+				db.execute("CREATE TABLE meta (key TEXT,value TEXT)")
+				db.execute("CREATE TABLE axes (gip TEXT,name TEXT,fow INTEGER,node_from TEXT,node_to TEXT,wkb BLOB)")
+				for a in (edge("road", [(0,0),(100,0)], fow=3),
+						edge("tram", [(0,1),(100,1)], fow=101),
+						edge("rad", [(0,2),(100,2)], fow=505),
+						edge("unknown", [(0,3),(100,3)], fow=-1)):
+					db.execute("INSERT INTO axes VALUES (?,?,?,?,?,?)",
+						(a.id,a.name,a.fow,a.start,a.end,dumps(a.geom)))
+			self.assertEqual([a.id for a in read_axes(index)], ["rad", "road"])
 
 
 if __name__ == "__main__":

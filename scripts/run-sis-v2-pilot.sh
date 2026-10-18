@@ -120,9 +120,10 @@ for ((i=start;i<=end;i++)); do
 					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023"
 			fi;;
 		pmtiles)
-			[[ -e "$ROOT/gartenstrassen_sis_v2.pmtiles" ]] || "$PYTHON" -m scripts.sis_v2_pmtiles \
+			"$PYTHON" -m scripts.sis_v2_pmtiles \
 				--geojson "$ROOT/ergebnisse/gip_abschnitte.geojson" \
-				--out "$ROOT/gartenstrassen_sis_v2.pmtiles" --min-area-m2 100;;
+				--out "$ROOT/gartenstrassen_sis_v2.pmtiles" \
+				--min-area-m2 100 --replace;;
 		measure)
 			args=()
 			if ((WITH_GRM)); then args=(--grm-root "$ROOT/grm2023"); fi

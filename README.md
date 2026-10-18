@@ -87,7 +87,11 @@ prüft standardmäßig den **kompletten Wien-GIP2-Graphen** mit
 `bash scripts/run-gip-parallel-wien.sh`. Test-/Bezirks-AOIs werden
 anhand des Rastermanifests und der Datenbankmetadaten abgewiesen.
 Die Ausgabe dient ausschließlich zur Sichtkontrolle; noch keine
-automatische Vereinigung der Straßenabschnitte.
+automatische Vereinigung der Straßenabschnitte. Für Diagnose und
+SIS-V2-PMTiles gilt eine konservative [FOW-Positivliste](docs/GIP-FOW-Auswahl.md):
+Straßenkandidaten 2/3/14, Fuß- und Radwege 15/504/505 nur als
+begleitende Parallelkanten; Bahn-, Kreuzungs-, Steig-, Objekt- und
+Sondertypen werden nicht veröffentlicht.
 
 ## Stand und Ergebnisse
 

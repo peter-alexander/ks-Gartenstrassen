@@ -1,6 +1,6 @@
-"""Publikations-PMTiles für SIS-V2 mit explizitem Abschnittsflächenfilter.
+"""Publikations-PMTiles für SIS-V2 mit Gartenstraßen-FOW-Positivliste.
 
-GIP-Auswertung bleibt vollständig; 100 m² sind nur Exportfilter.
+GIP-/QA-Auswertung bleibt vollständig; 100 m² und FOW gelten nur beim Export.
 """
 import argparse
 import hashlib
@@ -11,11 +11,12 @@ import shutil
 import subprocess
 
 from scripts.wienwide_grid import checksum
+from scripts.gartenstrassen_fow import is_street_fow, STREET_FOW
 
 
-def run(source, output, *, min_area=100):
+def run(source, output, *, min_area=100, replace=False):
 	source, output = Path(source), Path(output)
-	if output.exists():
+	if output.exists() and not replace:
 		raise FileExistsError(output)
 	if not 0 <= min_area < 1_000_000:
 		raise ValueError("Ungültige Mindestfläche")
@@ -29,9 +30,14 @@ def run(source, output, *, min_area=100):
 	if not isinstance(items,list):
 		raise ValueError("Ungültige Featureliste")
 	selected = []
+	excluded_fow = {}
 	mvt_ids = set()
 	for feature in items:
 		props = feature["properties"]
+		if not is_street_fow(props.get("fow")):
+			code = str(props.get("fow"))
+			excluded_fow[code] = excluded_fow.get(code, 0) + 1
+			continue
 		area = float(props["abschnitt_flaeche_m2"])
 		if area >= min_area:
 			if "boden_pct" not in props or "nicht_begruent_pct" not in props:
@@ -69,7 +75,12 @@ def run(source, output, *, min_area=100):
 			raise ValueError("Leere PMTiles-Ausgabe")
 		staged.replace(output)
 		return {"output":str(output),"gip_ids":len(selected),
-			"omitted":len(items)-len(selected),"min_area_m2":min_area,
+			"existing_replaced": bool(replace),
+			"omitted":len(items)-len(selected),
+			"omitted_fow":sum(excluded_fow.values()),
+			"omitted_fow_by_code":dict(sorted(excluded_fow.items())),
+			"omitted_min_area":len(items)-len(selected)-sum(excluded_fow.values()),
+			"allowed_fow":sorted(STREET_FOW),"min_area_m2":min_area,
 			"source_sha256":checksum(source),"pmtiles_sha256":checksum(output)}
 	finally:
 		filtered.unlink(missing_ok=True)
@@ -81,8 +92,11 @@ def main():
 	p.add_argument("--geojson",required=True,type=Path)
 	p.add_argument("--out",required=True,type=Path)
 	p.add_argument("--min-area-m2",type=float,default=100.)
+	p.add_argument("--replace",action="store_true",
+		help="Vorhandenes PMTiles erst nach erfolgreichem Neubau atomar ersetzen")
 	a = p.parse_args()
-	print(json.dumps(run(a.geojson,a.out,min_area=a.min_area_m2),
+	print(json.dumps(run(a.geojson,a.out,min_area=a.min_area_m2,
+		replace=a.replace),
 		ensure_ascii=False,indent=2))
 
 

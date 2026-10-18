@@ -1,3 +1,15 @@
+## FOW-Auswahl für PMTiles (seit Oktober 2026)
+
+Die vollständige SIS-V2-Partition und die wissenschaftlichen Messwerte
+bleiben als QA-Datensatz unverändert. **Nur die veröffentlichte PMTiles-Datei**
+filtert auf die ausdrücklich geeigneten FOW-Codes **2, 3, 14**
+(Fahrbahnteilung, ungeteilte Fahrbahn, Fußgängerzone). Andere Codes,
+insbesondere Kreuzung, Bahn, Stiege, Steig, Aufzug, Wege im Objekt und
+unbekannte Typen, werden nicht veröffentlicht. Fuß-/Radwege 15/504/505
+sind nur bei der separaten Parallelkantenanalyse als Begleitkanten erlaubt.
+Die Filterdefinition und der atomare Neuaufbau bestehender PMTiles sind
+unter [GIP-FOW-Auswahl](GIP-FOW-Auswahl.md) beschrieben.
+
 ## Wienweiter SIS-Lauf mit externem Datenspeicher
 
 Die große Wien-Variante verwendet konsequent `/mnt/e/Gartenstrassen/`
