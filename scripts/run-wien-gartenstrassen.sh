@@ -3,6 +3,13 @@
 # Die Originale und sämtliche QA-Flächen bleiben unverändert.
 set -euo pipefail
 
+# V0 ist historisch; alte data/processed/-Strukturen nicht erneut erzeugen.
+if [[ "${KS_ALLOW_LEGACY_V0:-0}" != "1" ]]; then
+	echo "Historische V0-Pipeline deaktiviert. Wien-SIS-V2: scripts/run-sis-v2-wien.sh" >&2
+	echo "Nur zur Reproduktion alter Methoden: KS_ALLOW_LEGACY_V0=1 setzen." >&2
+	exit 2
+fi
+
 cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
 FMZK="${FMZK_SOURCE:-data/raw/FMZK_WIEN_GP.gpkg}"
