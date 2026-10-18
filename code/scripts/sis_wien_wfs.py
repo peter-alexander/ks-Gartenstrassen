@@ -63,7 +63,30 @@ def split_bounds(bounds):
 
 
 def validate(raw, *, tile):
-	doc = json.loads(raw)
+	try:
+		doc = json.loads(raw)
+	except json.JSONDecodeError as exc:
+		# Wien-WFS liefert gelegentlich HTTP 200 mit einem mitten im Feature
+		# abgeschnittenen GeoJSON. Das passiert auch unter dem 32-MiB-Limit.
+		# Kein gekürztes Feature jemals importieren oder im Rohcache speichern.
+		# Stattdessen die BBOX kontrolliert in vier Teilabfragen zerlegen.
+		if exc.msg.startswith("Unterminated string"):
+			raise OversizedTileError(
+				f"{tile}: WFS-GeoJSON mitten in einer Zeichenkette abgeschnitten "
+				f"(Parserposition {exc.pos}, empfangen {len(raw)} Byte); "
+				"Teilkacheln erforderlich") from exc
+		# Ein fehlender Abschluss am Ende der Antwort ist ebenfalls typisch
+		# für einen abgebrochenen HTTP-200-Body. Bei Fehlern im Inneren
+		# weiter strikt abbrechen: keine willkürlichen JSON-Defekte kaschieren.
+		text = raw.decode("utf-8", errors="replace")
+		if (exc.pos >= len(text) - 256
+			and not text.rstrip().endswith("}")):
+			raise OversizedTileError(
+				f"{tile}: WFS-GeoJSON am Antwortende abgeschnitten "
+				f"({len(raw)} Byte); Teilkacheln erforderlich") from exc
+		raise ValueError(
+			f"{tile}: WFS lieferte ungültiges JSON an Position {exc.pos}: "
+			f"{exc.msg}") from exc
 	if doc.get("type") != "FeatureCollection" or not isinstance(doc.get("features"), list):
 		raise ValueError(f"{tile}: WFS-Antwort ist keine GeoJSON-FeatureCollection")
 	features = doc["features"]
@@ -167,9 +190,13 @@ def fetch_tile_parts(name, bounds, cache, *, depth=0):
 	try:
 		path,count,downloaded = fetch_tile(name,bounds,cache)
 		return [(path,count,downloaded)],count,downloaded
-	except OversizedTileError:
+	except OversizedTileError as exc:
 		if depth >= MAX_SPLIT_DEPTH:
-			raise ValueError(f"{name}: WFS-Featuregrenze auch nach {depth} Teilungen erreicht")
+			raise ValueError(
+				f"{name}: WFS-Antwort selbst nach {depth} BBOX-Teilungen "
+				f"unvollständig oder zu groß: {exc}") from exc
+		print(f"SIS WFS {name}: {exc}; teile Abfrage in 4 Teilkacheln "
+			f"(Tiefe {depth+1}/{MAX_SPLIT_DEPTH})", flush=True)
 		parts = []
 		entries = []
 		for index,child_bounds in enumerate(split_bounds(bounds)):
