@@ -453,6 +453,94 @@ def split_tile(street, core, sites, axes, nodes,
 	}
 
 
+def _split_overfull_tile(db, street, core, bounds, *,
+		halo, exclude_junctions, all_fow, junction_polygon=None,
+		sites=None, axes=None, nodes=None, depth=0):
+	"""Adaptive Unterteilung nur innerhalb EINER unveränderten Manifest-Kachel.
+
+	Weder das globale GIP-Stützpunktraster (5 m) noch die resultierende
+	Kachel-ID werden verändert. Das räumliche 75-m-Halo wird für jede
+	Teilfläche neu aus dem globalen SQLite-Index abgefragt.
+	"""
+	if sites is None:
+		sites,axes,nodes=graph_context(db,bounds,halo=halo)
+	if len(sites)<=MAX_SITES:
+		assigned,unresolved,stats=split_tile(street,core,sites,axes,nodes,
+			exclude_junctions=exclude_junctions,all_fow=all_fow,
+			junction_polygon=junction_polygon)
+		return assigned,unresolved,stats,1,depth
+	x0,y0,x1,y1=bounds
+	# Das ist kein alternativer 5-m-Abtastabstand, sondern eine lokale
+	# numerische Aufteilung eines zu großen Voronoi-Problems.
+	if depth>=5 or min(x1-x0,y1-y0)<50:
+		raise ValueError(f"Voronoi-Kachel mit {len(sites)} Stützpunkten "
+			f"auch nach {depth} Unterteilungen zu dicht; "
+			"Abtastabstand bleibt unverändert")
+	xm,ym=(x0+x1)*.5,(y0+y1)*.5
+	sub_bounds=((x0,y0,xm,ym),(xm,y0,x1,ym),
+		(x0,ym,xm,y1),(xm,ym,x1,y1))
+	pieces=defaultdict(list)
+	unknown_pieces=defaultdict(list)
+	events=[]
+	leaf_count=0
+	max_depth=depth
+	child_area=0.
+	for sub in sub_bounds:
+		child_core=core.intersection(box(*sub))
+		if child_core.is_empty or child_core.area<=0:
+			continue
+		sub_assigned,sub_unresolved,sub_stats,leaves,deepest=(
+			_split_overfull_tile(db,street,child_core,sub,
+				halo=halo,exclude_junctions=exclude_junctions,
+				all_fow=all_fow,junction_polygon=junction_polygon,
+				depth=depth+1))
+		leaf_count+=leaves
+		max_depth=max(max_depth,deepest)
+		child_area+=sub_stats["strassenraum_m2"]
+		events.extend(sub_stats["geometrie_reparaturen"])
+		for gid,geom in sub_assigned.items():
+			pieces[gid].append(geom)
+		for kind,geom in sub_unresolved.items():
+			unknown_pieces[kind].append(geom)
+	# Nach allen Unterteilungen wieder ein einziges Ergebnis je
+	# ursprünglicher GIP-ID und Manifest-Kachel erstellen.
+	results={gid:_polygon(union_all(geoms),f"GIP {gid}, Teilkacheln",
+		repair_events=events) for gid,geoms in pieces.items()}
+	unresolved={kind:_polygon(union_all(geoms),
+		f"{kind}, Teilkacheln",repair_events=events)
+		for kind,geoms in unknown_pieces.items()}
+	if any(g is None for g in list(results.values())+list(unresolved.values())):
+		raise ValueError("Voronoi-Unterteilung hat eine positive Teilfläche verloren")
+	mask=_polygon(street.intersection(core),"Gesamte ursprüngliche Kachel",
+		repair_events=events)
+	expected_area=mask.area if mask is not None else 0.
+	all_pieces=list(results.values())+list(unresolved.values())
+	combined=union_all(all_pieces) if all_pieces else None
+	sum_area=sum(g.area for g in all_pieces)
+	assigned_area=sum(g.area for g in results.values())
+	unresolved_area=sum(g.area for g in unresolved.values())
+	overlap=max(0.,sum_area-combined.area) if combined is not None else 0.
+	missing=mask.difference(combined).area if combined is not None and mask is not None else expected_area
+	outside=combined.difference(mask).area if combined is not None and mask is not None else 0.
+	tolerance=max(.05,expected_area*1e-6)
+	if max(abs(child_area-expected_area),overlap,missing,outside,
+			abs(sum_area-expected_area))>tolerance:
+		raise ValueError("Voronoi-Teilkacheln verletzen die Flächenbilanz: "
+			f"Kachel={expected_area:.6f}, Kinder={child_area:.6f}, "
+			f"Summe={sum_area:.6f}, Überlappung={overlap:.6f}, "
+			f"fehlend={missing:.6f}, außerhalb={outside:.6f} m² "
+			f"(Toleranz {tolerance:.6f} m²)")
+	stats={"strassenraum_m2":expected_area,"zugeordnet_m2":assigned_area,
+		"ungeklaert_m2":unresolved_area,"fehlend_m2":missing,
+		"overlap_m2":overlap,"ausserhalb_m2":outside,
+		"toleranz_m2":tolerance,"sites":len(sites),"knoten":len(nodes),
+		"geometrie_reparaturen":events,
+		"adaptive_voronoi":{"teilstuecke":leaf_count,
+			"max_unterteilungstiefe":max_depth,"max_sites":MAX_SITES,
+			"abtastabstand_m":5,"halo_m":halo}}
+	return results,unresolved,stats,leaf_count,max_depth
+
+
 def connect_results(path, *, create=False):
 	path=Path(path)
 	if create:
@@ -587,13 +675,28 @@ def run(manifest_path, gip_path, street_root, output, *, limit_tiles=None,
 						(bounds[0],bounds[2],bounds[1],bounds[3]))]
 					junction_polygon=union_all(hulls) if hulls else None
 				try:
-					results,unknown,stats=split_tile(street,core,sites,axes,nodes,
-						exclude_junctions=exclude_junctions and not gip2_hulls,
-						all_fow=all_fow, junction_polygon=junction_polygon)
+					if len(sites)>MAX_SITES:
+						print(f"{tile['id']}: {len(sites)} Voronoi-Sites; "
+							"unterteile nur diese Kachel adaptiv "
+							f"(Limit {MAX_SITES}, globaler Abstand 5 m)",flush=True)
+						results,unknown,stats,_,_= _split_overfull_tile(
+							gip,street,core,tile["bounds_31256"],
+							halo=manifest["halo_m"],
+							exclude_junctions=exclude_junctions and not gip2_hulls,
+							all_fow=all_fow,junction_polygon=junction_polygon,
+							sites=sites,axes=axes,nodes=nodes)
+					else:
+						results,unknown,stats=split_tile(street,core,sites,axes,nodes,
+							exclude_junctions=exclude_junctions and not gip2_hulls,
+							all_fow=all_fow,junction_polygon=junction_polygon)
 				except (ValueError,GEOSException) as exc:
 					raise ValueError(f"{tile['id']}: {exc}") from exc
 				elapsed=perf_counter()-start
 				write_tile(target,tile["id"],sha,results,unknown,stats,elapsed)
+				if "adaptive_voronoi" in stats:
+					print(f"{tile['id']}: in {stats['adaptive_voronoi']['teilstuecke']} "
+						"Teilkacheln berechnet, Ausgangskachel und GIP-IDs unverändert",
+						flush=True)
 				print(f"{i}/{len(tiles)} {tile['id']}: "
 					f"{stats['strassenraum_m2']:.1f} m², "
 					f"{stats['zugeordnet_m2']:.1f} m² zugeordnet, "
