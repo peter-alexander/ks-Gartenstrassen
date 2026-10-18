@@ -1,7 +1,11 @@
 __pycache__/
 *.py[cod]
 .venv/
+# Altes Datenlayout bis zur bestätigten lokalen Bereinigung schützen
 /data/
+/raw/
+/work/
+/output/
 
 # Lokale GeoPackage-Rohdaten auch außerhalb von data/ niemals synchronisieren
 *.gpkg

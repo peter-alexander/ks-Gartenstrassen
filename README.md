@@ -1,5 +1,16 @@
 # Wiener Gartenstraßen – datenbasierte Bestandsanalyse
 
+**Aktueller Wiener Datenlauf (SIS-V2):** Es gibt nur noch drei Datenbereiche am
+Repository-Root: `raw/` (dauerhaft heruntergeladene Quellen), `work/`
+(berechnete und nach einem erfolgreichen Lauf löschbare Zwischendaten) und
+`output/` (aktuelle GeoJSON-/CSV-/PMTiles-Ergebnisse). Der
+[Umzug aus den älteren data/-Verzeichnissen](docs/Wien-Datenumzug.md)
+verwendet zuerst eine vollständig schreibgeschützte Vorschau. Ein Wiener Lauf
+wird mit `bash scripts/run-sis-v2-wien.sh` gestartet; die historische V0 ist
+standardmäßig deaktiviert. Die ausführlichen älteren V0-/Pilot-Dokumente
+stehen weiter unten nur noch als Methodenprotokoll.
+
+
 ## Methodik des ersten Wien-Durchgangs (Oktober 2026)
 
 Ziel ist die flächendeckende, quantitative Beschreibung von **Bodenbegrünung** und

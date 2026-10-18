@@ -1,91 +1,119 @@
-# Wiener Arbeitsdaten ins lokale Repository übernehmen
+# Wiener Datenbereinigung: ein Rohdatenbestand, ein Arbeitsbereich, eine Ausgabe
 
-## Ziel
+## Zielstruktur
 
-Der vollständige Wiener SIS/GIP2-Lauf liegt künftig unter **`<repo>/data/wien/`**.
-Das gesamte bisherige Verzeichnis **`~/Gartenstrassen`** wird dorthin
-verschoben, ohne den Inhalt auszudünnen oder zu ändern:
+```text
+ks-Gartenstrassen/
+  scripts/            # aktueller Python-Code, derzeit noch am Repo-Root
+  tests/              # automatisierte Tests
+  docs/               # Dokumentation
+  raw/                # dauerhafte Originaldownloads: GIP2, FMZK, SIS-WFS, GRM-PNG
+    gip_network_ogd.gpkg
+    FMZK_WIEN_GP.gpkg
+    aoi/wien.geojson
+    sis/wfs-kacheln/
+    grm2023/png/
+  work/               # ausschließlich berechnete, erneut erzeugbare Arbeitsdaten
+    sis-wien.sqlite
+    wien/gip.sqlite
+    wien/raster.json
+    wien/grm2023/masken/
+  output/             # einzig gültige aktuelle Wiener Ausgabe
+    gip_abschnitte.csv
+    gip_abschnitte.geojson
+    bericht.json
+    gartenstrassen.pmtiles
+```
 
-- `aoi/` – Wien-AOI
-- `wfs-kacheln/` – vollständige SIS-WFS-Originalkacheln (XZ), Metadaten
-- `sis-wien.sqlite` – deduplizierter stadtweiter SIS-Index
-- `analysis/wien/` – GIP2-Index, Rastermanifest, Partitionen, GRM, QA, Auswertungen und Zwischendateien
-- sämtliche sonstigen im Quellverzeichnis tatsächlich vorhandenen Dateien
+Die historische Struktur `data/` wird nach einer getrennten Validierungsphase
+entfernt. Ein Umbau von `scripts/`, `tests/` und `docs/` in einen
+gemeinsamen `code/`-Unterordner ist **noch nicht Teil dieser Phase**; vor
+einer Verlagerung müssen Importpfade, CI und Paketstruktur umgestellt werden.
 
-Der Ordner `data/` ist **Git-ignored**. Die Dateien liegen damit physisch
-innerhalb des lokalen Repositorys, werden aber **nicht nach GitHub hochgeladen**.
-Die mehrere Gigabyte großen Geodaten sind bewusst kein Bestandteil der
-Git-Versionshistorie; Code, Tests und Methodik gehören dagegen auf `main`.
+## 0. Vorbedingungen
 
-## Vorgehen in WSL
+Kein laufender Wien-Prozess und **keine offenen SQLite-Verbindungen**.
+Die neun lokalen Änderungen vom 18. Oktober wurden als PR #7 auf
+`main` übernommen. Vor `git pull` die lokale Arbeitskopie auf Konflikte
+mit dem bereits gesicherten Patch prüfen.
 
-Vorher eventuell noch laufende Wien-Analysen beenden, insbesondere
-SQLite-Schreibprozesse. Beide Befehle aus dem Root des Repositorys ausführen:
+## 1. Nur Vorschau
 
-~~~bash
-git pull --ff-only
+```bash
+.venv/bin/python -m scripts.consolidate_wien_data
+```
 
-# Prüft Quellverzeichnis, Gesamt-Wien-AOI, Rasterhash und GIP2-Index.
-# Verändert noch nichts.
-bash scripts/migrate-wien-data-into-repo.sh
+Es wird **nichts verändert**. Alle erwarteten Pfade werden aufgeführt,
+Kollisionen zwischen Quelle und Ziel führen zum Abbruch.
 
-# Erst nach erfolgreicher Prüfung das komplette Verzeichnis verschieben.
-bash scripts/migrate-wien-data-into-repo.sh --apply
-~~~
+## 2. Tatsächlichen Umzug durchführen
 
-Die Migration verweigert einen bereits existierenden Zielordner,
-eine fehlende Quellstruktur, eine Testgebiets-AOI oder einen nicht
-zum Manifest passenden GIP-Index. Vorher und nachher werden dieselben
-methodischen Prüfkriterien verwendet. Das ursprüngliche
-`raster.json` bleibt bytegenau unverändert, damit bestehende
-SHA-256-Abhängigkeiten erhalten bleiben. Die Wiener Pipeline kann mit
-der lokalen AOI-Kopie `analysis/wien/aoi.geojson` auch nach dem
-Pfadwechsel das originale Manifest erneut validieren.
+```bash
+.venv/bin/python -m scripts.consolidate_wien_data --apply
+```
 
-Ein Umzug auf ein anderes Dateisystem kann länger dauern; den Prozess
-nicht abbrechen. Fehler beim Verschieben oder Prüfen zunächst diagnostizieren;
-keine vorhandenen Quelldaten löschen.
+Verwendet lokale Umbenennungen, keine Kopien der 7,2-GB-GIP2-Datei.
+Wiederholbar, da bereits verschobene Eingaben erkannt werden. Der Befehl
+überprüft abschließend Wien-Raster und GIP-Index sowie die vier
+aktuellen Ergebnisdateien. Kein automatisch ausgeführtes `rm -rf`.
 
-## Komplette Parallelkantenanalyse ausführen
+Enthaltene Quellkacheln (einschließlich JSON-Metadaten) bleiben im
+dauerhaften `raw/`-Verzeichnis. GRM-Masken, GIS-SQLites und
+Voronoi-Fragmente verbleiben ausschließlich in `work/`.
 
-~~~bash
-bash scripts/run-gip-parallel-wien.sh
-~~~
+## 3. Alte Arbeitsstände entfernen (separat)
 
-Der Befehl nutzt ohne zusätzlichen Pfadparameter **den gesamten**
-Index in `data/wien/analysis/wien/gip.sqlite`. Die obligatorische
-Vollständigkeitsprüfung verhindert eine Auswertung der bisherigen
-Alsergrund-Testkachel. Die Resultate werden geschrieben nach
-`data/wien/analysis/wien/gip-parallel-20m/`.
+Zuerst Vorschau:
 
-Für spätere komplette SIS-Wien-Läufe ist ebenso `data/wien` der
-neue Standard von `scripts/run-sis-v2-wien.sh` und
-`scripts/sis_wien_index.py`. Damit werden keine neuen Dateien
-stillschweigend unter `/mnt/e/Gartenstrassen` angelegt.
+```bash
+.venv/bin/python -m scripts.consolidate_wien_data --prune-legacy
+```
 
-## Bereinigung früherer Teststände
+Nur nach Sichtung und vollständiger Ergebnisprüfung:
 
-**Nicht das ganze `data/` oder `data/wien/` löschen.** Beide
-enthalten möglicherweise einmalig abgerufene und kostspielig
-berechnete Originalkacheln, GeoPackages und SQLite-Zwischenstände.
-Das bisherige Quellverzeichnis `~/Gartenstrassen` entfällt durch
-den erfolgreichen Umzug selbst. Alte Testdateien innerhalb anderer
-`data/processed/`-Verzeichnisse können anschließend nach Inspektion
-gezielt entfernt werden.
+```bash
+.venv/bin/python -m scripts.consolidate_wien_data --prune-legacy --apply
+```
 
-Für eine erste Inventur:
+Das entfernt ausschließlich **`data/processed/`**, **`data/cache/`**
+und **`data/wien/`**. `data/raw/` mit möglicherweise noch nicht
+klassifizierten Quell-Dateien wird absichtlich nicht automatisch
+gelöscht. Alle Zielpfade unter `raw/`, `output/` sowie die
+verifizierte Ergebnisdatei müssen vorhanden sein; bei Fehlern
+bricht die Bereinigung ab.
 
-~~~bash
-du -h --max-depth=3 data/processed 2>/dev/null | sort -h
-find data/processed -mindepth 1 -maxdepth 3 -type d 2>/dev/null | sort
-~~~
+## 4. Wien-Lauf starten
 
-Typische **potenziell historische**, aber nicht automatisch zu
-löschende Verzeichnisse sind `data/processed/sis-v2-run/`,
-`data/processed/wienweit/alsergrund/` und
-`data/processed/strassenabschnitte/`. Welche davon auf deinem
-Dateisystem bestehen, lässt sich nur dort feststellen. Erst nach
-Bestätigung des vollständigen Wiener Datenstandes entscheiden,
-welche konkreten Testordner entfallen sollen. Die alte Pilot-*Software*
-(u. a. `run-sis-v2-pilot.sh`) bleibt notwendig, weil sie vom
-Wien-Lauf selbst verwendet wird.
+```bash
+bash scripts/run-sis-v2-wien.sh
+```
+
+Dauerhafte WFS- und WMS-Antworten landen nur in `raw/`;
+neu berechnete Indizes und Masken liegen in `work/`. Die
+fertigen CSV-/GeoJSON-/Bericht-/PMTiles-Ausgaben liegen in `output/`.
+
+Nur PMTiles aus vorhandenem GeoJSON neu erzeugen:
+
+```bash
+bash scripts/run-sis-v2-wien.sh --from pmtiles --until pmtiles
+```
+
+Anders als früher wird dabei der Wiener SIS-Index nicht neu aufgebaut.
+Die diagnostischen 20-m-GIP-Parallelpaare werden unter `work/wien/`
+berechnet und nicht automatisch veröffentlicht.
+
+## 5. Nach einem nachweislich erfolgreichen Gesamtlauf
+
+```bash
+.venv/bin/python -m scripts.consolidate_wien_data --clean-work
+.venv/bin/python -m scripts.consolidate_wien_data --clean-work --apply
+```
+
+Die zweite Anweisung entfernt **nur `work/`**, nachdem die
+aktuellen vier Ergebnisdateien einschließlich PMTiles-Header und
+Abschlussbericht geprüft wurden. `raw/` und `output/` bleiben.
+
+**Ein wesentlicher Vorbehalt:** Die derzeitige Migration kann lokal
+nicht ausgeführt werden; der WSL-Datenträger steht GitHub Actions und
+dieser Umgebung nicht zur Verfügung. Vor destruktiven Schritten müssen
+die realen Dateien lokal überprüft werden.

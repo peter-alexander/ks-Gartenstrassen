@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# SIS-basierte V2-Pilotanalyse – vollständig getrennter Arbeitsbereich.
+# SIS-V2-Analyse: getrennte unveränderliche raw/, temporäre work/ und output/.
 # Nutzt SIS statt FMZK+Kataster und lokale GIP2-EDGE-Achsen ohne Kreuzungsausschnitte.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-.venv/bin/python}"
-ROOT="${SIS_V2_ROOT:-data/processed/sis-v2-run}"
-SIS="${SIS_V2_SOURCE:-data/raw/SISBELAGOGD.json}"
-GIP2="${GIP2_SOURCE:-data/raw/gip_network_ogd.gpkg}"
+ROOT="${SIS_V2_ROOT:-work/wien}"
+RAW="${SIS_V2_RAW_ROOT:-raw}"
+PUBLISH="${SIS_V2_PUBLISH_DIR:-}"
+GRM_RAW="${SIS_V2_GRM_RAW_ROOT:-}"
+SIS="${SIS_V2_SOURCE:-$RAW/SISBELAGOGD.json}"
+GIP2="${GIP2_SOURCE:-$RAW/gip_network_ogd.gpkg}"
 SIS_DB="${SIS_V2_INDEX:-$ROOT/sis/sis.sqlite}"
 STAGES=(sis aoi grid gip-index street partition trim qa grm-fetch grm-build measure pmtiles)
 FROM=sis
@@ -21,10 +24,13 @@ bash scripts/run-sis-v2-pilot.sh [--from PHASE] [--until PHASE] [--no-grm]
 Phasen: sis aoi grid gip-index street partition trim qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
-  SIS_V2_SOURCE: lokale SIS-Datei (Standard: data/raw/SISBELAGOGD.json)
+  SIS_V2_SOURCE: lokale SIS-Datei (Standard: raw/SISBELAGOGD.json)
   SIS_V2_INDEX: optionaler zentraler SIS-SQLite-Index (Wien)
-  SIS_V2_ROOT: separates Ausgabeverzeichnis (Standard: data/processed/sis-v2-run)
-  GIP2_SOURCE: lokales GIP2-GeoPackage (Standard: data/raw/gip_network_ogd.gpkg)
+  SIS_V2_ROOT: Arbeitsverzeichnis (Standard: work/wien)
+  SIS_V2_RAW_ROOT: Rohdatenordner (Standard: raw/)
+  SIS_V2_PUBLISH_DIR: dauerhafte Ausgaben (z. B. output/)
+  SIS_V2_GRM_RAW_ROOT: heruntergeladene GRM-PNGs
+  GIP2_SOURCE: lokales GIP2-GeoPackage (Standard: raw/gip_network_ogd.gpkg)
   PYTHON: Python aus requirements-analysis.txt
 
 V2 nutzt SIS und ausschließlich lokale GIP2 EDGE/NODE/TURN_USE.
@@ -45,10 +51,11 @@ done
 if [[ ! -x "$PYTHON" ]]; then
 	echo "Python-Venv fehlt: $PYTHON" >&2; exit 1
 fi
-case "$ROOT" in
-	data/processed/wienweit/wien|data/processed/wienweit/wien/*)
-		echo "V0-Ausgabepfade dürfen nicht wiederverwendet werden" >&2; exit 1;;
-esac
+# Der bisherige automatische rm -rf des Pilotverzeichnisses ist deaktiviert.
+if [[ -L "$ROOT" ]]; then
+	echo "Arbeitsverzeichnis ist Symlink: $ROOT" >&2
+	exit 1
+fi
 start=-1
 end=-1
 for i in "${!STAGES[@]}"; do
@@ -56,18 +63,8 @@ for i in "${!STAGES[@]}"; do
 	[[ "${STAGES[$i]}" == "$UNTIL" ]] && end=$i
 done
 if ((start < 0 || end < start)); then
-	echo "Ungültige Phasenfolge" >&2; exit 2
-fi
-if [[ "$FROM" == sis && "$ROOT" == "data/processed/sis-v2-run" ]]; then
-	# Explizit gewünschter Neulauf: ausschließlich den bekannten V2-Ausgabeordner löschen.
-	# Keine benutzerdefinierten Pfade oder Quelldaten automatisch entfernen.
-	if [[ -L "$ROOT" ]]; then
-		echo "SIS-V2-Ausgabepfad ist ein Symlink; Abbruch" >&2; exit 1
-	fi
-	if [[ -d "$ROOT" ]]; then
-		echo "== Lösche bisherigen SIS-V2-Testlauf: $ROOT =="
-		rm -rf -- "$ROOT"
-	fi
+	echo "Ungültige Phasenfolge" >&2
+	exit 2
 fi
 mkdir -p "$ROOT"
 
@@ -111,25 +108,47 @@ for ((i=start;i<=end;i++)); do
 				--partition-db "$ROOT/aufteilung.sqlite" --out "$ROOT/qa.gpkg";;
 		grm-fetch)
 			if ((WITH_GRM)); then
+				grm_args=()
+				[[ -n "$GRM_RAW" ]] && grm_args=(--raw-root "$GRM_RAW")
 				"$PYTHON" -m scripts.wienwide_grm2023 fetch \
-					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023"
+					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023" "${grm_args[@]}"
 			fi;;
 		grm-build)
 			if ((WITH_GRM)); then
+				grm_args=()
+				[[ -n "$GRM_RAW" ]] && grm_args=(--raw-root "$GRM_RAW")
 				"$PYTHON" -m scripts.wienwide_grm2023 build \
-					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023"
+					--manifest "$ROOT/raster.json" --root "$ROOT/grm2023" "${grm_args[@]}"
 			fi;;
 		pmtiles)
+			geojson="$ROOT/ergebnisse/gip_abschnitte.geojson"
+			archive="$ROOT/gartenstrassen_sis_v2.pmtiles"
+			if [[ -n "$PUBLISH" ]]; then
+				geojson="$PUBLISH/gip_abschnitte.geojson"
+				archive="$PUBLISH/gartenstrassen.pmtiles"
+				mkdir -p "$PUBLISH"
+			fi
+			[[ -f "$geojson" ]] || { echo "GeoJSON-Ausgabe fehlt: $geojson" >&2; exit 1; }
 			"$PYTHON" -m scripts.sis_v2_pmtiles \
-				--geojson "$ROOT/ergebnisse/gip_abschnitte.geojson" \
-				--out "$ROOT/gartenstrassen_sis_v2.pmtiles" \
+				--geojson "$geojson" --out "$archive" \
 				--min-area-m2 100 --replace;;
 		measure)
 			args=()
-			if ((WITH_GRM)); then args=(--grm-root "$ROOT/grm2023"); fi
+			if ((WITH_GRM)); then
+				args=(--grm-root "$ROOT/grm2023")
+				[[ -n "$GRM_RAW" ]] && args+=(--grm-raw-root "$GRM_RAW")
+			fi
 			"$PYTHON" -m scripts.sis_v2_measure \
 				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
 				--sis-db "$SIS_DB" --street-root "$ROOT/strassenraum" \
-				--partition-db "$ROOT/aufteilung.sqlite" --out-dir "$ROOT/ergebnisse" "${args[@]}";;
+				--partition-db "$ROOT/aufteilung.sqlite" --out-dir "$ROOT/ergebnisse" "${args[@]}"
+			if [[ -n "$PUBLISH" ]]; then
+				mkdir -p "$PUBLISH"
+				for name in gip_abschnitte.geojson gip_abschnitte.csv bericht.json; do
+					[[ ! -L "$PUBLISH/$name" ]] || { echo "Symlink in Ausgabe: $name" >&2; exit 1; }
+					cp -- "$ROOT/ergebnisse/$name" "$PUBLISH/$name.tmp"
+					mv -f -- "$PUBLISH/$name.tmp" "$PUBLISH/$name"
+				done
+			fi;;
 	esac
 done

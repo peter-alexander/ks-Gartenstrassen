@@ -4,13 +4,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
-ROOT="${SIS_WIEN_ROOT:-$REPO/data/wien}"
+ROOT="$REPO/work"
 PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
-ANALYSIS="$ROOT/analysis/wien"
+ANALYSIS="$ROOT/wien"
 
 [[ -d "$ROOT" ]] || {
 	echo "Abbruch: Wiener Daten fehlen: $ROOT" >&2
-	echo "Zuerst scripts/migrate-wien-data-into-repo.sh prüfen/ausführen." >&2
+	echo "Zuerst scripts/consolidate-wien-data.py --apply prüfen/ausführen." >&2
 	exit 1
 }
 [[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
