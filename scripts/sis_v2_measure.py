@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+from time import monotonic
 
 from pyproj import Transformer
 from shapely import union_all
@@ -49,15 +50,29 @@ def _mask(db, core, categories):
 	return union_all(parts) if parts else None
 
 
-def _vegetation_mask(db, core):
+def _vegetation_mask(db, core, *, city=None):
 	"""Nur eindeutig begrünte SIS-Fläche; Quellkonflikte konservativ abziehen."""
+	if city is None:
+		city = db.execute(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='features'"
+		).fetchone() is not None
+	if city:
+		from scripts.sis_wien_source import vegetation_mask as city_vegetation_mask
+		return city_vegetation_mask(db, core, VEGETATION)
+	# Kompatibilität mit den bisherigen kleinen SIS-Pilotdaten.
 	green = _mask(db, core, VEGETATION)
 	if green is None:
 		return None
-	table = "features" if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='features'").fetchone() else "surfaces"
 	non_green = _mask(db, core, {row[0] for row in db.execute(
-		f"SELECT DISTINCT belag FROM {table}") if row[0] not in VEGETATION})
+		"SELECT DISTINCT belag FROM surfaces") if row[0] not in VEGETATION})
 	return green.difference(non_green) if non_green is not None else green
+
+
+def _duration(seconds):
+	seconds = max(0, int(seconds))
+	hours, remainder = divmod(seconds, 3600)
+	minutes, seconds = divmod(remainder, 60)
+	return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def _intersect_area(part, mask):
@@ -67,6 +82,7 @@ def _intersect_area(part, mask):
 def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		out_dir, grm_root=None):
 	manifest, aoi = read_manifest(manifest_path)
+	manifest_sha = checksum(manifest_path)
 	out_dir, sis_path = Path(out_dir), Path(sis_path)
 	if out_dir.exists():
 		raise FileExistsError(out_dir)
@@ -81,8 +97,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			raise ValueError("Ungültiger SIS-Index")
 		config = dict(partition.execute("SELECT key,value FROM config"))
 		config.pop("querschnitt_regel",None)
-		expected = {"schema_version":"1", "manifest_sha256":checksum(manifest_path),
-			"gip_sha256":checksum(gip_path)}
+		gip_sha = checksum(gip_path)
+		expected = {"schema_version":"1", "manifest_sha256":manifest_sha,
+			"gip_sha256":gip_sha}
 		if config not in ({**expected,"junction_policy":"none","fow_policy":"all"},
 			{**expected,"junction_policy":"gip2-turn-use-convex-hull","fow_policy":"all"},
 			{**expected,"junction_policy":"voronoi-stable-width-v1","fow_policy":"all"}):
@@ -92,7 +109,12 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 			"SELECT gip,name,fow FROM axes")}
 		groups = defaultdict(lambda:{"area":0.,"vegetation":0.,
 			"crown":0.,"parts":0,"geometries":[]})
-		for tile in manifest["tiles"]:
+		is_city_sis = sis.execute(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='features'"
+		).fetchone() is not None
+		tile_count = len(manifest["tiles"])
+		started = monotonic()
+		for tile_number, tile in enumerate(manifest["tiles"], 1):
 			tid = tile["id"]
 			core = box(*tile["bounds_31256"]).intersection(aoi)
 			street_path = Path(street_root)/tid/"street.sqlite"
@@ -100,7 +122,7 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				street_meta = dict(street.execute("SELECT key,value FROM metadata"))
 				if (street_meta.get("strassenraum_regel_version") != VERSION
 					or street_meta.get("sis_sha256") != meta["sha256"]
-					or street_meta.get("manifest_sha256") != checksum(manifest_path)):
+					or street_meta.get("manifest_sha256") != manifest_sha):
 					raise ValueError(f"{tid}: unerwartete Straßenraumquelle")
 				street_geom = loads(street.execute("SELECT geom FROM street").fetchone()[0])
 				if not street_geom.is_valid or street_geom.difference(core).area > .01:
@@ -109,10 +131,11 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				(tid,)).fetchone()
 			if psha is None or psha[0] != checksum(street_path):
 				raise ValueError(f"{tid}: Partition für andere Straßenraumkachel")
-			vegetation = _vegetation_mask(sis,core)
+			vegetation = _vegetation_mask(sis,core,city=is_city_sis)
 			crown = None
 			if grm_root is not None:
-				crown, _ = read_grm(grm_root,tile,manifest=manifest_path,aoi=aoi)
+				crown, _ = read_grm(grm_root,tile,manifest=manifest_path,aoi=aoi,
+					manifest_sha256=manifest_sha)
 			for gid,stored_area,blob in partition.execute(
 				"SELECT gip_id,area,geom FROM parts WHERE tile_id=? AND kind='abschnitt'", (tid,)):
 				gid = str(gid)
@@ -133,6 +156,13 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				item["crown"] += c
 				item["parts"] += 1
 				item["geometries"].append(part)
+			if tile_number == 1 or tile_number % 50 == 0 or tile_number == tile_count:
+				elapsed = monotonic() - started
+				eta = elapsed / tile_number * (tile_count - tile_number)
+				print(f"SIS V2 measure {tile_number}/{tile_count} "
+					f"({100 * tile_number / tile_count:.1f} %) {tid} "
+					f"| Laufzeit {_duration(elapsed)} | ETA {_duration(eta)}",
+					flush=True)
 		if len(groups) != balance["geometrisch_eindeutige_gip_ids"]:
 			raise ValueError("GIP-Abschnittsanzahl inkonsistent")
 		if abs(sum(v["area"] for v in groups.values())-
@@ -170,9 +200,9 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 						geo.write(",")
 					geo.write(json.dumps(feature,ensure_ascii=False,allow_nan=False))
 				geo.write("]}\n")
-			report = {"provider":VERSION, "manifest_sha256":checksum(manifest_path),
+			report = {"provider":VERSION, "manifest_sha256":manifest_sha,
 				"sis_source_sha256":meta["sha256"],"sis_index_sha256":checksum(sis_path),
-				"gip_sha256":checksum(gip_path),"partition_sha256":checksum(partition_path),
+				"gip_sha256":gip_sha,"partition_sha256":checksum(partition_path),
 				"grm_available":grm_root is not None,"gip_ids":len(groups),
 				"strassenraum_m2":balance["strassenraum_m2"],
 				"abschnittsflaeche_m2":balance["abschnitte_m2"],
