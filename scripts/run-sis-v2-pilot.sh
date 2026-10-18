@@ -56,6 +56,16 @@ if [[ -L "$ROOT" ]]; then
 	echo "Arbeitsverzeichnis ist Symlink: $ROOT" >&2
 	exit 1
 fi
+start=-1
+end=-1
+for i in "${!STAGES[@]}"; do
+	[[ "${STAGES[$i]}" == "$FROM" ]] && start=$i
+	[[ "${STAGES[$i]}" == "$UNTIL" ]] && end=$i
+done
+if ((start < 0 || end < start)); then
+	echo "Ungültige Phasenfolge" >&2
+	exit 2
+fi
 mkdir -p "$ROOT"
 
 for ((i=start;i<=end;i++)); do
