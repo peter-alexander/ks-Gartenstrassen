@@ -4,8 +4,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
-ROOT="\${SIS_WIEN_ROOT:-$REPO/data/wien}"
-PYTHON="\${PYTHON:-$REPO/.venv/bin/python}"
+ROOT="${SIS_WIEN_ROOT:-$REPO/data/wien}"
+PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
 ANALYSIS="$ROOT/analysis/wien"
 
 [[ -d "$ROOT" ]] || {
