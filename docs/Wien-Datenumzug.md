@@ -1,119 +1,120 @@
-# Wiener Datenbereinigung: ein Rohdatenbestand, ein Arbeitsbereich, eine Ausgabe
+# Wien neu berechnen – saubere Verzeichnisstruktur
 
-## Zielstruktur
+Seit dem 19. Oktober 2026 ist das alte `data/` lokal absichtlich
+geleert worden. Es gibt **keine Datenmigration und keinen Pilotstand**
+mehr. Der vollständige Wien-Lauf beginnt neu.
+
+## Eingaben
+
+Zwei bereits vorhandene GeoPackages liegen unter
+`/mnt/c/Users/peter/Downloads/`:
+
+- `gip_network_ogd.gpkg` – wird von der aktuellen SIS-V2-Pipeline
+  als SQLite-GeoPackage **ausschließlich lesend** (`mode=ro&immutable=1`)
+  verwendet. Es werden weder Sicherungskopien noch SQLite-WAL- oder
+  SHM-Dateien im Downloads-Verzeichnis erzeugt.
+- `FMZK_WIEN_GP.gpkg` – wird für SIS-V2 **nicht benötigt**, bleibt
+  vollständig unangetastet.
+
+**Niemals Downloads als Zielverzeichnis verwenden.**
+Die Pfade werden beim Start auf Lesbarkeit geprüft. Die in der Pipeline
+neu angeforderten WFS-/WMS-Kacheln und die AOI-Grenze werden direkt
+innerhalb des Repositories abgelegt.
+
+## Drei Datenbereiche (neben dem bisherigen Quellcode)
 
 ```text
 ks-Gartenstrassen/
-  scripts/            # aktueller Python-Code, derzeit noch am Repo-Root
-  tests/              # automatisierte Tests
-  docs/               # Dokumentation
-  raw/                # dauerhafte Originaldownloads: GIP2, FMZK, SIS-WFS, GRM-PNG
-    gip_network_ogd.gpkg
-    FMZK_WIEN_GP.gpkg
+  scripts/                       # aktuelle Python- und Shell-Programme
+  tests/
+  docs/
+  raw/                           # dauerhaft gesicherte Downloads
     aoi/wien.geojson
-    sis/wfs-kacheln/
-    grm2023/png/
-  work/               # ausschließlich berechnete, erneut erzeugbare Arbeitsdaten
+    aoi/bezirksgrenzen_wfs.geojson
+    sis/wfs-kacheln/              # komprimierte SIS-WFS-Originalantworten
+    grm2023/png/                  # GRM-GetMap-PNG und JSON-Metadaten
+  work/                          # nur während des laufenden Jobs
     sis-wien.sqlite
     wien/gip.sqlite
     wien/raster.json
+    wien/strassenraum/
     wien/grm2023/masken/
-  output/             # einzig gültige aktuelle Wiener Ausgabe
-    gip_abschnitte.csv
+    ...
+  output/                        # einzige aktuelle Endausgabe
     gip_abschnitte.geojson
+    gip_abschnitte.csv
     bericht.json
     gartenstrassen.pmtiles
 ```
 
-Die historische Struktur `data/` wird nach einer getrennten Validierungsphase
-entfernt. Ein Umbau von `scripts/`, `tests/` und `docs/` in einen
-gemeinsamen `code/`-Unterordner ist **noch nicht Teil dieser Phase**; vor
-einer Verlagerung müssen Importpfade, CI und Paketstruktur umgestellt werden.
+Die beiden großen GeoPackages werden **nicht** ins Repository kopiert.
+`data/processed/`, `data/wien/` und frühere V0-/Pilotordner werden
+nicht neu angelegt. Die historischen Skripte sind im normalen Wiener
+Lauf nicht beteiligt.
 
-## 0. Vorbedingungen
+## Neuen Wien-Lauf starten
 
-Kein laufender Wien-Prozess und **keine offenen SQLite-Verbindungen**.
-Die neun lokalen Änderungen vom 18. Oktober wurden als PR #7 auf
-`main` übernommen. Vor `git pull` die lokale Arbeitskopie auf Konflikte
-mit dem bereits gesicherten Patch prüfen.
-
-## 1. Nur Vorschau
+Im Root des Git-Repositories (in WSL):
 
 ```bash
-.venv/bin/python -m scripts.consolidate_wien_data
-```
-
-Es wird **nichts verändert**. Alle erwarteten Pfade werden aufgeführt,
-Kollisionen zwischen Quelle und Ziel führen zum Abbruch.
-
-## 2. Tatsächlichen Umzug durchführen
-
-```bash
-.venv/bin/python -m scripts.consolidate_wien_data --apply
-```
-
-Verwendet lokale Umbenennungen, keine Kopien der 7,2-GB-GIP2-Datei.
-Wiederholbar, da bereits verschobene Eingaben erkannt werden. Der Befehl
-überprüft abschließend Wien-Raster und GIP-Index sowie die vier
-aktuellen Ergebnisdateien. Kein automatisch ausgeführtes `rm -rf`.
-
-Enthaltene Quellkacheln (einschließlich JSON-Metadaten) bleiben im
-dauerhaften `raw/`-Verzeichnis. GRM-Masken, GIS-SQLites und
-Voronoi-Fragmente verbleiben ausschließlich in `work/`.
-
-## 3. Alte Arbeitsstände entfernen (separat)
-
-Zuerst Vorschau:
-
-```bash
-.venv/bin/python -m scripts.consolidate_wien_data --prune-legacy
-```
-
-Nur nach Sichtung und vollständiger Ergebnisprüfung:
-
-```bash
-.venv/bin/python -m scripts.consolidate_wien_data --prune-legacy --apply
-```
-
-Das entfernt ausschließlich **`data/processed/`**, **`data/cache/`**
-und **`data/wien/`**. `data/raw/` mit möglicherweise noch nicht
-klassifizierten Quell-Dateien wird absichtlich nicht automatisch
-gelöscht. Alle Zielpfade unter `raw/`, `output/` sowie die
-verifizierte Ergebnisdatei müssen vorhanden sein; bei Fehlern
-bricht die Bereinigung ab.
-
-## 4. Wien-Lauf starten
-
-```bash
+git status --short
+git pull --ff-only
 bash scripts/run-sis-v2-wien.sh
 ```
 
-Dauerhafte WFS- und WMS-Antworten landen nur in `raw/`;
-neu berechnete Indizes und Masken liegen in `work/`. Die
-fertigen CSV-/GeoJSON-/Bericht-/PMTiles-Ausgaben liegen in `output/`.
+Die SIS-WFS-Antworten und GRM-PNGs müssen nach dem Löschen der bisherigen
+Daten einmal neu geladen werden. Sobald sie unter `raw/` vorliegen,
+werden sie bei einem abgebrochenen Lauf wiederverwendet.
+GIP2 wird nur gelesen. Die bisherige FMZK-V0-Methode wird nicht
+durchlaufen.
 
-Nur PMTiles aus vorhandenem GeoJSON neu erzeugen:
+Der Stadtlauf verwendet ein 1.000-m-Analyseraster statt der alten
+250-m-Pilotkachel und die vorhandene, unveränderte wissenschaftliche
+SIS-V2-/GIP2-/GRM-Berechnungslogik.
+
+**Nach vollständigem Erfolg**: Zuerst müssen alle vier Ergebnisdateien
+vorliegen und der Abschlussbericht, die CSV-Zeilenanzahl und das
+zugehörige Rastermanifest müssen zueinander passen. Danach entfernt
+der Treiber automatisch **nur `work/`**. Rohdaten und Ergebnisse bleiben.
+Bei einem Fehler wird `work/` nicht gelöscht.
+
+## Bei Bedarf Arbeitsdaten behalten
+
+Um nach dem Lauf die 20-m-GIP-Parallelkantenanalyse auszuführen:
+
+```bash
+SIS_WIEN_KEEP_WORK=1 bash scripts/run-sis-v2-wien.sh
+bash scripts/run-gip-parallel-wien.sh
+```
+
+Danach kann die Ergebnisprüfung und Bereinigung separat erfolgen:
+
+```bash
+.venv/bin/python -m scripts.clean_wien_work
+.venv/bin/python -m scripts.clean_wien_work --apply
+```
+
+Die erste Anweisung ist eine **schreibgeschützte Vorschau**.
+Die zweite löscht ausschließlich `work/`, wenn die notwendigen
+Ausgaben nachweislich korrekt vorhanden sind.
+
+Wenn nur das PMTiles aus einem bereits vorhandenen
+`output/gip_abschnitte.geojson` neu gebaut werden soll:
 
 ```bash
 bash scripts/run-sis-v2-wien.sh --from pmtiles --until pmtiles
 ```
 
-Anders als früher wird dabei der Wiener SIS-Index nicht neu aufgebaut.
-Die diagnostischen 20-m-GIP-Parallelpaare werden unter `work/wien/`
-berechnet und nicht automatisch veröffentlicht.
+Dabei werden weder GeoPackages geöffnet noch WFS-/GRM-Downloads
+durchgeführt. Die vollständige Stadtberechnung kann erheblich
+aufwendiger sein; vorher ausreichend freien Speicherplatz prüfen.
 
-## 5. Nach einem nachweislich erfolgreichen Gesamtlauf
+## Lokal noch gestagte Codeänderungen
 
-```bash
-.venv/bin/python -m scripts.consolidate_wien_data --clean-work
-.venv/bin/python -m scripts.consolidate_wien_data --clean-work --apply
-```
-
-Die zweite Anweisung entfernt **nur `work/`**, nachdem die
-aktuellen vier Ergebnisdateien einschließlich PMTiles-Header und
-Abschlussbericht geprüft wurden. `raw/` und `output/` bleiben.
-
-**Ein wesentlicher Vorbehalt:** Die derzeitige Migration kann lokal
-nicht ausgeführt werden; der WSL-Datenträger steht GitHub Actions und
-dieser Umgebung nicht zur Verfügung. Vor destruktiven Schritten müssen
-die realen Dateien lokal überprüft werden.
+Die neun lokal gestagten Optimierungen vom 18. Oktober wurden
+bereits unverändert (Git-Blob-Prüfsummen kontrolliert) mit PR #7
+auf `main` übernommen. Der Patch
+`~/gartenstrassen-arbeitsstand.patch` bleibt als externe Sicherung
+bestehen. Falls `git pull --ff-only` wegen lokaler Änderungen
+scheitert, zuerst den Git-Status ansehen und **kein**
+`git reset --hard` verwenden.
