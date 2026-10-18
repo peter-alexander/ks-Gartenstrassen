@@ -48,21 +48,18 @@ Vollständige Ausschlusscodes der gelieferten LUT (nur für diese beiden Ausgabe
   ist ein vorsichtiger Veröffentlichungs- und Kandidatenfilter,
   keine allgemeine Landnutzungsbewertung.
 
-## Bereits bestehendes PMTiles aktualisieren
+## PMTiles aus vorhandenen Ergebnissen neu erzeugen
+
+Nur falls `output/gip_abschnitte.geojson` vorhanden ist:
 
 ~~~bash
-git pull --ff-only
-SIS_V2_ROOT="$PWD/data/wien/analysis/wien" \
-	bash scripts/run-sis-v2-pilot.sh --from pmtiles --until pmtiles
+bash scripts/run-sis-v2-wien.sh --from pmtiles --until pmtiles
 ~~~
 
-Diese Phase startet **keine** Neuberechnung von SIS, GIP, GRM,
-Voronoi oder Begrünungsmessungen. Sie liest die vorhandene
-`ergebnisse/gip_abschnitte.geojson`, filtert FOW und Fläche und
-ersetzt das bestehende `gartenstrassen_sis_v2.pmtiles` **erst nach
-erfolgreichem Neubau** atomar. Bei Fehlern bleibt das alte Archiv stehen.
-Der PMTiles-Lauf kann bei sehr großen GeoJSON-Dateien erhöhten
-Arbeitsspeicher für die Filtervorstufe benötigen.
+Diese Phase berechnet keine Straßenabschnitte neu, liest keine GeoPackages
+und lädt keine WFS-/WMS-Daten. Sie filtert die vollständige GeoJSON auf
+FOW 2/3/14 und mindestens 100 m² und ersetzt
+`output/gartenstrassen.pmtiles` erst nach erfolgreichem Neubau.
 
-Der Standort der vorhandenen Daten muss vorher durch die
-[Wien-Datenmigration](Wien-Datenumzug.md) verifiziert sein.
+Ein vollständig neuer Stadtlauf und die dauerhaften Rohcaches sind in
+[Wien neu berechnen](Wien-Datenumzug.md) beschrieben.
