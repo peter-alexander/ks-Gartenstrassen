@@ -194,7 +194,8 @@ def decode_chunk(png,geo,*,label,core=None):
 	return geom,{"baum_pixel":count,"baumschicht_m2":geom.area,**stats_base}
 
 
-def fetch(manifest_path,root,*,pause_s=.4):
+def fetch(manifest_path,root,*,pause_s=.4,raw_root=None):
+	raw_root = raw_root if raw_root is not None else root
 	manifest,aoi=read_manifest(manifest_path)
 	if not 0<=pause_s<=60:
 		raise ValueError("pause_s außerhalb 0–60 s")
@@ -208,8 +209,8 @@ def fetch(manifest_path,root,*,pause_s=.4):
 		f"{len(all_chunks)} WMS-Teilbilder (500 m, 0,5 m/Pixel)")
 	# Prüft vorab den angegebenen amtlichen Layer und das metrische CRS.
 	# Ein vollständig gecachter Lauf benötigt keine Netzverbindung.
-	need_network=any(not chunk_paths(root,tile,name)[0].exists()
-		and not chunk_paths(root,tile,name)[1].exists()
+	need_network=any(not chunk_paths(raw_root,tile,name)[0].exists()
+		and not chunk_paths(raw_root,tile,name)[1].exists()
 		for tile,name,geo,url in all_chunks)
 	capabilities_checked=False
 	def ensure_capabilities():
@@ -226,14 +227,14 @@ def fetch(manifest_path,root,*,pause_s=.4):
 	results=[]
 	quarantined=[]
 	for index,(tile,name,geo,url) in enumerate(all_chunks,1):
-		png,report=chunk_paths(root,tile,name)
+		png,report=chunk_paths(raw_root,tile,name)
 		core=box(*tile["bounds_31256"]).intersection(aoi)
 		if png.exists() or report.exists():
-			cached,_=verify_chunk(root,tile,name,geo,url)
+			cached,_=verify_chunk(raw_root,tile,name,geo,url)
 			try:
 				decode_chunk(cached,geo,label=f"{tile['id']}/{name}",core=core)
 			except ValueError as exc:
-				quarantine_chunk(root,tile,name,cached,report,reason=str(exc))
+				quarantine_chunk(raw_root,tile,name,cached,report,reason=str(exc))
 				quarantined.append(f"{tile['id']}/{name}")
 				print(f"GRM {index}/{len(all_chunks)}: ungültigen Cache "
 					f"quarantiniert: {tile['id']}/{name}")
@@ -284,7 +285,8 @@ def mask_path(root,tile):
 	return Path(root)/"masken"/tile["id"]/"crown.sqlite"
 
 
-def read_mask(root,tile,*,manifest,aoi,manifest_sha256=None):
+def read_mask(root,tile,*,manifest,aoi,manifest_sha256=None,raw_root=None):
+	raw_root = raw_root if raw_root is not None else root
 	"""Validiert jedes Original-PNG gegen die fertige geometrische Maske."""
 	path=mask_path(root,tile)
 	if not path.is_file():
@@ -304,7 +306,7 @@ def read_mask(root,tile,*,manifest,aoi,manifest_sha256=None):
 	original=json.loads(meta["png_sha256"])
 	expected={}
 	for name,geo,url in chunks(tile,aoi):
-		png,_=verify_chunk(root,tile,name,geo,url)
+		png,_=verify_chunk(raw_root,tile,name,geo,url)
 		expected[name]=checksum(png)
 	if original!=expected:
 		raise ValueError(f"{tile['id']}: gespeicherte GRM-PNG-Herkunft geändert")
@@ -317,13 +319,14 @@ def read_mask(root,tile,*,manifest,aoi,manifest_sha256=None):
 		"png_sha256":expected}
 
 
-def build(manifest_path,root):
+def build(manifest_path,root,*,raw_root=None):
+	raw_root = raw_root if raw_root is not None else root
 	manifest,aoi=read_manifest(manifest_path)
 	completed=[]
 	for i,tile in enumerate(manifest["tiles"],1):
 		path=mask_path(root,tile)
 		if path.exists():
-			geom,_=read_mask(root,tile,manifest=manifest_path,aoi=aoi)
+			geom,_=read_mask(root,tile,manifest=manifest_path,aoi=aoi,raw_root=raw_root)
 			print(f"GRM {i}/{len(manifest['tiles'])} {tile['id']}: "
 				f"{geom.area:.1f} m² (geprüfter Cache)")
 			completed.append(tile["id"])
@@ -334,7 +337,7 @@ def build(manifest_path,root):
 		outside_transparent_pixels=0
 		core=box(*tile["bounds_31256"]).intersection(aoi)
 		for name,geo,url in chunks(tile,aoi):
-			png,_=verify_chunk(root,tile,name,geo,url)
+			png,_=verify_chunk(raw_root,tile,name,geo,url)
 			geom,stats=decode_chunk(png,geo,
 				label=f"{tile['id']}/{name}",core=core)
 			tree_pixels+=stats["baum_pixel"]
@@ -384,12 +387,15 @@ def main():
 	p=argparse.ArgumentParser(description=__doc__)
 	p.add_argument("action",choices=("fetch","build"))
 	p.add_argument("--manifest",type=Path,required=True)
-	p.add_argument("--root",type=Path,required=True)
+	p.add_argument("--root",type=Path,required=True,
+		help="Arbeitsverzeichnis für berechnete GRM-Masken")
+	p.add_argument("--raw-root",type=Path,
+		help="Dauerhafter Cache heruntergeladener GRM-PNGs (Standard: --root)")
 	p.add_argument("--pause-s",type=float,default=.4)
 	args=p.parse_args()
 	try:
-		report=(fetch(args.manifest,args.root,pause_s=args.pause_s)
-			if args.action=="fetch" else build(args.manifest,args.root))
+		report=(fetch(args.manifest,args.root,pause_s=args.pause_s,raw_root=args.raw_root)
+			if args.action=="fetch" else build(args.manifest,args.root,raw_root=args.raw_root))
 		print(json.dumps(report,ensure_ascii=False))
 	except (OSError,ValueError,TypeError,KeyError,sqlite3.Error) as exc:
 		p.exit(1,f"Fehler: {exc}\n")
