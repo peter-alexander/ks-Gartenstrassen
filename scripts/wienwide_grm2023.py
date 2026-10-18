@@ -303,9 +303,13 @@ def build(manifest_path,root):
 		if not clipped.is_valid or clipped.difference(core).area>.01:
 			raise ValueError(f"{tile['id']}: Kronenfläche außerhalb Kachel")
 		path.parent.mkdir(parents=True,exist_ok=True)
-		temp=path.with_suffix(".sqlite.tmp")
-		if temp.exists():
-			raise FileExistsError(f"Temporäre Maske existiert: {temp}")
+		# Ein abgebrochener Lauf darf die Wiederaufnahme nicht blockieren.
+		# Eigenständiger Temp-Name im selben Verzeichnis ermöglicht atomaren
+		# Abschluss; alte crown.sqlite.tmp-Dateien bleiben unangetastet.
+		with tempfile.NamedTemporaryFile(
+				prefix=path.name+".",suffix=".tmp",
+				dir=path.parent,delete=False) as stage:
+			temp=Path(stage.name)
 		try:
 			with sqlite3.connect(temp) as db:
 				db.execute("CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
