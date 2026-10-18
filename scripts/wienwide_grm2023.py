@@ -240,7 +240,7 @@ def mask_path(root,tile):
 	return Path(root)/"masken"/tile["id"]/"crown.sqlite"
 
 
-def read_mask(root,tile,*,manifest,aoi):
+def read_mask(root,tile,*,manifest,aoi,manifest_sha256=None):
 	"""Validiert jedes Original-PNG gegen die fertige geometrische Maske."""
 	path=mask_path(root,tile)
 	if not path.is_file():
@@ -253,7 +253,9 @@ def read_mask(root,tile,*,manifest,aoi):
 			raise ValueError(f"{tile['id']}: Kronengeometrie fehlt")
 	if meta.get("schema_version")!="1" or meta.get("crs")!="EPSG:31256":
 		raise ValueError(f"{tile['id']}: ungültige GRM-Maskenmetadaten")
-	if meta.get("manifest_sha256")!=checksum(manifest):
+	if manifest_sha256 is None:
+		manifest_sha256=checksum(manifest)
+	if meta.get("manifest_sha256")!=manifest_sha256:
 		raise ValueError(f"{tile['id']}: GRM-Maske gehört zu anderem Bezirksraster")
 	original=json.loads(meta["png_sha256"])
 	expected={}
