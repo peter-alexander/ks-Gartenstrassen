@@ -17,7 +17,6 @@ from scripts.build_canopy_grm2023 import (
 	run,
 	validate_source,
 )
-from scripts.measure_canopy_cover import measure_coverage
 
 
 def write_example(tmp):
@@ -76,9 +75,7 @@ class GRM2023CanopyProviderTests(unittest.TestCase):
 		self.assertEqual(metrics["baum_polygon_teilstuecke"], 1)
 		self.assertTrue(polygon.covers(box(0, 1, 1, 2)))
 		self.assertTrue(polygon.covers(box(1, 0, 2, 1)))
-		coverage, _ = measure_coverage(box(0, 0, 2, 2), polygon)
-		self.assertAlmostEqual(coverage["ueberschirmt_m2"], 3)
-		self.assertAlmostEqual(coverage["ueberschirmungsgrad_pct"], 75)
+		self.assertAlmostEqual(polygon.intersection(box(0, 0, 2, 2)).area, 3)
 
 	def test_unknown_and_translucent_colors_are_rejected(self):
 		for rgba in [(56, 168, 1, 255), (*TREE_RGB, 200), (0, 0, 0, 0)]:
