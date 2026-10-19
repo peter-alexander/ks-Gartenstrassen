@@ -55,7 +55,9 @@ def _window_mask(manifest_path,sis_root,aoi_path,window):
 	if checksum(aoi_path)!=manifest["aoi_sha256"]:
 		raise ValueError("SIS und Voronoi verwenden unterschiedliche AOI")
 	parts=[]
-	for tile in manifest["tiles"]:
+	for tile_number,tile in enumerate(manifest["tiles"],1):
+		if tile_number%100==0:
+			print(f"CGAL: SIS-Kachel {tile_number:,}/{len(manifest['tiles']):,}",flush=True)
 		full_core=box(*tile["bounds_31256"]).intersection(aoi)
 		core=full_core.intersection(window)
 		if core.is_empty or core.area==0:
@@ -112,6 +114,8 @@ def _read_dual_lines(path,window,origin):
 	stats={"S":0,"R":0,"L":0,"clipped":0,"degenerate_S":0}
 	with Path(path).open("r",encoding="utf-8") as source:
 		for line_number,line in enumerate(source,1):
+			if line_number%100000==0:
+				print(f"CGAL: {line_number:,} Voronoi-Grenzstücke eingelesen",flush=True)
 			fields=line.split()
 			if len(fields)!=5 or fields[0] not in ("S","R","L"):
 				raise ValueError(f"CGAL-Kantenformat ungültig, Zeile {line_number}")
@@ -139,9 +143,11 @@ def _read_dual_lines(path,window,origin):
 def _polygon_candidates(lines,window):
 	if not lines:
 		raise ValueError("Keine CGAL-Voronoi-Kanten im Ausschnitt")
+	print(f"CGAL: {len(lines):,} begrenzte Grenzstücke noding/union",flush=True)
 	# Noding also handles the intersections with the clipping rectangle.
 	boundaries=[window.boundary,*lines]
 	noded=unary_union(boundaries)
+	print("CGAL: Noding beendet, polygonize_full",flush=True)
 	polygons,dangles,cuts,invalid=polygonize_full(noded)
 	if not invalid.is_empty:
 		raise ValueError("CGAL-Grenzen erzeugen ungültige Polygonringe")
@@ -168,7 +174,9 @@ def _assign(polygons,mask,owners,origin):
 		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
 	tree=STRtree(geoms)
 	grouped={}
-	for polygon in polygons:
+	for polygon_number,polygon in enumerate(polygons,1):
+		if polygon_number%10000==0:
+			print(f"CGAL: SIS-Verschnitt {polygon_number:,}/{len(polygons):,} Flächen",flush=True)
 		part=polygon.intersection(mask)
 		if part.is_empty or part.area==0:
 			continue
