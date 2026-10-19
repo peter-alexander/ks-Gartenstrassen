@@ -87,6 +87,32 @@ def _spread(points):
 	return maximum
 
 
+
+def build_edge_axes(records, *, sample_spacing_m=DEFAULT_SAMPLE_SPACING_M):
+	"""Group (edge_id, LineString) records and build one axis per edge_id.
+
+	Grouping is purely attributive. Geometry never decides whether two
+	LINEAR_USE records belong together.
+	"""
+	groups={}
+	for index,record in enumerate(records):
+		try:
+			edge_id,line=record
+		except (TypeError,ValueError) as exc:
+			raise ValueError(
+				f"Datensatz {index}: genau (edge_id, LineString) erwartet") from exc
+		edge_id=str(edge_id).strip() if edge_id is not None else ""
+		if not edge_id:
+			raise ValueError(f"Datensatz {index}: edge_id fehlt")
+		_validate_line(line,index)
+		groups.setdefault(edge_id,[]).append(line)
+	if not groups:
+		raise ValueError("Mindestens ein LINEAR_USE-Datensatz erforderlich")
+	return {
+		edge_id:build_mean_axis(lines,sample_spacing_m=sample_spacing_m)
+		for edge_id,lines in sorted(groups.items())
+	}
+
 def build_mean_axis(lines, *, sample_spacing_m=DEFAULT_SAMPLE_SPACING_M):
 	"""Return (mean_axis, audit) for already-grouped parallel/related lines.
 
