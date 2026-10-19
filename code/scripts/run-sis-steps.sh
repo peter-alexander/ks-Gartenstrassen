@@ -133,8 +133,11 @@ for ((i=start;i<=end;i++)); do
 			# Der Zwischenordner liegt nur während des Exports unter output/.
 			source="$ROOT/ergebnisse"
 			[[ -f "$source/bericht.json" ]] || source="$PUBLISH"
+			group_args=()
+			[[ -f "$ROOT/gip_merged.sqlite" ]] && group_args=(
+				--gip-index "$ROOT/gip_merged.sqlite")
 			"$PYTHON" -m scripts.publish_wien \
-				--source "$source" --out "$PUBLISH";;
+				--source "$source" --out "$PUBLISH" "${group_args[@]}";;
 		measure)
 			args=()
 			if ((WITH_GRM)); then
