@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 import json
 
-from scripts.diagnose_boost_voronoi import minimize, _candidate_geojson
+from scripts.diagnose_boost_voronoi import minimize, _candidate_geojson, _read_candidate_geojson
 
 
 class BoostDiagnosisTests(unittest.TestCase):
@@ -28,6 +28,20 @@ class BoostDiagnosisTests(unittest.TestCase):
 		suspect,history,reason=minimize(base,extra,None,tester,max_tests=80)
 		self.assertEqual(set(suspect),{("x",1),("x",4)})
 		self.assertEqual(reason,"interaction_or_threshold")
+
+	def test_resume_roundtrip_uses_identical_integer_sites_and_owners(self):
+		a=((0,0),(1000,0))
+		b=((0,1000),(1000,1000))
+		with tempfile.TemporaryDirectory() as tmp:
+			path=Path(tmp)/"suspects.geojson"
+			_candidate_geojson(path,[a],[b],{a:"a",b:"b"},(450000.123,330000.987))
+			base,extra=_read_candidate_geojson(path,{a:"a",b:"b"},
+				(450000.123,330000.987))
+			self.assertEqual(base,[a])
+			self.assertEqual(extra,[b])
+			with self.assertRaisesRegex(ValueError,"edge_id"):
+				_read_candidate_geojson(path,{a:"x",b:"b"},
+					(450000.123,330000.987))
 
 	def test_budget_stops_deterministically(self):
 		extra=[("x",i) for i in range(10)]
