@@ -35,7 +35,7 @@ class BoostNumericTests(unittest.TestCase):
 	def test_geometry_diagnostic_excludes_shared_vertex_pairs(self):
 		site=self.a
 		adjoining=((1000,0),(2000,0))
-		other=((0,3),(1000,3))
+		other=((0,3),(500,3))
 		keys=[site,adjoining,other]
 		report=_geometry_report(keys,{site:"site",adjoining:"join",
 			other:"near"},(0,0),site,tolerance_m=0.005)
