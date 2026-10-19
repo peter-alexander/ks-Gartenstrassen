@@ -13,11 +13,12 @@ import sqlite3
 import tempfile
 
 from pyproj import Transformer
-from shapely import geos_version, segmentize, union_all, voronoi_polygons
+from shapely import geos_version, make_valid, segmentize, union_all, voronoi_polygons, intersection
 from shapely.geometry import LineString, MultiPoint, box, mapping
 from shapely.ops import transform
 from shapely.strtree import STRtree
 from shapely.wkb import loads
+from shapely.errors import GEOSException
 
 from scripts.wienwide_grid import load_aoi, plan
 
@@ -46,6 +47,28 @@ def _polygon_parts(geometry):
 	elif hasattr(geometry,"geoms"):
 		for part in geometry.geoms:
 			yield from _polygon_parts(part)
+
+
+def _safe_clip(cell,core):
+	"""Repair invalid Voronoi polygons without hiding unrecoverable failures."""
+	try:
+		if cell.is_valid:
+			return cell.intersection(core)
+	except GEOSException:
+		pass
+	fixed=make_valid(cell)
+	if fixed.is_empty or not fixed.is_valid:
+		raise ValueError("Voronoi-Polygon lässt sich nicht reparieren")
+	try:
+		result=fixed.intersection(core)
+	except GEOSException:
+		# Fixed-precision overlay resolves floating point robustness issues.
+		result=intersection(fixed,core,grid_size=1e-7)
+	if not result.is_valid:
+		result=make_valid(result)
+	if not result.is_valid:
+		raise ValueError("Voronoi-Verschnitt bleibt ungültig")
+	return result
 
 
 def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
@@ -88,13 +111,18 @@ def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
 	for owner,cell in zip(owners,cells.geoms):
 		if not cell.intersects(core):
 			continue
-		clipped=cell.intersection(core)
+		clipped=_safe_clip(cell,core)
 		if not clipped.is_empty and clipped.area>0:
 			pieces.setdefault(owner,[]).append(clipped)
 	if not pieces:
 		raise ValueError("Voronoi-Zellen decken Kachel nicht ab")
 	for owner,parts in sorted(pieces.items()):
-		merged=union_all(parts)
+		try:
+			merged=union_all(parts)
+		except GEOSException:
+			merged=union_all([make_valid(p) for p in parts],grid_size=1e-7)
+		if not merged.is_valid:
+			merged=make_valid(merged)
 		if not merged.is_empty:
 			yield owner,merged
 
@@ -126,8 +154,12 @@ def build(cache,aoi_path,out,*,tile_m=500,halo_m=250,spacing_m=20,max_tiles=None
 			target.write('{"type":"FeatureCollection","features":[')
 			for number,tile in enumerate(tiles,1):
 				core=box(*tile["bounds_31256"]).intersection(aoi)
-				for edge_id,geometry in _tile_polygons(ids,geoms,tree,core,
-						spacing_m=spacing_m,halo_m=halo_m):
+				try:
+					polygons=list(_tile_polygons(ids,geoms,tree,core,
+						spacing_m=spacing_m,halo_m=halo_m))
+				except (GEOSException,ValueError) as exc:
+					raise ValueError(f"Voronoi-Kachel {tile['id']}: {exc}") from exc
+				for edge_id,geometry in polygons:
 					for polygon in _polygon_parts(geometry):
 						if polygon.area<=0:
 							continue
