@@ -13,7 +13,7 @@ GRM_RAW="${SIS_V2_GRM_RAW_ROOT:-}"
 SIS="${SIS_V2_SOURCE:-$RAW/SISBELAGOGD.json}"
 GIP2="${GIP2_SOURCE:-/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg}"
 SIS_DB="${SIS_V2_INDEX:-$ROOT/sis/sis.sqlite}"
-STAGES=(sis aoi grid gip-index street partition trim qa grm-fetch grm-build measure pmtiles)
+STAGES=(sis aoi grid gip-index gip-merge street partition trim qa grm-fetch grm-build measure pmtiles)
 FROM=sis
 UNTIL=pmtiles
 WITH_GRM=1
@@ -22,7 +22,7 @@ usage() {
 	cat <<'HELP'
 bash code/scripts/run-sis-steps.sh [--from PHASE] [--until PHASE] [--no-grm]
 
-Phasen: sis aoi grid gip-index street partition trim qa grm-fetch grm-build measure pmtiles
+Phasen: sis aoi grid gip-index gip-merge street partition trim qa grm-fetch grm-build measure pmtiles
 
 Optionale Umgebung:
   SIS_V2_SOURCE: lokale SIS-Datei (Standard: raw/SISBELAGOGD.json)
@@ -91,23 +91,27 @@ for ((i=start;i<=end;i++)); do
 			[[ -f "$GIP2" ]] || { echo "GIP2-Datei fehlt: $GIP2" >&2; exit 1; }
 			[[ -e "$ROOT/gip.sqlite" ]] || "$PYTHON" -m scripts.sis_gip2 \
 				--source "$GIP2" --manifest "$ROOT/raster.json" --out "$ROOT/gip.sqlite";;
+		gip-merge)
+			"$PYTHON" -m scripts.merge_parallel_gip \
+				--source-index "$ROOT/gip.sqlite" --out "$ROOT/gip_merged.sqlite" \
+				--reuse;;
 		street)
 			"$PYTHON" -m scripts.sis_v2_street \
 				--manifest "$ROOT/raster.json" --sis-db "$SIS_DB" \
 				--out-root "$ROOT/strassenraum";;
 		partition)
 			"$PYTHON" -m scripts.wienwide_partition \
-				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
+				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip_merged.sqlite" \
 				--street-root "$ROOT/strassenraum" --out "$ROOT/aufteilung_roh.sqlite" \
 				--all-fow --no-junctions --gip2-local;;
 		trim)
 			[[ -e "$ROOT/aufteilung.sqlite" ]] || "$PYTHON" -m scripts.sis_v2_trim \
-				--gip-index "$ROOT/gip.sqlite" \
+				--gip-index "$ROOT/gip_merged.sqlite" \
 				--partition-db "$ROOT/aufteilung_roh.sqlite" \
 				--out "$ROOT/aufteilung.sqlite";;
 		qa)
 			[[ -e "$ROOT/qa.gpkg" ]] || "$PYTHON" -m scripts.wienwide_qa_gpkg \
-				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
+				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip_merged.sqlite" \
 				--street-root "$ROOT/strassenraum" \
 				--partition-db "$ROOT/aufteilung.sqlite" --out "$ROOT/qa.gpkg";;
 		grm-fetch)
@@ -138,7 +142,7 @@ for ((i=start;i<=end;i++)); do
 				[[ -n "$GRM_RAW" ]] && args+=(--grm-raw-root "$GRM_RAW")
 			fi
 			"$PYTHON" -m scripts.sis_v2_measure \
-				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip.sqlite" \
+				--manifest "$ROOT/raster.json" --gip-index "$ROOT/gip_merged.sqlite" \
 				--sis-db "$SIS_DB" --street-root "$ROOT/strassenraum" \
 				--partition-db "$ROOT/aufteilung.sqlite" --out-dir "$ROOT/ergebnisse" \
 				--resume "${args[@]}";;
