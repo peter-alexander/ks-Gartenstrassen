@@ -4,6 +4,7 @@ __pycache__/
 # Altes Datenlayout bis zur bestätigten lokalen Bereinigung schützen
 /data/
 /raw/
+/cache/
 /work/
 /output/
 
