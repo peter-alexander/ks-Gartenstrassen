@@ -103,7 +103,7 @@ bash code/scripts/run-cgal-voronoi-debug-wien.sh
 
 Es wird immer **ganz Wien** gerechnet und mit der SIS-Maske verschnitten.
 Ausgabe:
-`output/cgal_segment_voronoi_sis_debug.geojson` (EPSG:4326).
+`output/cgal_segment_voronoi_sis_wien.geojson` (EPSG:4326).
 
 **Debug, noch keine Fachfreigabe:** Kurvenlinearisierung und Zellzuordnung
 sind auf realen Daten geometrisch zu verifizieren. Kein Boost-Fallback.
