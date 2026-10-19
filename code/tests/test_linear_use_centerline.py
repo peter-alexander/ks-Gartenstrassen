@@ -17,6 +17,7 @@ class MeanAxisTests(unittest.TestCase):
 		line=LineString([(0,0),(4,1),(10,1)])
 		axis,audit=build_mean_axis([line])
 		self.assertTrue(axis.equals_exact(line,0))
+		self.assertEqual(audit.method,"single")
 		self.assertEqual(audit.input_lines,1)
 		self.assertEqual(audit.reversed_lines,0)
 		self.assertEqual(audit.length_ratio_min_max,1)
@@ -29,9 +30,27 @@ class MeanAxisTests(unittest.TestCase):
 		self.assertCoordsAlmostEqual(list(axis.coords),[
 			(0,5),(25,5),(50,5),(75,5),(100,5),
 		])
+		self.assertEqual(audit.method,"mean_axis")
 		self.assertEqual(audit.input_lines,2)
 		self.assertEqual(audit.reversed_lines,0)
 		self.assertAlmostEqual(audit.max_correspondence_spread_m,10)
+
+	def test_contiguous_split_segments_are_merged_not_averaged(self):
+		a=LineString([(0,0),(40,0)])
+		b=LineString([(40,0),(100,0)])
+		axis,audit=build_mean_axis([a,b],sample_spacing_m=5)
+		self.assertTrue(axis.equals(LineString([(0,0),(40,0),(100,0)])))
+		self.assertEqual(audit.method,"line_merge")
+		self.assertEqual(audit.input_lines,2)
+		self.assertAlmostEqual(axis.length,100)
+		self.assertEqual(audit.max_correspondence_spread_m,0)
+
+	def test_reversed_contiguous_segments_are_merged(self):
+		a=LineString([(40,0),(0,0)])
+		b=LineString([(100,0),(40,0)])
+		axis,audit=build_mean_axis([a,b])
+		self.assertTrue(axis.equals(LineString([(0,0),(40,0),(100,0)])))
+		self.assertEqual(audit.method,"line_merge")
 
 	def test_opposite_digitization_does_not_change_middle(self):
 		a=LineString([(0,0),(100,0)])
