@@ -1,90 +1,53 @@
 # Gartenstraßen Wien
 
-Analyse der Bodenbegrünung und Baumkronenüberschirmung des Wiener Straßenraums anhand von
-SIS-Belagsflächen, dem GIP2-Straßennetz und dem Grünraummonitoring 2023.
+GIS-Vorbereitung für die Wiener Gartenstraßenanalyse.
 
-## Einzige Verzeichnisstruktur
+Der aktuelle Zwischenstand enthält bewusst **keine GIP-Straßenkanten,
+keine Voronoi-Abschnittszuordnung und keine Kreuzungsausschnitte**.
+Die nächste Abschnittsmethode wird darauf neu aufgebaut.
+
+## Verzeichnisstruktur
 
 ```text
 ks-Gartenstrassen/
-  code/                 # Python-Skripte, Tests, Methodik, Abhängigkeiten
-    scripts/
-    tests/
-    docs/
-    requirements-analysis.txt
-  raw/                  # heruntergeladene WFS-/WMS-Originaldaten, dauerhaft
-  cache/                # aufbereitete GIS-Daten, dauerhaft
+  code/                 # Python-Skripte, Tests und Methodik
+  raw/                  # unveränderte WFS-/WMS-Downloads, dauerhaft
+  cache/                # quell- und methodengebundene Aufbereitung, dauerhaft
     sis-wien.sqlite
     wien/
       aoi.geojson
       raster.json
-      gip.sqlite
-      gip_merged.sqlite
       strassenraum/
       masken/
-      aufteilung_roh.sqlite
-      aufteilung.sqlite
-      qa.gpkg
-  work/                 # ausschließlich temporäre Messung und Zwischenausgabe
-  output/               # aktuelle CSV, GeoJSON, PMTiles und Bericht
+  work/                 # künftig ausschließlich laufabhängige, löschbare Daten
+  output/               # künftig ausschließlich Ergebnisse der neuen Methode
 ```
 
-**Die beiden GeoPackages** unter `/mnt/c/Users/peter/Downloads/` werden **niemals beschrieben**.
-Für den Wiener SIS-Lauf wird nur `gip_network_ogd.gpkg` im unveränderlichen
-SQLite-Lesemodus verwendet. `FMZK_WIEN_GP.gpkg` bleibt unberührt.
-
-## Ausführen
-
-Die Python-Umgebung liegt wie bisher in `.venv/` am Repository-Root.
+## Vorbereitung ausführen
 
 ```bash
 bash code/scripts/run-sis-v2-wien.sh
 ```
 
-Die Quellen-Downloads verbleiben in `raw/`, temporäre Daten in `work/` und
-die aktuellen Enddateien in `output/`. Dort liegen insbesondere
-**`gip_abschnitte.geojson` und `gartenstrassen.pmtiles`** sowie CSV,
-Bericht und `freigabe.json` als gemeinsamer Prüfsummennachweis.
+Der Ablauf erzeugt bzw. validiert ausschließlich:
 
-SIS-Index, GIP-Indizes, Straßenraumkacheln, GRM-Masken, Raster,
-Voronoi-Partitionen und QA-GeoPackage liegen **dauerhaft unter `cache/`**.
-Nur `work/wien/messung.sqlite` und `work/wien/ergebnisse/` sind temporär.
-Die Cachedateien werden anhand von Quellen, Raster und Methode geprüft;
-unpassende ältere Partitionen werden nicht überschrieben.
+1. Wiener SIS-WFS-Rohcache unter `raw/sis/wfs-kacheln/`
+2. `cache/sis-wien.sqlite`
+3. Wien-AOI und Raster unter `cache/wien/`
+4. SIS-Straßenraumkacheln unter `cache/wien/strassenraum/`
+5. GRM2023-Rohbilder unter `raw/grm2023/`
+6. GRM-Kronenmasken unter `cache/wien/masken/`
 
-Nach erfolgreichem vollständigem Lauf, gemeinsamer Veröffentlichung
-und Ergebnisprüfung wird **ausschließlich `work/`** entfernt.
-`cache/`, `raw/` und `output/` bleiben erhalten.
+Diese Daten bleiben erhalten, solange Quelle und jeweilige
+Aufbereitungsmethode unverändert sind.
 
-Für zusätzliche Auswertungen des laufenden Mess-Checkpoints kann `work/` beibehalten werden:
+## Bewusst entfernt
 
-```bash
-SIS_WIEN_KEEP_WORK=1 bash code/scripts/run-sis-v2-wien.sh
-bash code/scripts/run-gip-parallel-wien.sh
-```
+Die frühere Verarbeitung der Layer EDGE/NODE/TURN_USE aus
+`gip_network_ogd.gpkg` ist vollständig aus der aktiven Analyse entfernt.
+Damit entfallen auch die darauf beruhenden Voronoi-Flächen,
+Parallelkantenlogik, FOW-Publikationsfilter, Querschnitts-/Kreuzungsschnitte,
+GIP-basierte QA, Messung und PMTiles-Erzeugung.
 
-Parallele Kanten werden im Schritt `gip-merge` **vor der Voronoi-Zuordnung
-konservativ zu Straßenraumgruppen zusammengefasst**. Original-GIP-IDs,
-Quelllinien und sämtliche 5-m-Stützpunktkoordinaten bleiben nachvollziehbar.
-Die Gruppenzuordnung steht dauerhaft in
-`output/gip_kanten_zuordnung.csv` und `original_gip_ids` im GeoJSON.
-Bereits unmittelbar nach `gip-merge` wird zusätzlich
-**`output/gip_kanten_vereinigt.geojson`** erzeugt – alle Original- und
-Gruppenachsen als WGS84-Linien, mit Kennzeichen `vereint` und sämtlichen
-Original-IDs. Nur die Kantenvereinigung und ihren Kontroll-Export starten:
-
-```bash
-bash code/scripts/run-sis-steps.sh --from gip-merge --until gip-merge
-```
-Mehrdeutige Rad-/Fußweganbindungen bleiben unabhängig; die einzelnen
-Gruppen sind anhand direkter Parallel-Evidenz abgesichert. Die Veröffentlichung
-enthält FOW 2/3/14 ab 100 m²; Fuß-/Radwege 15/504/505 dienen nur als
-begleitende Infrastruktur beim Parallelabgleich.
-
-**Dokumentation:** [Wien-Lauf](code/docs/Wien-Lauf.md),
-[Methodik](code/docs/Methodik.md),
-[FOW-Auswahl](code/docs/GIP-FOW-Auswahl.md),
-[20-m-Parallelkanten](code/docs/Diagnose-Parallele-GIP-Achsen.md).
-
-Die historischen V0-/Pilotskripte und Versuchsberichte sind nicht Teil des aktuellen
-Projekts; die alte Historie ist weiterhin in Git nachvollziehbar.
+Die neue Methode wird schrittweise auf den dauerhaft vorbereiteten
+SIS- und GRM-Daten aufgebaut.
