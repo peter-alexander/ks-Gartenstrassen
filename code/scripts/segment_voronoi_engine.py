@@ -35,13 +35,26 @@ def _noded_segments(axes, *, scale=SCALE):
 	x0=min(min(a[0],b[0]) for _,a,b in segments)
 	y0=min(min(a[1],b[1]) for _,a,b in segments)
 	inputs={}
-	for owner,a,b in segments:
-		pa=(round((a[0]-x0)*scale),round((a[1]-y0)*scale))
-		pb=(round((b[0]-x0)*scale),round((b[1]-y0)*scale))
-		if pa==pb:
-			raise ValueError(f"{owner}: Liniensegment verschwindet im Integer-Raster")
-		key=tuple(sorted((pa,pb)))
-		inputs.setdefault(key,set()).add(owner)
+	collapsed_segments=0
+	for edge_id,line in axes:
+		owner=str(edge_id)
+		# Quantize the entire polyline, not independent segment pairs.
+		# Consecutive sub-millimetre vertices are redundant in the
+		# representable Boost geometry; keep their surviving neighbours.
+		quantized=[]
+		for coordinate in line.coords:
+			point=(round((coordinate[0]-x0)*scale),
+				round((coordinate[1]-y0)*scale))
+			if quantized and point==quantized[-1]:
+				collapsed_segments+=1
+				continue
+			quantized.append(point)
+		if len(quantized)<2:
+			raise ValueError(
+				f"{owner}: gesamte Achse verschwindet im Integer-Raster")
+		for pa,pb in zip(quantized,quantized[1:]):
+			key=tuple(sorted((pa,pb)))
+			inputs.setdefault(key,set()).add(owner)
 	if any(len(owners)>1 for owners in inputs.values()):
 		raise ValueError("Deckungsgleiche Segmente unterschiedlicher edge_id")
 	source=[LineString(pair) for pair in inputs]
