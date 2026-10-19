@@ -5,14 +5,16 @@ import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from pyproj import Transformer
 from shapely.geometry import LineString, Polygon, box, mapping, shape
+from shapely.errors import GEOSException
 from shapely.ops import transform
 from shapely.strtree import STRtree
 from shapely.wkb import dumps
 
-from scripts.build_linear_use_voronoi import _tile_polygons, _safe_clip, build
+from scripts.build_linear_use_voronoi import _tile_polygons, _safe_clip, _robust_voronoi, build
 
 
 class LinearUseVoronoiTests(unittest.TestCase):
@@ -28,6 +30,42 @@ class LinearUseVoronoiTests(unittest.TestCase):
 			polygons["b"]).area,0,places=5)
 		self.assertAlmostEqual(polygons["a"].union(
 			polygons["b"]).area,10000,places=5)
+
+	def test_geos_voronoi_failure_retries_without_losing_owners(self):
+		seeds={(0.0,0.0):"a",(10.0,0.0):"b",
+			(0.0,10.0):"c",(10.0,10.0):"d"}
+		from shapely import voronoi_polygons as real
+		calls=[]
+		def flaky(*args,**kwargs):
+			calls.append(args)
+			if len(calls)==1:
+				raise GEOSException("Invalid number of points in LinearRing")
+			return real(*args,**kwargs)
+		with patch("scripts.build_linear_use_voronoi.voronoi_polygons",
+				side_effect=flaky):
+			owners,cells=_robust_voronoi(seeds,box(-20,-20,20,20))
+		self.assertEqual(len(calls),2)
+		self.assertEqual(owners,["a","b","c","d"])
+		self.assertEqual(len(cells.geoms),4)
+
+	def test_precision_retry_deduplicates_points_and_owners(self):
+		seeds={(0.0,0.0):"b",(0.0001,0.0001):"a",
+			(10.0,0.0):"c",(0.0,10.0):"d"}
+		from shapely import voronoi_polygons as real
+		calls=0
+		def flaky(*args,**kwargs):
+			nonlocal calls
+			calls+=1
+			if calls==1:
+				raise GEOSException("Invalid LinearRing")
+			return real(*args,**kwargs)
+		with patch("scripts.build_linear_use_voronoi.voronoi_polygons",
+				side_effect=flaky):
+			owners,cells=_robust_voronoi(seeds,box(-20,-20,20,20))
+		self.assertEqual(len(owners),3)
+		self.assertIn("a",owners)
+		self.assertNotIn("b",owners)
+		self.assertEqual(len(cells.geoms),3)
 
 	def test_invalid_cell_repairs_before_clipping(self):
 		cell=Polygon([(0,0),(10,10),(0,10),(10,0),(0,0)])
