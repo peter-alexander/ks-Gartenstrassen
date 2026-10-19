@@ -7,12 +7,12 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from pyproj import Transformer
-from shapely.geometry import LineString, box, mapping, shape
+from shapely.geometry import LineString, Polygon, box, mapping, shape
 from shapely.ops import transform
 from shapely.strtree import STRtree
 from shapely.wkb import dumps
 
-from scripts.build_linear_use_voronoi import _tile_polygons, build
+from scripts.build_linear_use_voronoi import _tile_polygons, _safe_clip, build
 
 
 class LinearUseVoronoiTests(unittest.TestCase):
@@ -28,6 +28,13 @@ class LinearUseVoronoiTests(unittest.TestCase):
 			polygons["b"]).area,0,places=5)
 		self.assertAlmostEqual(polygons["a"].union(
 			polygons["b"]).area,10000,places=5)
+
+	def test_invalid_cell_repairs_before_clipping(self):
+		cell=Polygon([(0,0),(10,10),(0,10),(10,0),(0,0)])
+		self.assertFalse(cell.is_valid)
+		result=_safe_clip(cell,box(-1,-1,11,11))
+		self.assertTrue(result.is_valid)
+		self.assertGreater(result.area,0)
 
 	def test_sparse_tile_far_from_axes(self):
 		lines=[LineString([(5000,0),(5050,0)]),
