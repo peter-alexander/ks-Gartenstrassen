@@ -10,6 +10,12 @@ AOI="$REPO/cache/wien/aoi.geojson"
 SUSPECTS="$REPO/output/boost_segment_voronoi_diagnose_continued_suspects.geojson"
 OUT="$REPO/output/boost_segment_voronoi_reverse.json"
 
+if [[ "${1:-}" == "--resume" ]]; then
+	shift
+	SUSPECTS="$REPO/output/boost_segment_voronoi_reverse_minimal.geojson"
+	OUT="$REPO/output/boost_segment_voronoi_reverse_continued.json"
+fi
+
 [[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
 [[ -f "$CACHE" && -f "$AOI" && -f "$SUSPECTS" ]] || {
 	echo "Benötigte Wiener Diagnose-Eingaben fehlen" >&2
