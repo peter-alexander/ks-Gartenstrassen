@@ -14,6 +14,7 @@ import traceback
 
 from scripts.build_segment_voronoi_geojson import _axes
 from scripts.segment_voronoi_engine import SCALE, _noded_segments
+from scripts.wienwide_grid import load_aoi
 
 
 def _worker(keys,frame,scale,conn):
@@ -85,7 +86,7 @@ def _save(path,report):
 	os.replace(tmp,path)
 
 
-def benchmark(cache,out,*,sizes=(1000,5000,10000,25000,50000),
+def benchmark(cache,aoi_path,out,*,sizes=(1000,5000,10000,25000,50000),
 		timeout=45,strategies=("near","spread")):
 	if timeout<=0 or not math.isfinite(timeout):
 		raise ValueError("timeout muss positiv und endlich sein")
@@ -96,12 +97,9 @@ def benchmark(cache,out,*,sizes=(1000,5000,10000,25000,50000),
 	prepare_s=round(perf_counter()-start,3)
 	keys=sorted(noded)
 	print(f"Benchmark: {len(keys):,} Segmente in {prepare_s:.1f} s vorbereitet",flush=True)
-	# Match production: same translated coordinates and same distant frame.
+	# Match the production frame exactly, including its origin offset.
 	x0,y0=origin
-	minx=min(a[0] for a,b in keys)/SCALE+x0
-	miny=min(a[1] for a,b in keys)/SCALE+y0
-	maxx=max(b[0] for a,b in keys)/SCALE+x0
-	maxy=max(b[1] for a,b in keys)/SCALE+y0
+	minx,miny,maxx,maxy=load_aoi(aoi_path).bounds
 	diameter=math.hypot(maxx-minx,maxy-miny)
 	margin=max(1000,4*diameter)
 	frame=[(minx-margin-x0,miny-margin-y0),
@@ -136,6 +134,7 @@ def benchmark(cache,out,*,sizes=(1000,5000,10000,25000,50000),
 def main():
 	p=argparse.ArgumentParser(description=__doc__)
 	p.add_argument("--cache",type=Path,required=True)
+	p.add_argument("--aoi",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--sizes",type=int,nargs="+",
 		default=[1000,5000,10000,25000,50000])
@@ -143,7 +142,7 @@ def main():
 	p.add_argument("--strategies",nargs="+",choices=["near","spread"],
 		default=["near","spread"])
 	args=p.parse_args()
-	benchmark(args.cache,args.out,sizes=args.sizes,
+	benchmark(args.cache,args.aoi,args.out,sizes=args.sizes,
 		timeout=args.timeout,strategies=args.strategies)
 
 
