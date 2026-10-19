@@ -21,7 +21,7 @@ from shapely.ops import polygonize_full, transform, unary_union
 from shapely.strtree import STRtree
 from shapely.wkb import loads
 
-from scripts.segment_voronoi_engine import SCALE, _noded_segments
+from scripts.cgal_segment_input import SCALE, _noded_segments
 from scripts.wienwide_grid import checksum, load_aoi, read_manifest
 from scripts.wienwide_street import load_street_tile
 
