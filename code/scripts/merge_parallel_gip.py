@@ -57,6 +57,11 @@ def plan_groups(axes, pairs):
 		elif a in support and b in support:
 			continue
 		eligible.add(frozenset((a,b)))
+	neighbors_by_id = defaultdict(set)
+	for edge in eligible:
+		a,b=tuple(edge)
+		neighbors_by_id[a].add(b)
+		neighbors_by_id[b].add(a)
 	assigned = set()
 	groups = {}
 	rejected_chains = 0
@@ -65,8 +70,8 @@ def plan_groups(axes, pairs):
 			continue
 		members = [anchor.id]
 		neighbors = sorted((
-			street[b] for pair in eligible if anchor.id in pair
-			for b in (pair - {anchor.id}) if b in street and b not in assigned
+			street[b] for b in neighbors_by_id[anchor.id]
+			if b in street and b not in assigned
 		),key=_primary_order)
 		for child in neighbors:
 			if child.id == anchor.id or child.id in assigned:
@@ -86,14 +91,13 @@ def plan_groups(axes, pairs):
 	# directly supported street representative. At ambiguous junctions
 	# it remains independent; no false merging into multiple streets.
 	support_ambiguous = 0
+	road_roots={gid:root for root,members in groups.items()
+		for gid in members}
 	for item in sorted(support.values(),key=lambda e:e.id):
-		candidate_roots = set()
-		for edge in street.values():
-			if frozenset((item.id,edge.id)) not in eligible:
-				continue
-			root = next((r for r,members in groups.items()
-				if edge.id in members),edge.id)
-			candidate_roots.add(root)
+		candidate_roots = {
+			road_roots.get(gid,gid)
+			for gid in neighbors_by_id[item.id] if gid in street
+		}
 		if len(candidate_roots)==1:
 			root = next(iter(candidate_roots))
 			groups.setdefault(root,[root]).append(item.id)
@@ -195,8 +199,7 @@ def run(source, output):
 					target.execute("UPDATE axes SET wkb=? WHERE gip=?",
 						(dumps(geometry),root))
 					target.execute("INSERT INTO merged_groups VALUES (?,?,?)",
-						(dumps(by_id[root].geom) and root,
-							dumps(by_id[root].geom),len(ids)))
+						(root,dumps(by_id[root].geom),len(ids)))
 					for member in ids:
 						if member!=root:
 							target.execute("DELETE FROM axes WHERE gip=?",(member,))
