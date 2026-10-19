@@ -68,6 +68,14 @@ konservativ zu Straßenraumgruppen zusammengefasst**. Original-GIP-IDs,
 Quelllinien und sämtliche 5-m-Stützpunktkoordinaten bleiben nachvollziehbar.
 Die Gruppenzuordnung steht dauerhaft in
 `output/gip_kanten_zuordnung.csv` und `original_gip_ids` im GeoJSON.
+Bereits unmittelbar nach `gip-merge` wird zusätzlich
+**`output/gip_kanten_vereinigt.geojson`** erzeugt – alle Original- und
+Gruppenachsen als WGS84-Linien, mit Kennzeichen `vereint` und sämtlichen
+Original-IDs. Nur die Kantenvereinigung und ihren Kontroll-Export starten:
+
+```bash
+bash code/scripts/run-sis-steps.sh --from gip-merge --until gip-merge
+```
 Mehrdeutige Rad-/Fußweganbindungen bleiben unabhängig; die einzelnen
 Gruppen sind anhand direkter Parallel-Evidenz abgesichert. Die Veröffentlichung
 enthält FOW 2/3/14 ab 100 m²; Fuß-/Radwege 15/504/505 dienen nur als
