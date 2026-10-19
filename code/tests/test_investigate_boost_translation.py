@@ -1,7 +1,8 @@
 """Coordinate shift and finite Voronoi comparison diagnostics."""
 import unittest
+from types import SimpleNamespace
 
-from scripts.investigate_boost_translation import _case, _comparison, _digest
+from scripts.investigate_boost_translation import _case, _comparison, _digest, _signature
 
 
 class TranslationDiagnosticTests(unittest.TestCase):
@@ -39,6 +40,29 @@ class TranslationDiagnosticTests(unittest.TestCase):
 	def test_rejects_noninteger_shift(self):
 		with self.assertRaises(ValueError):
 			_case(self.sites,self.frame,"invalid",0.5,0)
+
+	def test_nonfinite_vertices_are_reported_and_excluded(self):
+		class Diagram:
+			def EnumerateVertices(self):
+				return list(enumerate([
+					SimpleNamespace(X=0.0,Y=0.0),
+					SimpleNamespace(X=float("nan"),Y=2.0),
+					SimpleNamespace(X=3.0,Y=4.0)]))
+			def EnumerateEdges(self):
+				return list(enumerate([
+					SimpleNamespace(start=0,end=1,is_primary=True,is_linear=True),
+					SimpleNamespace(start=0,end=2,is_primary=True,is_linear=True),
+					SimpleNamespace(start=-1,end=2,is_primary=False,is_linear=False)]))
+			def CountEdges(self):
+				return 3
+			def CountCells(self):
+				return 2
+		data=_signature(Diagram(),(0.,0.),0.01)
+		self.assertEqual(data["nonfinite_vertices"],1)
+		self.assertEqual(data["directed_edges_with_nonfinite_vertices"],1)
+		self.assertEqual(data["directed_infinite"],1)
+		self.assertEqual(len(data["finite_linear"]),1)
+		self.assertEqual(data["raw_edges"],3)
 
 
 if __name__=="__main__":
