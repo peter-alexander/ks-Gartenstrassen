@@ -173,13 +173,24 @@ def _assign(polygons,mask,owners,origin):
 	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
 		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
 	tree=STRtree(geoms)
+	# Do not intersect every Voronoi face with the entire city-wide mask.
+	# Only intersect with spatially matching SIS polygon components.
+	mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]
+	mask_tree=STRtree(mask_parts)
+	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert",flush=True)
 	grouped={}
 	for polygon_number,polygon in enumerate(polygons,1):
 		if polygon_number%10000==0:
 			print(f"CGAL: SIS-Verschnitt {polygon_number:,}/{len(polygons):,} Flächen",flush=True)
-		part=polygon.intersection(mask)
-		if part.is_empty or part.area==0:
+		pieces=[]
+		for mask_index in mask_tree.query(polygon):
+			region=mask_parts[int(mask_index)]
+			intersected=polygon.intersection(region)
+			if not intersected.is_empty and intersected.area>0:
+				pieces.append(intersected)
+		if not pieces:
 			continue
+		part=union_all(pieces) if len(pieces)>1 else pieces[0]
 		# A Voronoi boundary encloses segment sites and endpoint point-sites;
 		# attribute each dual face using its representative point.
 		index=int(tree.nearest(polygon.representative_point()))
