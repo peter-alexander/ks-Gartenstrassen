@@ -9,6 +9,7 @@ SOURCE="${GIP_NETWORK_SOURCE:-/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg}
 AOI="$REPO/cache/wien/aoi.geojson"
 CACHE="$REPO/cache/wien/linear_use.sqlite"
 GEOJSON="$REPO/output/linear_use_mittelachsen.geojson"
+DIAGNOSTICS="$REPO/output/linear_use_mittelachsen_probleme.geojson"
 
 [[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
 [[ -f "$SOURCE" && -r "$SOURCE" ]] || {
@@ -28,4 +29,5 @@ mkdir -p "$REPO/cache/wien" "$REPO/output"
 	--aoi "$AOI" \
 	--out "$CACHE" \
 	--geojson "$GEOJSON" \
+	--diagnostics "$DIAGNOSTICS" \
 	--sample-spacing-m 5
