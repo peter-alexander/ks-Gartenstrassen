@@ -15,6 +15,8 @@ from shapely.strtree import STRtree
 from shapely.wkb import dumps
 
 from scripts.build_linear_use_voronoi import _tile_polygons, _safe_clip, _robust_voronoi, build
+from scripts.wienwide_grid import build_manifest, write_manifest
+from scripts.wienwide_street import save_street_tile
 
 
 class LinearUseVoronoiTests(unittest.TestCase):
@@ -100,6 +102,8 @@ class LinearUseVoronoiTests(unittest.TestCase):
 			cache=root/"linear_use.sqlite"
 			aoi_path=root/"aoi.geojson"
 			output=root/"voronoi.geojson"
+			manifest_path=root/"raster.json"
+			sis_root=root/"strassenraum"
 			to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 			to_m=Transformer.from_crs(4326,31256,always_xy=True).transform
 			x,y=to_m(16.36,48.22)
@@ -108,13 +112,22 @@ class LinearUseVoronoiTests(unittest.TestCase):
 			aoi=box(x,y,x+500,y+500)
 			aoi_path.write_text(json.dumps(mapping(transform(to_wgs,aoi))),
 				encoding="utf-8")
+			manifest=build_manifest(aoi_path,size=500,halo=75)
+			write_manifest(manifest_path,manifest)
+			tile=manifest["tiles"][0]
+			sis=box(x,y,x+500,y+250)
+			save_street_tile(sis_root/tile["id"]/"street.sqlite",sis,{
+				"schema_version":"1","crs":"EPSG:31256",
+				"strassenraum_regel_version":"sis-belagsflaechen-v2"},
+				allow_empty=True)
 			with sqlite3.connect(cache) as db:
 				db.execute("CREATE TABLE edge_axes(edge_id TEXT PRIMARY KEY, wkb BLOB)")
 				db.executemany("INSERT INTO edge_axes VALUES (?,?)",[
 					("a",dumps(LineString([(x,y+150),(x+500,y+150)]))),
 					("b",dumps(LineString([(x,y+350),(x+500,y+350)]))),
 				])
-			number=build(cache,aoi_path,output,tile_m=500,halo_m=250,
+			number=build(cache,aoi_path,output,sis_manifest=manifest_path,
+				sis_root=sis_root,tile_m=500,halo_m=250,
 				spacing_m=50,max_tiles=1)
 			doc=json.loads(output.read_text(encoding="utf-8"))
 			self.assertEqual(doc["type"],"FeatureCollection")
@@ -126,8 +139,12 @@ class LinearUseVoronoiTests(unittest.TestCase):
 				for feature in doc["features"]},{"a","b"})
 			self.assertTrue(all(shape(feature["geometry"]).is_valid
 				for feature in doc["features"]))
+			self.assertTrue(all(sis.covers(transform(
+					Transformer.from_crs(4326,31256,always_xy=True).transform,
+					shape(feature["geometry"]))) for feature in doc["features"]))
 			with self.assertRaises(FileExistsError):
-				build(cache,aoi_path,output,tile_m=500,halo_m=250,
+				build(cache,aoi_path,output,sis_manifest=manifest_path,
+					sis_root=sis_root,tile_m=500,halo_m=250,
 					spacing_m=50,max_tiles=1)
 
 
