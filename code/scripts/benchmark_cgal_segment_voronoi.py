@@ -59,9 +59,11 @@ def _run(executable,payload,timeout,validate):
 
 
 def benchmark(cache,aoi,suspects,executable,out,*,timeout=30,full=False,
-		validate=False):
+		validate=False,only_full=False):
 	if not math.isfinite(timeout) or timeout<=0:
 		raise ValueError("timeout muss positiv und endlich sein")
+	if only_full and not full:
+		raise ValueError("--only-full benötigt --full")
 	if not Path(executable).is_file():
 		raise FileNotFoundError(f"CGAL-Binary fehlt: {executable}")
 	if Path(out).exists():
@@ -75,7 +77,7 @@ def benchmark(cache,aoi,suspects,executable,out,*,timeout=30,full=False,
 	report={"schema":"cgal-segment-delaunay-benchmark-v1",
 		"source":str(suspects),"binary":str(executable),
 		"base_segments":len(base),"suspect_id":owners[extra[0]],
-		"full_vienna_enabled":full,"validate":validate,
+		"full_vienna_enabled":full,"full_only":only_full,"validate":validate,
 		"timeout_s":timeout,"results":[]}
 	cases=[
 		("site_only",extra,(),0,0),
@@ -84,8 +86,15 @@ def benchmark(cache,aoi,suspects,executable,out,*,timeout=30,full=False,
 		("combined_with_frame",base+extra,frame,0,0),
 		("combined_plus_1mm",base+extra,frame,1,1),
 		("combined_plus_1km",base+extra,frame,1000000,1000000)]
+	if only_full:
+		cases=[]
 	if full:
-		cases.append(("full_vienna_with_frame",sorted(owners),frame,0,0))
+		all_keys=sorted(owners)
+		cases.extend([
+			("full_vienna_no_frame",all_keys,(),0,0),
+			("full_vienna_with_frame",all_keys,frame,0,0),
+			("full_vienna_plus_1mm",all_keys,frame,1,1),
+			("full_vienna_plus_1km",all_keys,frame,1000000,1000000)])
 	for name,keys,boundary,dx,dy in cases:
 		print(f"CGAL {name}: {len(keys):,} Segmente",flush=True)
 		result=_run(executable,_payload(keys,boundary,dx,dy),timeout,validate)
@@ -94,6 +103,25 @@ def benchmark(cache,aoi,suspects,executable,out,*,timeout=30,full=False,
 			**result})
 		_save(out,report)
 		print(f"  {result['status']}, {result['wall_s']:.3f}s",flush=True)
+	# Equal graph counts are necessary, not sufficient, for geometric equivalence.
+	baseline=next((row for row in report["results"]
+		if row["case"]=="full_vienna_with_frame" and row["status"]=="ok"),None)
+	if full:
+		report["full_vienna_assessment"]={
+			"reference_ok":baseline is not None,
+			"all_cases_ok":all(row["status"]=="ok" for row in report["results"]),
+			"translations":[]}
+		for row in report["results"]:
+			if row["case"] not in ("full_vienna_plus_1mm","full_vienna_plus_1km"):
+				continue
+			comparison={"case":row["case"],
+				"comparable":baseline is not None and row["status"]=="ok"}
+			if comparison["comparable"]:
+				comparison["counts_equal"]={
+					key:row.get(key)==baseline.get(key)
+					for key in ("input_sites","output_sites","vertices","faces")}
+			report["full_vienna_assessment"]["translations"].append(comparison)
+		_save(out,report)
 	return report
 
 
@@ -106,10 +134,12 @@ def main():
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--timeout",type=float,default=30)
 	p.add_argument("--full",action="store_true")
+	p.add_argument("--only-full",action="store_true")
 	p.add_argument("--validate",action="store_true")
 	a=p.parse_args()
 	benchmark(a.cache,a.aoi,a.suspects,a.binary,a.out,
-		timeout=a.timeout,full=a.full,validate=a.validate)
+		timeout=a.timeout,full=a.full,validate=a.validate,
+		only_full=a.only_full)
 
 
 if __name__=="__main__":
