@@ -50,6 +50,37 @@ def _candidate_geojson(path,base,extra,owners,origin):
 	tmp.replace(path)
 
 
+def _read_candidate_geojson(path,owners,origin):
+	"""Restore the exact noded integer keys from an EPSG:31256 debug export."""
+	doc=json.loads(Path(path).read_text(encoding="utf-8"))
+	if doc.get("type")!="FeatureCollection" or doc.get("crs",{}).get(
+			"properties",{}).get("name")!="EPSG:31256":
+		raise ValueError("Fortsetzungs-GeoJSON muss EPSG:31256 enthalten")
+	groups={"base":[],"suspect":[]}
+	seen=set()
+	x0,y0=origin
+	for feature in doc["features"]:
+		group=feature.get("properties",{}).get("group")
+		if group not in groups or feature.get("geometry",{}).get("type")!="LineString":
+			raise ValueError("Unerwartete Geometrie oder Gruppe im Diagnose-GeoJSON")
+		coords=feature["geometry"]["coordinates"]
+		if len(coords)!=2:
+			raise ValueError("Diagnose-GeoJSON enthält kein einzelnes Liniensegment")
+		key=tuple(sorted((tuple(round((p[i]-(x0,y0)[i])*SCALE)
+			for i in (0,1)) for p in coords)))
+		if key not in owners:
+			raise ValueError("Diagnosesegment nicht im aktuellen LINEAR_USE-Noding")
+		if feature["properties"].get("edge_id")!=owners[key]:
+			raise ValueError("edge_id im Diagnose-GeoJSON stimmt nicht mit Cache überein")
+		if key in seen:
+			raise ValueError("Doppeltes Diagnosesegment in den Eingaben")
+		seen.add(key)
+		groups[group].append(key)
+	if not groups["base"] or not groups["suspect"]:
+		raise ValueError("Diagnose-GeoJSON enthält keine Basis oder Verdachtssegmente")
+	return groups["base"],groups["suspect"]
+
+
 def minimize(base,additional,frame,test,*,max_tests=30,progress=None):
 	"""Conservative delta debugging for interactions between segments.
 
@@ -117,7 +148,7 @@ def minimize(base,additional,frame,test,*,max_tests=30,progress=None):
 
 
 def diagnose(cache,aoi_path,out,*,baseline=50000,failing=55000,
-		timeout=15,max_tests=30):
+		timeout=15,max_tests=30,resume_suspects=None):
 	if not (0<baseline<failing):
 		raise ValueError("baseline muss kleiner als failing sein")
 	if timeout<=0 or max_tests<1:
@@ -128,16 +159,24 @@ def diagnose(cache,aoi_path,out,*,baseline=50000,failing=55000,
 	keys=sorted(owners)
 	if failing>len(keys):
 		raise ValueError(f"Nur {len(keys)} Segmente vorhanden")
-	ordered=_samples(keys,failing,"near")
-	# IMPORTANT: _samples() is nested for near, since center comes from all keys.
-	base=ordered[:baseline]
-	extra=ordered[baseline:]
+	if resume_suspects is None:
+		ordered=_samples(keys,failing,"near")
+		# near selection is nested because it uses one global reference center.
+		base=ordered[:baseline]
+		extra=ordered[baseline:]
+	else:
+		base,extra=_read_candidate_geojson(resume_suspects,owners,origin)
+		print(f"Fortsetzung: {len(base):,} gespeicherte Basis- und "
+			f"{len(extra):,} Verdachtssegmente überprüft",flush=True)
 	frame=_frame(load_aoi(aoi_path),origin)
 	out=Path(out)
+	if resume_suspects is not None and out.exists():
+		out=out.with_name(out.stem+"_continued"+out.suffix)
 	geojson=out.with_name(out.stem+"_suspects.geojson")
 	report={"schema":"boost-segment-voronoi-ddmin-v1",
 		"segments_total":len(keys),"baseline":baseline,"failing":failing,
 		"timeout_s":timeout,"max_tests":max_tests,
+		"resumed_from":str(resume_suspects) if resume_suspects else None,
 		"preparation_s":round(perf_counter()-t0,2),"tests":[]}
 	def save():
 		_save(out,report)
@@ -190,9 +229,12 @@ def main():
 	p.add_argument("--failing",type=int,default=55000)
 	p.add_argument("--timeout",type=float,default=15)
 	p.add_argument("--max-tests",type=int,default=30)
+	p.add_argument("--resume-suspects",type=Path,
+		help="Gespeicherte Basis und Verdachtssegmente aus Diagnose-GeoJSON")
 	a=p.parse_args()
 	diagnose(a.cache,a.aoi,a.out,baseline=a.baseline,
-		failing=a.failing,timeout=a.timeout,max_tests=a.max_tests)
+		failing=a.failing,timeout=a.timeout,max_tests=a.max_tests,
+		resume_suspects=a.resume_suspects)
 
 
 if __name__=="__main__":
