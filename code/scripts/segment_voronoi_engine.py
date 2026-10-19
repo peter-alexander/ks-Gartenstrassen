@@ -4,9 +4,9 @@ Not a polygon exporter: Boost's unbounded cells and parabolic edges require
 explicit boundary reconstruction before use with SIS and tile-independent output.
 No silent fallback to point sampling is permitted.
 """
-import math
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
+from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 SCALE=1000  # One millimetre integer-grid input to Boost.
@@ -29,61 +29,69 @@ def _segments(axes):
 	return segments
 
 
-def construct_segment_diagram(axes,*,scale=SCALE):
-	"""Compute the true Boost segment Voronoi graph, not sampled points.
-
-	Returns (pyvoronoi instance, source owners). The graph is not yet a
-	polygonal partition. Source segments must not cross/overlap internally:
-	such geometry needs noding and owner resolution before construction.
-	"""
-	try:
-		import pyvoronoi
-	except ImportError as exc:
-		raise RuntimeError("pyvoronoi==1.2.8 installieren") from exc
-	if not isinstance(scale,int) or scale<1:
-		raise ValueError("Ganzzahliger positiver Maßstab erforderlich")
+def _noded_segments(axes, *, scale=SCALE):
+	"""Node all crossings, preserving site ownership and rejecting ambiguity."""
 	segments=_segments(axes)
 	x0=min(min(a[0],b[0]) for _,a,b in segments)
 	y0=min(min(a[1],b[1]) for _,a,b in segments)
-	rounded={}
+	inputs={}
 	for owner,a,b in segments:
 		pa=(round((a[0]-x0)*scale),round((a[1]-y0)*scale))
 		pb=(round((b[0]-x0)*scale),round((b[1]-y0)*scale))
 		if pa==pb:
 			raise ValueError(f"{owner}: Liniensegment verschwindet im Integer-Raster")
 		key=tuple(sorted((pa,pb)))
-		if key in rounded and rounded[key]!=owner:
-			raise ValueError(f"Überlappendes Segment verschiedener edge_id: {owner}, {rounded[key]}")
-		rounded[key]=owner
-	# Boost.Polygon does not accept proper crossings. Do not feed it
-	# intersecting GIP axes and pretend the output is scientifically valid.
-	keys=list(rounded)
-	geoms=[LineString(pair) for pair in keys]
-	tree=STRtree(geoms)
-	for i,geom in enumerate(geoms):
-		for j in tree.query(geom):
-			j=int(j)
-			if j<=i:
+		inputs.setdefault(key,set()).add(owner)
+	if any(len(owners)>1 for owners in inputs.values()):
+		raise ValueError("Deckungsgleiche Segmente unterschiedlicher edge_id")
+	source=[LineString(pair) for pair in inputs]
+	noded=unary_union(source)
+	parts=list(noded.geoms) if hasattr(noded,"geoms") else [noded]
+	tree=STRtree(source)
+	result={}
+	for piece in parts:
+		if not isinstance(piece,LineString) or piece.length==0:
+			continue
+		for a,b in zip(piece.coords,piece.coords[1:]):
+			key=tuple(sorted((tuple(map(int,a[:2])),
+				tuple(map(int,b[:2])))))
+			if key[0]==key[1]:
 				continue
-			other=geoms[j]
-			intersection=geom.intersection(other)
-			if intersection.is_empty:
-				continue
-			if intersection.geom_type=="Point":
-				p=(intersection.x,intersection.y)
-				ends_a=(tuple(geom.coords[0]),tuple(geom.coords[-1]))
-				ends_b=(tuple(other.coords[0]),tuple(other.coords[-1]))
-				if p in ends_a and p in ends_b:
-					continue
-			raise ValueError(
-				f"Segmentkreuzung/-überlappung vor Voronoi-Konstruktion: "
-				f"{rounded[keys[i]]}, {rounded[keys[j]]}")
+			mid=Point((a[0]+b[0])/2,(a[1]+b[1])/2)
+			owners=set()
+			for index in tree.query(mid.buffer(0.00001)):
+				index=int(index)
+				if source[index].distance(mid)<=0.00001:
+					owners.update(inputs[tuple(sorted(
+						(tuple(map(int,source[index].coords[0])),
+						tuple(map(int,source[index].coords[-1])))))])
+			if len(owners)!=1:
+				raise ValueError(
+					"Unklare Segmentzuordnung an einer Kreuzung/Überlappung")
+			owner=next(iter(owners))
+			if key in result and result[key]!=owner:
+				raise ValueError("Mehrdeutige edge_id nach Noding")
+			result[key]=owner
+	return result,(x0,y0)
+
+
+def construct_segment_diagram(axes,*,scale=SCALE):
+	"""Create true Boost segment-site graph, with crossings noded first.
+
+	Returns (diagram, owners). Output is NOT a polygonal partition.
+	"""
+	if not isinstance(scale,int) or scale<1:
+		raise ValueError("Ganzzahliger positiver Maßstab erforderlich")
+	noded,_origin=_noded_segments(axes,scale=scale)
+	try:
+		import pyvoronoi
+	except ImportError as exc:
+		raise RuntimeError("pyvoronoi==1.2.8 installieren") from exc
 	diagram=pyvoronoi.Pyvoronoi(scale)
 	owners=[]
-	for key in keys:
-		a,b=key
+	for (a,b),owner in sorted(noded.items()):
 		diagram.AddSegment([[a[0]/scale,a[1]/scale],
 			[b[0]/scale,b[1]/scale]])
-		owners.append(rounded[key])
+		owners.append(owner)
 	diagram.Construct()
 	return diagram,owners
