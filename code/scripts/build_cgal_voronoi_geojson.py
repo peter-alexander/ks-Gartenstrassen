@@ -179,23 +179,55 @@ def _assign(polygons,mask,owners,origin):
 	mask_tree=STRtree(mask_parts)
 	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert",flush=True)
 	grouped={}
+	started=perf_counter()
+	last=started
+	candidates_checked=0
+	intersections_calculated=0
+	assigned_polygons=0
+	query_seconds=0.
+	intersection_seconds=0.
+	attribution_seconds=0.
 	for polygon_number,polygon in enumerate(polygons,1):
-		if polygon_number%10000==0:
-			print(f"CGAL: SIS-Verschnitt {polygon_number:,}/{len(polygons):,} Flächen",flush=True)
+		if polygon_number%1000==0:
+			now=perf_counter()
+			elapsed=now-started
+			print(f"CGAL: SIS-Verschnitt {polygon_number:,}/{len(polygons):,} "
+				f"({100*polygon_number/len(polygons):.1f} %), "
+				f"{elapsed:.1f} s, letzter Block {now-last:.1f} s; "
+				f"Kandidaten {candidates_checked:,}, Schnitte {intersections_calculated:,}, "
+				f"Zuordnungen {assigned_polygons:,}; "
+				f"Index {query_seconds:.1f} s, Schnitt {intersection_seconds:.1f} s, "
+				f"Achse {attribution_seconds:.1f} s",flush=True)
+			last=now
+		t0=perf_counter()
+		matching=mask_tree.query(polygon,predicate="intersects")
+		query_seconds+=perf_counter()-t0
+		candidates_checked+=len(matching)
+		if not len(matching):
+			continue
 		pieces=[]
-		for mask_index in mask_tree.query(polygon):
+		t0=perf_counter()
+		for mask_index in matching:
 			region=mask_parts[int(mask_index)]
 			intersected=polygon.intersection(region)
+			intersections_calculated+=1
 			if not intersected.is_empty and intersected.area>0:
 				pieces.append(intersected)
 		if not pieces:
+			intersection_seconds+=perf_counter()-t0
 			continue
 		part=union_all(pieces) if len(pieces)>1 else pieces[0]
-		# A Voronoi boundary encloses segment sites and endpoint point-sites;
-		# attribute each dual face using its representative point.
+		intersection_seconds+=perf_counter()-t0
+		t0=perf_counter()
+		# Temporary ownership heuristic; validate on actual Vienna output
+		# before treating this diagnostic as a production GIS result.
 		index=int(tree.nearest(polygon.representative_point()))
 		owner=owners[keys[index]]
 		grouped.setdefault(owner,[]).append(part)
+		assigned_polygons+=1
+		attribution_seconds+=perf_counter()-t0
+	print(f"CGAL: SIS-Verschnitt fertig nach {perf_counter()-started:.1f} s; "
+		f"{intersections_calculated:,} Schnittoperationen",flush=True)
 	if not grouped:
 		raise ValueError("Keine CGAL-Zellfläche schneidet die SIS-Straßenmaske")
 	merged={owner:union_all(parts) for owner,parts in grouped.items()}
