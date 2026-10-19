@@ -1,82 +1,68 @@
-# CGAL-Prototyp für echte Segment-Voronoi-Diagramme
+# CGAL-Segment-Voronoi: SIS-Debugflächen
 
-Diese Diagnose verändert weder die GIP-Daten noch die produktive Boost-Engine.
+Die Voronoi-Verarbeitung verwendet ausschließlich **CGAL**.
+Alle alten Boost-/Punkt-Voronoi-Benchmarks und Diagnoseprogramme sind entfernt.
+Die bewährte Noding-Vorbereitung bleibt erhalten.
 
-## Voraussetzungen in Ubuntu/WSL
+## Installation in WSL/Ubuntu
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake libcgal-dev libgmp-dev libmpfr-dev
 ```
 
-Das Paket `Segment_Delaunay_graph_2` gehört zum GPL-lizenzierten
-CGAL-Paketbestandteil. Vor einer Verteilung oder Einbindung in das
-Produktionssystem sind die Lizenzbedingungen gesondert zu prüfen.
-
-## Erster Test
-
-Vom Repository-Wurzelverzeichnis aus:
+## Debug-Ausschnitt berechnen
 
 ```bash
 git pull --ff-only
-bash code/scripts/run-cgal-segment-voronoi-wien.sh --timeout 30 --validate
+bash code/scripts/run-cgal-voronoi-debug-wien.sh
 ```
 
-Die Auswertung wird in
-`output/cgal_segment_voronoi_benchmark.json` geschrieben.
+Standardmäßig wird ein 500 m × 500 m großes Debugfenster am Schwerpunkt
+der AOI verwendet und auf die AOI begrenzt.
 
-Gemessen werden: fixes Segment allein, Basis allein, Kombination ohne
-Rahmen, Kombination mit Rahmen sowie jeweils um 1 mm und 1 km verschobene
-Kombinationen (inklusive Rahmen).
-
-Die Millimeterkoordinaten stammen aus dem exakt gleichen genodeten
-LINEAR_USE-Datensatz wie die bisherigen Boost-Diagnosen.
-
-`--validate` prüft zusätzlich die CGAL-Datenstruktur; das ist für
-einen ersten Lauf sinnvoll, kann aber zusätzliche Laufzeit benötigen.
-
-Das Programm berechnet einen **Segment-Delaunay-Graphen**, den Dualgraphen
-des gesuchten Voronoi-Diagramms. Es exportiert vorerst keine
-Voronoi-Kurven, Polygone oder Zellflächen. Zahlen von CGAL und Boost sind
-deshalb nicht unmittelbar als identische Topologiegrößen zu vergleichen.
-
-## Vollständiger Wien-Lauf nach erfolgreichem Kleintest
-
-Der separate Starter verwendet das bereits kompilierte CGAL-Binary,
-führt **nur** die vollständigen Wiener Fälle aus und überschreibt den
-Kleintestbericht nicht:
+Ein bestimmter Kartenausschnitt (EPSG:31256, Meter) wird mit `--bbox`
+gewählt:
 
 ```bash
-git pull --ff-only
-bash code/scripts/run-cgal-segment-voronoi-full-wien.sh
+bash code/scripts/run-cgal-voronoi-debug-wien.sh \
+	--bbox XMIN YMIN XMAX YMAX
 ```
 
-Ergebnisse: `output/cgal_segment_voronoi_full.json`.
+Ausgabe: `output/cgal_segment_voronoi_sis_debug.geojson` (GeoJSON
+EPSG:4326, Eigentümer `edge_id`, Fläche in m²).
 
-Vier Fälle werden auf dem gleichen genodeten Gesamtbestand getestet:
+Eine vorhandene Ausgabe wird nicht überschrieben. Zum erneuten Ausführen
+muss die alte Ausgabe ausdrücklich umbenannt oder entfernt werden.
 
-- Ohne Rahmen
-- Mit unverändertem Rahmen
-- Mit Rahmen und +1 mm Verschiebung von Achsen und Rahmen
-- Mit Rahmen und +1 km Verschiebung von Achsen und Rahmen
+## Ablauf
 
-Jeder Fall erhält 300 Sekunden Timeout; der Bericht wird nach jedem
-Fall gespeichert. Der Starter verweigert ein versehentliches
-Überschreiben einer vorhandenen Ergebnisdatei. Die
-Graph-Gültigkeitsprüfung (`--validate`) ist aktiviert.
+1. Verifizierte Wiener GIP-`LINEAR_USE`-Achsen laden, millimetergenau
+   quantisieren und mit GEOS noding durchführen.
+2. **Alle** genodeten Wiener Segmente und einen entfernten Rahmen an CGAL
+   übergeben. CGAL konstruiert einen echten Segment-Delaunay-Graphen.
+3. Duale Voronoi-Kanten extrahieren. Gerade Kanten, Strahlen und Linien
+   werden unterschieden; CGAL linearisiert Parabelstücke für die
+   Debugdarstellung.
+4. Kanten im gewünschten Fenster begrenzen, GIS-Polygonisierung,
+   Flächen anhand des nächsten GIP-Segments einem `edge_id` zuordnen.
+5. Mit der auf Herkunft und AOI geprüften SIS-Straßenmaske verschneiden.
+6. Flächendeckung/Überlappung prüfen, erst danach GeoJSON atomar schreiben.
 
-Der Bericht vergleicht die Anzahl von Eingabe-Sites, Ausgabe-Sites,
-Vertices und Faces gegen den unverschobenen Wien-Fall. Gleiche Anzahlen
-sind eine notwendige, **aber keine hinreichende** Bedingung für
-geometrische Gleichheit. Die vollständige Rekonstruktion der dualen
-Voronoi-Kanten, inklusive gekrümmter und unendlicher Grenzen, und der
-Zellpolygone bleibt eine gesonderte Entwicklungsphase.
+Die Voronoi-Konstruktion selbst ist **nicht** kachelweise vereinfacht.
+Es wird **kein** punktbasiertes Voronoi der gesampelten Straßenachsen erzeugt.
 
-### Einschränkungen und Freigabe
+## Noch nicht für produktive Flächenfreigabe
 
-- Es gibt noch keine produktive CGAL-Engine und keinen Polygonexport.
-- Datenverlust, geometrische Äquivalenz oder fachliche Korrektheit sind
-  mit den Graphzählungen allein nicht ausgeschlossen.
-- Die GPL-Bedingungen des CGAL-Pakets müssen vor einem Produktiveinsatz
-  geklärt sein.
-- Bestehende Boost-Verarbeitung und originale GIP-Daten bleiben unverändert.
+- Die Kurvenlinearisierung der CGAL-Ausgabe ist noch nicht unabhängig auf
+  kontrollierte maximale Abweichung geprüft. Es ist eine Debug-Geometrie.
+- Das vorläufige Zuweisen polygonisierter Teilflächen über einen
+  Repräsentationspunkt muss mit Voronoi-Site-Identitäten und
+  Mehrfachproben verifiziert werden.
+- Der gesamte Stadtexport ist wegen der Geometriegröße erst nach
+  erfolgreicher Fensterprüfung vorgesehen.
+- Die CGAL-Segment-Delaunay-Komponente steht unter GPL-3.0-or-later
+  bzw. kommerziellen Lizenzbedingungen; Verteilung/Produktiveinsatz
+  benötigt eine gesonderte Lizenzprüfung.
+
+**Keine automatische Rückkehr zu Boost und keine stillen Fallbacks.**
