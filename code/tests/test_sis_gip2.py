@@ -44,7 +44,8 @@ class GIP2GeometryTests(unittest.TestCase):
 			fake_python.chmod(0o755)
 			environment = os.environ | {
 				"PYTHON": str(fake_python),
-				"SIS_V2_ROOT": str(processed),
+				"SIS_V2_ROOT": str(processed / "temporary"),
+				"SIS_V2_CACHE_WIEN": str(processed),
 				"GIP2_SOURCE": str(source),
 			}
 			result = subprocess.run([
