@@ -113,7 +113,7 @@ def _read_dual_lines(path,window,origin):
 	with Path(path).open("r",encoding="utf-8") as source:
 		for line_number,line in enumerate(source,1):
 			fields=line.split()
-			if len(fields)!=5 or fields[0] not in stats:
+			if len(fields)!=5 or fields[0] not in ("S","R","L"):
 				raise ValueError(f"CGAL-Kantenformat ungültig, Zeile {line_number}")
 			values=list(map(float,fields[1:]))
 			if not all(math.isfinite(v) for v in values):
