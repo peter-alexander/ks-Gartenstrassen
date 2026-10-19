@@ -45,6 +45,30 @@ class MeanAxisTests(unittest.TestCase):
 		self.assertAlmostEqual(axis.length,100)
 		self.assertEqual(audit.max_correspondence_spread_m,0)
 
+	def test_small_endpoint_gaps_are_snapped(self):
+		a=LineString([(0,0),(40,0)])
+		b=LineString([(40.0247,0),(100,0)])
+		axis,audit=build_mean_axis([a,b])
+		self.assertEqual(audit.method,"endpoint_snap_merge")
+		self.assertAlmostEqual(audit.endpoint_snap_max_m,0.0247,places=5)
+		self.assertTrue(axis.is_simple)
+		self.assertAlmostEqual(axis.length,100,places=1)
+
+	def test_gap_over_five_centimeters_is_not_snapped(self):
+		a=LineString([(0,0),(40,0)])
+		b=LineString([(40.051,0),(100,0)])
+		axis,audit=build_mean_axis([a,b])
+		self.assertNotEqual(audit.method,"endpoint_snap_merge")
+
+	def test_ambiguous_endpoint_connections_are_not_snapped(self):
+		from scripts.linear_use_centerline import _near_endpoint_chain
+		lines=[
+			LineString([(0,0),(10,0)]),
+			LineString([(10.02,0),(20,0)]),
+			LineString([(10.01,0.01),(10,10)]),
+		]
+		self.assertIsNone(_near_endpoint_chain(lines,0.05))
+
 	def test_reversed_contiguous_segments_are_merged(self):
 		a=LineString([(40,0),(0,0)])
 		b=LineString([(100,0),(40,0)])
