@@ -37,33 +37,47 @@ def _case(keys,frame,name,dx,dy,*,move_sites=True,move_frame=True):
 
 
 def _signature(pv,undo,precision):
-	"""Undirected, finite, straight-edge geometry in fixed unshifted coordinates."""
+	"""Compare finite Voronoi geometry, recording non-finite vertex references."""
 	ux,uy=undo
 	vertices=[(v.X-ux,v.Y-uy) for _,v in pv.EnumerateVertices()]
 	def snap(point):
+		if not (math.isfinite(point[0]) and math.isfinite(point[1])):
+			return None
 		return (round(point[0]/precision),round(point[1]/precision))
-	vertex_set={snap(p) for p in vertices}
+	snapped=[snap(p) for p in vertices]
+	vertex_set={p for p in snapped if p is not None}
 	linear=set()
 	curved=0
 	infinite=0
 	primary=0
+	invalid_edges=0
+	invalid_references=0
 	for _,edge in pv.EnumerateEdges():
 		if edge.is_primary:
 			primary+=1
-		if edge.start<0 or edge.end<0:
+		if edge.start is None or edge.end is None or edge.start<0 or edge.end<0:
 			infinite+=1
+			continue
+		if edge.start>=len(snapped) or edge.end>=len(snapped):
+			invalid_references+=1
+			continue
+		if snapped[edge.start] is None or snapped[edge.end] is None:
+			invalid_edges+=1
 			continue
 		if not edge.is_linear:
 			curved+=1
 			continue
-		pair=tuple(sorted((snap(vertices[edge.start]),
-			snap(vertices[edge.end]))))
+		pair=tuple(sorted((snapped[edge.start],snapped[edge.end])))
 		linear.add(pair)
-	# Directed twins deliberately deduplicated; do not conflate edge counts
-	# with this undirected finite-linear geometric comparison.
 	return {"vertices":vertex_set,"finite_linear":linear,
 		"raw_vertices":len(vertices),"raw_edges":pv.CountEdges(),
-		"raw_cells":pv.CountCells(),"directed_curved_finite":curved,
+		"raw_cells":pv.CountCells(),
+		"nonfinite_vertices":sum(p is None for p in snapped),
+		"nonfinite_vertex_indices":[i for i,p in enumerate(snapped)
+			if p is None][:10],
+		"directed_edges_with_nonfinite_vertices":invalid_edges,
+		"directed_edges_with_invalid_vertex_indices":invalid_references,
+		"directed_curved_finite":curved,
 		"directed_infinite":infinite,"directed_primary":primary}
 
 
