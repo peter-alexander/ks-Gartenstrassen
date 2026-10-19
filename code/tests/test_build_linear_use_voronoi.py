@@ -1,5 +1,6 @@
 """Synthetic tests of tiled LINEAR_USE Voronoi debug output."""
 import json
+import math
 import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -37,6 +38,8 @@ class LinearUseVoronoiTests(unittest.TestCase):
 			to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 			to_m=Transformer.from_crs(4326,31256,always_xy=True).transform
 			x,y=to_m(16.36,48.22)
+			x=math.floor(x/500)*500
+			y=math.floor(y/500)*500
 			aoi=box(x,y,x+500,y+500)
 			aoi_path.write_text(json.dumps(mapping(transform(to_wgs,aoi))),
 				encoding="utf-8")
