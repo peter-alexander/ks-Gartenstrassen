@@ -1,9 +1,4 @@
-"""Experimental genuine segment-site Voronoi kernel for GIP result axes.
-
-Not a polygon exporter: Boost's unbounded cells and parabolic edges require
-explicit boundary reconstruction before use with SIS and tile-independent output.
-No silent fallback to point sampling is permitted.
-"""
+"""Integer-millimetre segment noding and ownership, shared by CGAL tools."""
 
 from shapely.geometry import LineString, Point
 from time import perf_counter
@@ -142,24 +137,3 @@ def _noded_segments(axes, *, scale=SCALE, progress=None):
 		f"({perf_counter()-step:.1f} s)")
 	return result,(x0,y0)
 
-
-def construct_segment_diagram(axes,*,scale=SCALE):
-	"""Create true Boost segment-site graph, with crossings noded first.
-
-	Returns (diagram, owners). Output is NOT a polygonal partition.
-	"""
-	if not isinstance(scale,int) or scale<1:
-		raise ValueError("Ganzzahliger positiver Maßstab erforderlich")
-	noded,_origin=_noded_segments(axes,scale=scale)
-	try:
-		import pyvoronoi
-	except ImportError as exc:
-		raise RuntimeError("pyvoronoi==1.2.8 installieren") from exc
-	diagram=pyvoronoi.Pyvoronoi(scale)
-	owners=[]
-	for (a,b),owner in sorted(noded.items()):
-		diagram.AddSegment([[a[0]/scale,a[1]/scale],
-			[b[0]/scale,b[1]/scale]])
-		owners.append(owner)
-	diagram.Construct()
-	return diagram,owners
