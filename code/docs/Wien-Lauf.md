@@ -103,6 +103,47 @@ Die neuen Implementierungsänderungen sind zunächst nur per Code-Review
 beurteilt; auf ausdrücklichen Wunsch wurden **keine zusätzlichen Tests
 oder Wiener Datenläufe gestartet**.
 
+## GIP-Kanten vor der Voronoi-Berechnung kontrollieren
+
+Die **Kantenvereinigung** kann unabhängig vom Wien-Gesamtlauf ausgeführt werden.
+Sie liest ausschließlich den dauerhaft gespeicherten `cache/wien/gip.sqlite`
+und benötigt weder SIS- noch GRM-Neuberechnungen:
+
+```bash
+bash code/scripts/run-sis-steps.sh --from gip-merge --until gip-merge
+```
+
+Nach Abschluss müssen unmittelbar folgende Dateien vorhanden sein:
+
+- `cache/wien/gip_merged.sqlite` – abgeleiteter Graph mit unveränderten
+  Originalkanten und der vollständigen Gruppen-/Stützpunktzuordnung
+- `output/gip_kanten_vereinigt.geojson` – **alle** resultierenden GIP-Achsen,
+  eine GeoJSON-Linie pro repräsentativer Achse, WGS84/EPSG:4326
+- `output/gip_kanten_vereinigt.meta.json` – Anzahl ursprünglicher und
+  verbleibender Kanten, Gruppenanzahl und SHA-256-Prüfsummen
+
+Das GeoJSON enthält `gip_id`, `strassenname`, `fow`, `vereint`,
+`anzahl_originalkanten`, `original_gip_ids` und `original_fow`.
+**Zur Prüfung nur der tatsächlich vereinigten Kanten**
+`vereint = true` bzw. `anzahl_originalkanten > 1` filtern.
+Ihre Geometrie ist eine MultiLineString aus den **Original-Linien**;
+es wird keine künstliche Mittellinie konstruiert. Nicht vereinigte
+Originalachsen sind ebenfalls enthalten.
+
+Dieser Kontroll-Export entsteht **unmittelbar nach `gip-merge`**, nicht
+erst beim PMTiles-Export. Er überschreibt weder die vorhandene
+`output/gip_abschnitte.geojson` noch die veröffentlichten PMTiles
+oder `freigabe.json`. Er ist eine eigenständige **Diagnose**,
+kein Nachweis für einen erfolgreich abgeschlossenen neuen Wien-Lauf.
+
+Wenn `gip_merged.sqlite` fehlt, hat der betreffende lokale Ablauf
+den neuen `gip-merge`-Schritt nicht erfolgreich durchlaufen.
+Das bereits vorhandene `output/gip_abschnitte.geojson` kann dann weiterhin
+das Ergebnis des vorigen Laufs zeigen. Alte Arbeitsergebnisse unter
+`work/wien/ergebnisse/` sind nach einer Methodenänderung ebenfalls
+nicht kompatibel; die Wiederaufnahme lehnt abweichende Quellen ab,
+statt sie stillschweigend zu verwenden.
+
 ## GIP-Kantenvereinigung vor der Flächenzuordnung
 
 Nach `gip-index` läuft automatisch `gip-merge`. Dieser Schritt baut
