@@ -1,0 +1,28 @@
+name: CGAL Voronoi Build Check
+
+on:
+  push:
+    paths:
+      - "code/cgal/**"
+      - ".github/workflows/cgal-voronoi.yml"
+  workflow_dispatch:
+
+jobs:
+  build-cgal-voronoi:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CGAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libcgal-dev libgmp-dev libmpfr-dev
+      - name: Build CGAL dual exporter
+        run: |
+          cmake -S code/cgal -B build/cgal -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/cgal --parallel 2
+      - name: Validate small native dual output
+        run: |
+          printf '0 0 10000 0\n0 10000 10000 10000\n20000 0 30000 0\n' |
+            build/cgal/cgal_voronoi_edges --edges /tmp/cgal-dual.txt --bounds -5000 -5000 35000 20000
+          test -s /tmp/cgal-dual.txt
+          head -n 5 /tmp/cgal-dual.txt
