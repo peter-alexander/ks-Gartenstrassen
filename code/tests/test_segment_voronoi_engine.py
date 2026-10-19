@@ -46,11 +46,11 @@ class SegmentVoronoiTests(unittest.TestCase):
 		self.assertEqual(set(segments.values()),{"a"})
 
 	def test_subgrid_fragment_created_by_noding_is_collapsed(self):
-		# Integer-grid segments meet at x=0.2, y=0.2. The intersection
-		# creates fractional-grid pieces shorter than half a grid unit.
+		# Integer-grid segments intersect near a pre-existing endpoint.
+		# Their intersection rounds to that endpoint on the 1-mm grid.
 		segments,_=_noded_segments([
 			("a",LineString([(0,0),(10,10)])),
-			("b",LineString([(0,0.0004),(10,0.0004)]))])
+			("b",LineString([(0,0.001),(0.01,-0.099)]))])
 		self.assertIn("a",segments.values())
 		self.assertIn("b",segments.values())
 		self.assertTrue(all(a!=b for a,b in segments))
