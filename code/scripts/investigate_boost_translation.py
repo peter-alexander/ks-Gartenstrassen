@@ -10,6 +10,8 @@ import hashlib
 import math
 import multiprocessing as mp
 import os
+import pickle
+import tempfile
 from pathlib import Path
 from time import perf_counter
 import traceback
@@ -65,7 +67,7 @@ def _signature(pv,undo,precision):
 		"directed_infinite":infinite,"directed_primary":primary}
 
 
-def _worker(case,precision,conn):
+def _worker(case,precision,result_path):
 	try:
 		import pyvoronoi
 		pv=pyvoronoi.Pyvoronoi(SCALE)
@@ -78,39 +80,38 @@ def _worker(case,precision,conn):
 		pv.Construct()
 		construct=round(perf_counter()-start,5)
 		data=_signature(pv,case["undo"],precision)
-		conn.send({"status":"ok","construct_s":construct,**data})
+		with open(result_path,"wb") as handle:
+			pickle.dump({"status":"ok","construct_s":construct,**data},handle,
+				protocol=pickle.HIGHEST_PROTOCOL)
 	except BaseException:
-		conn.send({"status":"error","traceback":traceback.format_exc()})
-	finally:
-		conn.close()
+		with open(result_path,"wb") as handle:
+			pickle.dump({"status":"error","traceback":traceback.format_exc()},handle)
 
 
 def _timed(case,precision,timeout):
 	if os.name!="posix":
 		raise RuntimeError("Erfordert Linux/WSL mit fork")
 	ctx=mp.get_context("fork")
-	receiver,sender=ctx.Pipe(duplex=False)
-	proc=ctx.Process(target=_worker,args=(case,precision,sender))
-	start=perf_counter()
-	proc.start()
-	sender.close()
-	proc.join(timeout)
-	duration=round(perf_counter()-start,3)
-	if proc.is_alive():
-		proc.terminate()
-		proc.join(3)
+	with tempfile.TemporaryDirectory(prefix="boost-translation-") as tmp:
+		result_path=Path(tmp)/"result.pickle"
+		proc=ctx.Process(target=_worker,args=(case,precision,str(result_path)))
+		start=perf_counter()
+		proc.start()
+		proc.join(timeout)
+		duration=round(perf_counter()-start,3)
 		if proc.is_alive():
-			proc.kill()
-			proc.join()
-		receiver.close()
-		return {"status":"timeout","wall_s":duration}
-	try:
-		result=receiver.recv() if receiver.poll() else {
-			"status":"crashed","exitcode":proc.exitcode}
-	finally:
-		receiver.close()
-	return {"wall_s":duration,**result}
-
+			proc.terminate()
+			proc.join(3)
+			if proc.is_alive():
+				proc.kill()
+				proc.join()
+			return {"status":"timeout","wall_s":duration}
+		if not result_path.exists():
+			return {"status":"crashed","wall_s":duration,
+				"exitcode":proc.exitcode}
+		with result_path.open("rb") as handle:
+			result=pickle.load(handle)
+		return {"wall_s":duration,**result}
 
 def _digest(items):
 	sha=hashlib.sha256()
