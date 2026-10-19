@@ -74,7 +74,7 @@ def _noded_segments(axes, *, scale=SCALE):
 			result[key]=owner
 	# Quantization can move intersections onto unrelated sites. Reject such
 	# configurations rather than silently changing topological ownership.
-	if len(result)!=len(parts) and not result:
+	if not result:
 		raise ValueError("Noding lieferte keine gültigen Segmente")
 	return result,(x0,y0)
 
