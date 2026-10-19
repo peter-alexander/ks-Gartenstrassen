@@ -5,6 +5,7 @@ import struct
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from pyproj import Transformer
 from shapely.geometry import LineString, box, mapping, shape
@@ -138,6 +139,37 @@ class LinearUseImportTests(unittest.TestCase):
 			"linear_use_object_ids"],["lu-a1","lu-a2"])
 		self.assertEqual(features["edge-b"]["properties"]["linear_use_count"],1)
 		self.assertEqual(features["edge-a"]["geometry"]["type"],"LineString")
+
+	def test_invalid_mean_axis_writes_complete_diagnostics(self):
+		from scripts import build_linear_use_axes as module
+		real=module.build_mean_axis
+		def fail_multiline(lines,*,sample_spacing_m):
+			if len(lines)>1:
+				raise ValueError("synthetisch selbstschneidend")
+			return real(lines,sample_spacing_m=sample_spacing_m)
+		diagnostics=self.root/"probleme.geojson"
+		with patch("scripts.build_linear_use_axes.build_mean_axis",
+				side_effect=fail_multiline):
+			with self.assertRaisesRegex(ValueError,
+					"1 edge_id-Gruppen.*edge-a.*Diagnose"):
+				build(self.source,self.aoi,self.cache,self.geojson,
+					diagnostics=diagnostics)
+		self.assertFalse(self.cache.exists())
+		self.assertFalse(self.geojson.exists())
+		self.assertTrue(diagnostics.is_file())
+		doc=json.loads(diagnostics.read_text(encoding="utf-8"))
+		self.assertEqual(len(doc["features"]),2)
+		self.assertEqual(
+			{f["properties"]["object_id"] for f in doc["features"]},
+			{"lu-a1","lu-a2"})
+		self.assertEqual(
+			{f["properties"]["edge_id"] for f in doc["features"]},
+			{"edge-a"})
+		self.assertTrue(all(
+			f["properties"]["edge_percentage_from"]==0
+			and f["properties"]["edge_percentage_to"]==100
+			and f["properties"]["problem"]=="synthetisch selbstschneidend"
+			for f in doc["features"]))
 
 	def test_source_is_read_only_and_existing_outputs_are_not_overwritten(self):
 		before=self.source.read_bytes()
