@@ -14,6 +14,20 @@ if [[ "${1:-}" == "--resume" ]]; then
 	shift
 	SUSPECTS="$REPO/output/boost_segment_voronoi_reverse_minimal.geojson"
 	OUT="$REPO/output/boost_segment_voronoi_reverse_continued.json"
+elif [[ "${1:-}" == "--resume-latest" ]]; then
+	shift
+	SUSPECTS="$REPO/output/boost_segment_voronoi_reverse_continued_minimal.geojson"
+	ROUND=3
+	while [[ -f "$REPO/output/boost_segment_voronoi_reverse_round${ROUND}_minimal.geojson" ]]; do
+		SUSPECTS="$REPO/output/boost_segment_voronoi_reverse_round${ROUND}_minimal.geojson"
+		ROUND=$((ROUND + 1))
+	done
+	OUT="$REPO/output/boost_segment_voronoi_reverse_round${ROUND}.json"
+	if [[ -e "$OUT" ]]; then
+		echo "Diagnosebericht existiert bereits ohne fertige GeoJSON: $OUT" >&2
+		exit 1
+	fi
+	printf 'Fortsetzung von %s nach %s\\n' "$SUSPECTS" "$OUT"
 fi
 
 [[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
