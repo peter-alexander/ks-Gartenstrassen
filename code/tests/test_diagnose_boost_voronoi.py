@@ -1,10 +1,11 @@
 """Deterministic delta-debug tests without native Boost runs."""
 import tempfile
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 import json
 
-from scripts.diagnose_boost_voronoi import minimize, _candidate_geojson, _read_candidate_geojson
+from scripts.diagnose_boost_voronoi import minimize, _candidate_geojson, _read_candidate_geojson, _resolve_resume_path
 
 
 class BoostDiagnosisTests(unittest.TestCase):
@@ -28,6 +29,16 @@ class BoostDiagnosisTests(unittest.TestCase):
 		suspect,history,reason=minimize(base,extra,None,tester,max_tests=80)
 		self.assertEqual(set(suspect),{("x",1),("x",4)})
 		self.assertEqual(reason,"interaction_or_threshold")
+
+	def test_resume_path_falls_back_to_repository_root(self):
+		with tempfile.TemporaryDirectory() as tmp:
+			root=Path(tmp)
+			(root/"output").mkdir()
+			target=root/"output"/"suspects.geojson"
+			target.write_text("{}",encoding="utf-8")
+			with patch("scripts.diagnose_boost_voronoi.__file__",
+				str(root/"code"/"scripts"/"diagnose_boost_voronoi.py")):
+				self.assertEqual(_resolve_resume_path("output/suspects.geojson"),target)
 
 	def test_resume_roundtrip_uses_identical_integer_sites_and_owners(self):
 		a=((0,0),(1000,0))
