@@ -13,7 +13,19 @@ ks-Gartenstrassen/
     docs/
     requirements-analysis.txt
   raw/                  # heruntergeladene WFS-/WMS-Originaldaten, dauerhaft
-  work/                 # regenerierbare Arbeitsdaten, nach Erfolg löschbar
+  cache/                # aufbereitete GIS-Daten, dauerhaft
+    sis-wien.sqlite
+    wien/
+      aoi.geojson
+      raster.json
+      gip.sqlite
+      gip_merged.sqlite
+      strassenraum/
+      masken/
+      aufteilung_roh.sqlite
+      aufteilung.sqlite
+      qa.gpkg
+  work/                 # ausschließlich temporäre Messung und Zwischenausgabe
   output/               # aktuelle CSV, GeoJSON, PMTiles und Bericht
 ```
 
@@ -34,14 +46,17 @@ die aktuellen Enddateien in `output/`. Dort liegen insbesondere
 **`gip_abschnitte.geojson` und `gartenstrassen.pmtiles`** sowie CSV,
 Bericht und `freigabe.json` als gemeinsamer Prüfsummennachweis.
 
-Fertige Straßenraumkacheln und die separat gespeicherten Messkennzahlen
-(`work/wien/messung.sqlite`) werden bei einem Abbruch anhand ihrer
-Quellprüfsummen wiederverwendet. Erst nach erfolgreichem vollständigem
-Lauf, gemeinsamer Veröffentlichung, QA-GPKG- und Ergebnisprüfung
-wird ausschließlich `work/` entfernt. Bei Fehlern bleiben alle
-Zwischenergebnisse zur Wiederaufnahme erhalten.
+SIS-Index, GIP-Indizes, Straßenraumkacheln, GRM-Masken, Raster,
+Voronoi-Partitionen und QA-GeoPackage liegen **dauerhaft unter `cache/`**.
+Nur `work/wien/messung.sqlite` und `work/wien/ergebnisse/` sind temporär.
+Die Cachedateien werden anhand von Quellen, Raster und Methode geprüft;
+unpassende ältere Partitionen werden nicht überschrieben.
 
-Für die spätere 20-m-Parallelkanten-Diagnose kann `work/` beibehalten werden:
+Nach erfolgreichem vollständigem Lauf, gemeinsamer Veröffentlichung
+und Ergebnisprüfung wird **ausschließlich `work/`** entfernt.
+`cache/`, `raw/` und `output/` bleiben erhalten.
+
+Für zusätzliche Auswertungen des laufenden Mess-Checkpoints kann `work/` beibehalten werden:
 
 ```bash
 SIS_WIEN_KEEP_WORK=1 bash code/scripts/run-sis-v2-wien.sh
