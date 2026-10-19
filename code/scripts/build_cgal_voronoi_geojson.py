@@ -16,7 +16,7 @@ from time import perf_counter
 
 from pyproj import Transformer
 import numpy as np
-from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, points as vector_points, union_all
+from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, union_all
 from shapely.geometry import LineString, Polygon, box, mapping
 from shapely.ops import polygonize_full, transform, unary_union
 from shapely.strtree import STRtree
