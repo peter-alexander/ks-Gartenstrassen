@@ -1,7 +1,7 @@
 """CGAL true segment-site Voronoi debug polygons intersected with verified SIS.
 
-CGAL constructs the graph from ALL Wiener segments. Only its dual boundary
-export is windowed; no tile-local or point-site Voronoi is substituted.
+CGAL constructs the graph from ALL Wiener segments and exports Voronoi
+boundaries for the full Vienna extent. No tile-local approximation.
 CGAL linearizes parabola arcs for visualization; polygon output is DEBUG ONLY.
 """
 import argparse
@@ -194,7 +194,7 @@ def _assign(polygons,mask,owners,origin):
 		"street_m2":mask.area,"assigned_m2":union.area}
 
 
-def build(cache,aoi_path,manifest,sis_root,binary,out,*,bbox=None,timeout=300):
+def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	if not math.isfinite(timeout) or timeout<=0:
 		raise ValueError("Timeout muss positiv sein")
 	out=Path(out)
@@ -203,17 +203,11 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,bbox=None,timeout=300):
 	if not Path(binary).is_file():
 		raise FileNotFoundError(f"CGAL-Binary fehlt: {binary}")
 	aoi=load_aoi(aoi_path)
-	if bbox is None:
-		cx,cy=aoi.centroid.coords[0]
-		window=box(cx-250,cy-250,cx+250,cy+250).intersection(aoi)
-	else:
-		if not all(math.isfinite(v) for v in bbox):
-			raise ValueError("Ungültige Debug-BBOX")
-		window=box(*bbox).intersection(aoi)
-	if window.is_empty or window.area<=0:
-		raise ValueError("Debug-BBOX liegt außerhalb der AOI")
-	if window.geom_type!="Polygon" or len(window.interiors):
-		raise ValueError("Debug-Ausschnitt muss einfaches Polygon sein")
+	# The Voronoi is constructed and polygonized for all Vienna.
+	# Its bounding rectangle closes open dual edges; the final
+	# geometries are clipped to the actual AOI and SIS street mask.
+	window=box(*aoi.bounds)
+	print(f"CGAL: ganz Wien, Begrenzungsrechteck {window.bounds}",flush=True)
 	print("CGAL: SIS-Maske und genodete Wiener Achsen einlesen",flush=True)
 	mask=_window_mask(manifest,sis_root,aoi_path,window)
 	owners,origin=_noded_segments(_axes(cache),
@@ -279,11 +273,10 @@ def main():
 	p.add_argument("--sis-root",type=Path,required=True)
 	p.add_argument("--binary",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
-	p.add_argument("--bbox",type=float,nargs=4,metavar=("XMIN","YMIN","XMAX","YMAX"))
-	p.add_argument("--timeout",type=float,default=300)
+	p.add_argument("--timeout",type=float,default=900)
 	a=p.parse_args()
 	build(a.cache,a.aoi,a.sis_manifest,a.sis_root,a.binary,a.out,
-		bbox=a.bbox,timeout=a.timeout)
+		timeout=a.timeout)
 
 
 if __name__=="__main__":
