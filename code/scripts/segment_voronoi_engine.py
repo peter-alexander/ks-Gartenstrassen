@@ -6,6 +6,7 @@ No silent fallback to point sampling is permitted.
 """
 
 from shapely.geometry import LineString, Point
+from time import perf_counter
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -29,8 +30,13 @@ def _segments(axes):
 	return segments
 
 
-def _noded_segments(axes, *, scale=SCALE):
+def _noded_segments(axes, *, scale=SCALE, progress=None):
 	"""Node all crossings, preserving site ownership and rejecting ambiguity."""
+	started=perf_counter()
+	def report(message):
+		if progress is not None:
+			progress(message)
+	report(f"Segmentaufbereitung: {len(axes):,} Achsen einlesen")
 	segments=_segments(axes)
 	x0=min(min(a[0],b[0]) for _,a,b in segments)
 	y0=min(min(a[1],b[1]) for _,a,b in segments)
@@ -55,16 +61,29 @@ def _noded_segments(axes, *, scale=SCALE):
 		for pa,pb in zip(quantized,quantized[1:]):
 			key=tuple(sorted((pa,pb)))
 			inputs.setdefault(key,set()).add(owner)
+	report(f"Segmentaufbereitung: {len(inputs):,} eindeutige Segmente, "
+		f"{collapsed_segments:,} kurze Kanten zusammengefasst "
+		f"({perf_counter()-started:.1f} s)")
 	if any(len(owners)>1 for owners in inputs.values()):
 		raise ValueError("Deckungsgleiche Segmente unterschiedlicher edge_id")
 	source=[LineString(pair) for pair in inputs]
+	report(f"Noding (GEOS unary_union): {len(source):,} Segmente; Start")
+	step=perf_counter()
 	noded=unary_union(source)
+	report(f"Noding (GEOS unary_union): beendet in {perf_counter()-step:.1f} s")
 	parts=list(noded.geoms) if hasattr(noded,"geoms") else [noded]
 	tree=STRtree(source)
 	result={}
+	report(f"Segmentzuordnung: {len(parts):,} genodete Linien; Start")	
+	step=perf_counter()
 	collapsed_after_noding=0
 	collapsed_owners=set()
-	for piece in parts:
+	for piece_number,piece in enumerate(parts,1):
+		if piece_number%10000==0:
+			elapsed=perf_counter()-step
+			report(f"Segmentzuordnung: {piece_number:,}/{len(parts):,} "
+				f"({100*piece_number/len(parts):.1f} %), {elapsed:.1f} s; "
+				f"{len(result):,} Teilsegmente")
 		if not isinstance(piece,LineString) or piece.length==0:
 			continue
 		for a,b in zip(piece.coords,piece.coords[1:]):
@@ -72,7 +91,9 @@ def _noded_segments(axes, *, scale=SCALE):
 				tuple(round(v) for v in b[:2]))))
 			mid=Point((a[0]+b[0])/2,(a[1]+b[1])/2)
 			owners=set()
-			for index in tree.query(mid.buffer(0.00001)):
+			# Query the actual noded segment: no GEOS buffer allocation per piece.
+			# Its bounding box includes every source that contains its midpoint.
+			for index in tree.query(piece):
 				index=int(index)
 				if source[index].distance(mid)<=0.00001:
 					owners.update(inputs[tuple(sorted(
@@ -102,6 +123,9 @@ def _noded_segments(axes, *, scale=SCALE):
 		raise ValueError(
 			"Achsen nach Noding vollständig im Integer-Raster verschwunden: "
 			+", ".join(sorted(missing)[:10]))
+	report(f"Segmentzuordnung: fertig, {len(result):,} Segmente, "
+		f"{collapsed_after_noding:,} nach Noding unter 1 mm "
+		f"({perf_counter()-step:.1f} s)")
 	return result,(x0,y0)
 
 
