@@ -25,6 +25,7 @@ from shapely.geometry import LineString
 
 DEFAULT_SAMPLE_SPACING_M = 5.0
 ALIGNMENT_SAMPLES = 21
+ENDPOINT_SNAP_TOLERANCE_M = 0.05
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class MeanAxisAudit:
 	length_ratio_min_max: float
 	max_correspondence_spread_m: float
 	mean_correspondence_spread_m: float
+	endpoint_snap_max_m: float = 0.0
 
 
 def _validate_line(line, index):
@@ -89,6 +91,69 @@ def _spread(points):
 	return maximum
 
 
+
+
+def _near_endpoint_chain(lines, tolerance):
+	"""Join only an unambiguous end-to-end chain, never interior intersections."""
+	if len(lines)<2:
+		return None
+	endpoints=[(tuple(line.coords[0][:2]),tuple(line.coords[-1][:2])) for line in lines]
+	options=[]
+	for i in range(len(lines)):
+		for j in range(i+1,len(lines)):
+			for ei in (0,1):
+				for ej in (0,1):
+					a,b=endpoints[i][ei],endpoints[j][ej]
+					d=math.dist(a,b)
+					if d<=tolerance:
+						options.append((i,ei,j,ej,d))
+	# No branching, loops, or ambiguous candidate connections.
+	degrees=[0]*len(lines)
+	for i,ei,j,ej,d in options:
+		degrees[i]+=1
+		degrees[j]+=1
+	if len(options)!=len(lines)-1 or any(n>2 for n in degrees):
+		return None
+	links={}
+	for i,ei,j,ej,d in options:
+		links[i,ei]=(j,ej,d)
+		links[j,ej]=(i,ei,d)
+	starts=[i for i,n in enumerate(degrees) if n==1]
+	if len(starts)!=2:
+		return None
+	start=min(starts)
+	# Start at the unconnected end; visit every member exactly once.
+	unconnected=next(e for e in (0,1) if (start,e) not in links)
+	current,entry=start,unconnected
+	visited=set()
+	coords=[]
+	while True:
+		if current in visited:
+			return None
+		visited.add(current)
+		part=list(lines[current].coords)
+		if entry==1:
+			part.reverse()
+		if coords:
+			# Join at the midpoint; alter only the two terminal vertices.
+			mid=((coords[-1][0]+part[0][0])/2,
+				(coords[-1][1]+part[0][1])/2)
+			coords[-1]=mid
+			part[0]=mid
+			coords.extend(part[1:])
+		else:
+			coords.extend(part)
+		exit_end=1-entry
+		next_link=links.get((current,exit_end))
+		if next_link is None:
+			break
+		current,entry,_=next_link
+	if len(visited)!=len(lines):
+		return None
+	result=LineString(coords)
+	if not result.is_valid or not result.is_simple or result.length<=0:
+		return None
+	return result,max(d for *_,d in options)
 
 def build_edge_axes(records, *, sample_spacing_m=DEFAULT_SAMPLE_SPACING_M):
 	"""Group (edge_id, LineString) records and build one axis per edge_id.
@@ -159,6 +224,22 @@ def build_mean_axis(lines, *, sample_spacing_m=DEFAULT_SAMPLE_SPACING_M):
 			length_ratio_min_max=min(lengths)/max(lengths),
 			max_correspondence_spread_m=0.0,
 			mean_correspondence_spread_m=0.0,
+		)
+
+	near=_near_endpoint_chain(lines,ENDPOINT_SNAP_TOLERANCE_M)
+	if near is not None:
+		joined,max_snap=near
+		return joined,MeanAxisAudit(
+			method="endpoint_snap_merge",
+			input_lines=len(lines),
+			sample_points=len(joined.coords),
+			reversed_lines=0,
+			min_length_m=min(lengths),
+			max_length_m=max(lengths),
+			length_ratio_min_max=min(lengths)/max(lengths),
+			max_correspondence_spread_m=0.0,
+			mean_correspondence_spread_m=0.0,
+			endpoint_snap_max_m=max_snap,
 		)
 
 	# Longest geometry is stable for unequal lengths and gives curved shorter
