@@ -41,6 +41,39 @@ Der Ablauf erzeugt bzw. validiert ausschließlich:
 Diese Daten bleiben erhalten, solange Quelle und jeweilige
 Aufbereitungsmethode unverändert sind.
 
+## LINEAR_USE-Mittelachsen – neuer Abschnittsbaustein
+
+Der neue Ansatz liest ausschließlich `LINEAR_USE` aus
+`gip_network_ogd.gpkg`, filtert auf `base_type = 1` und gruppiert
+**nur nach `edge_id`**.
+
+- genau eine LINEAR_USE-Linie je `edge_id`: unverändert übernehmen
+- mehrere LINEAR_USE-Linien je `edge_id`: deterministische geometrische
+  Mittelachse aus gleichmäßig entlang der normierten Bogenlänge
+  abgetasteten Punkten
+- keine Verwendung von MAX_SPEED
+- keine Namen-, Breiten-, Distanz- oder Winkelheuristik
+- keine Kreuzungs-/Voronoi-Logik
+
+Stand-alone für Wien:
+
+```bash
+bash code/scripts/run-linear-use-wien.sh
+```
+
+Ausgaben:
+
+```text
+cache/wien/linear_use.sqlite
+output/linear_use_mittelachsen.geojson
+```
+
+Der SQLite-Cache enthält zusätzlich jede ursprüngliche LINEAR_USE-Zeile
+mit `object_id`, `edge_id`, `edge_percentage_from/to`, `length_m`,
+`feature_name` und Originalgeometrie in EPSG:31256. Das GeoJSON dient
+nur der visuellen Kontrolle der erzeugten Mittelachsen.
+
+
 ## Bewusst entfernt
 
 Die frühere Verarbeitung der Layer EDGE/NODE/TURN_USE aus
