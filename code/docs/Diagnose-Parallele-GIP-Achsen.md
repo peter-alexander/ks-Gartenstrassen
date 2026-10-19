@@ -19,15 +19,15 @@ In der [RgE-Analyse](https://github.com/peter-alexander/kartensammlung-overlay-b
 
 ## Ausführen – ausschließlich Wien gesamt
 
-Nach dem Wien-Lauf mit behaltenem Arbeitsverzeichnis:
+Der GIP-Index wird dauerhaft im Cache aufbewahrt, daher ist kein neuer
+Wien-Lauf erforderlich:
 
 ~~~bash
-SIS_WIEN_KEEP_WORK=1 bash code/scripts/run-sis-v2-wien.sh
 bash code/scripts/run-gip-parallel-wien.sh
 ~~~
 
-Der Einstiegspunkt liest ausschließlich `work/wien/gip.sqlite` und
-`work/wien/raster.json`. Es wird geprüft, ob das Gesamtgebiet Wien
+Der Einstiegspunkt liest ausschließlich `cache/wien/gip.sqlite` und
+`cache/wien/raster.json`. Es wird geprüft, ob das Gesamtgebiet Wien
 vorliegt (350–500 km², mindestens 400 Rasterkacheln), der
 Manifest-Fingerabdruck zum GIP-Index passt und mindestens 10.000
 GIP-Achsen vorhanden sind. Testkacheln werden abgewiesen.
