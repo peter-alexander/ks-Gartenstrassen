@@ -234,6 +234,32 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 		try:
 			with closing(sqlite3.connect(tmp)) as target, target:
 				init_gpkg(target)
+				grouping = gip.execute("SELECT name FROM sqlite_master WHERE "
+					"name='merged_members'").fetchone() is not None
+				if grouping:
+					target.execute("""CREATE TABLE gip_original_zuordnung(
+						original_id TEXT PRIMARY KEY,
+						representative_id TEXT NOT NULL,
+						role TEXT NOT NULL,
+						original_fow INTEGER,
+						original_name TEXT NOT NULL)""")
+					target.execute("""INSERT INTO gpkg_contents(
+						table_name,data_type,identifier,description)
+						VALUES ('gip_original_zuordnung','attributes',
+						'gip_original_zuordnung',
+						'Original-GIP-ID zu vereinheitlichtem Strassenabschnitt')""")
+					target.executemany(
+						"INSERT INTO gip_original_zuordnung VALUES (?,?,?,?,?)",
+						gip.execute("SELECT original_id,representative_id,role,"
+							"original_fow,original_name FROM merged_members "
+							"ORDER BY original_id"))
+					missing=target.execute("""SELECT COUNT(*) FROM gip_original_zuordnung m
+						LEFT JOIN (SELECT representative_id FROM gip_original_zuordnung
+							GROUP BY representative_id) r
+						ON m.representative_id=r.representative_id
+						WHERE r.representative_id IS NULL""").fetchone()[0]
+					if missing:
+						raise ValueError("Unaufgelöste Original-GIP-IDs im QA-GPKG")
 				for row in src.execute("""SELECT tile_id,kind,gip_id,area,geom
 					FROM parts ORDER BY tile_id,kind,gip_id"""):
 					tid,kind,gid,stored_area=row["tile_id"],row["kind"],row["gip_id"],row["area"]
@@ -304,6 +330,11 @@ def export(manifest_path,gip_path,street_root,partition_path,output):
 					"layer_anzahl":dict(counts),
 					"layer_flaeche_m2":dict(areas),
 					"voronoi_bericht":balance,
+					"gip_kantenvereinigung": ("parallel-gip-groups-v1"
+						if grouping else "keine"),
+					"gip_original_zuordnung_anzahl": (
+						target.execute("SELECT COUNT(*) FROM gip_original_zuordnung").fetchone()[0]
+						if grouping else 0),
 					"hinweis":"Sonderachsen und Knotenbereiche wurden von V0 pro "
 						"Kachel vereinigt. Sonderachsen können aus dieser "
 						"Partition nicht rückwirkend nach GIP-ID/FOW getrennt "
