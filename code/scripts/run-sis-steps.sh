@@ -88,11 +88,15 @@ for ((i=start;i<=end;i++)); do
 				--sis-db "$SIS_DB" --out "$DATA/aoi.geojson";;
 		grid)
 			[[ -e "$DATA/raster.json" ]] || "$PYTHON" -m scripts.wienwide_grid \
-				--aoi "$DATA/aoi.geojson" --tile-m "${SIS_V2_TILE_M:-1000}" --halo-m 75 --out "$DATA/raster.json";;
+				--aoi "$DATA/aoi.geojson" --tile-m "${SIS_V2_TILE_M:-1000}" --halo-m 75 --out "$DATA/raster.json"
+			"$PYTHON" -m scripts.verify_wien_cache grid \
+				--cache "$DATA" --tile-m "${SIS_V2_TILE_M:-1000}";;
 		gip-index)
 			[[ -f "$GIP2" ]] || { echo "GIP2-Datei fehlt: $GIP2" >&2; exit 1; }
 			[[ -e "$DATA/gip.sqlite" ]] || "$PYTHON" -m scripts.sis_gip2 \
-				--source "$GIP2" --manifest "$DATA/raster.json" --out "$DATA/gip.sqlite";;
+				--source "$GIP2" --manifest "$DATA/raster.json" --out "$DATA/gip.sqlite"
+			"$PYTHON" -m scripts.verify_wien_cache gip \
+				--cache "$DATA" --gip-source "$GIP2" --tile-m "${SIS_V2_TILE_M:-1000}";;
 		gip-merge)
 			"$PYTHON" -m scripts.merge_parallel_gip \
 				--source-index "$DATA/gip.sqlite" --out "$DATA/gip_merged.sqlite" \
@@ -110,12 +114,16 @@ for ((i=start;i<=end;i++)); do
 			[[ -e "$DATA/aufteilung.sqlite" ]] || "$PYTHON" -m scripts.sis_v2_trim \
 				--gip-index "$DATA/gip_merged.sqlite" \
 				--partition-db "$DATA/aufteilung_roh.sqlite" \
-				--out "$DATA/aufteilung.sqlite";;
+				--out "$DATA/aufteilung.sqlite"
+			"$PYTHON" -m scripts.verify_wien_cache trim \
+				--cache "$DATA" --tile-m "${SIS_V2_TILE_M:-1000}";;
 		qa)
 			[[ -e "$DATA/qa.gpkg" ]] || "$PYTHON" -m scripts.wienwide_qa_gpkg \
 				--manifest "$DATA/raster.json" --gip-index "$DATA/gip_merged.sqlite" \
 				--street-root "$DATA/strassenraum" \
-				--partition-db "$DATA/aufteilung.sqlite" --out "$DATA/qa.gpkg";;
+				--partition-db "$DATA/aufteilung.sqlite" --out "$DATA/qa.gpkg"
+			"$PYTHON" -m scripts.verify_wien_cache qa \
+				--cache "$DATA" --tile-m "${SIS_V2_TILE_M:-1000}";;
 		grm-fetch)
 			if ((WITH_GRM)); then
 				grm_args=()
