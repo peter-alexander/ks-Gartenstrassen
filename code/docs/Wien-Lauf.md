@@ -19,9 +19,11 @@ in Downloads erzeugen.
 - `raw/aoi/`: amtliche Bezirksgrenzen und Wien-AOI
 - `raw/sis/wfs-kacheln/`: heruntergeladene, komprimierte Originalantworten
 - `raw/grm2023/png/`: GRM-PNGs und Herkunftsmetadaten
-- `work/`: SIS-/GIP-Indizes, Straßenräume, Partitionen, Kronenmasken
+- `work/`: SIS-/GIP-Indizes, abgeleiteter Kanten-Graph,
+  Straßenräume, Partitionen, Kronenmasken
 - `output/`: **`gip_abschnitte.geojson` und `gartenstrassen.pmtiles`**,
-  außerdem `gip_abschnitte.csv`, `bericht.json` und `freigabe.json`
+  außerdem `gip_abschnitte.csv`, `gip_kanten_zuordnung.csv`,
+  `bericht.json` und `freigabe.json`
   (SHA-256-Prüfsummen für den gemeinsam freigegebenen Ergebnisstand)
 
 Die heruntergeladenen Dateien werden bei einem unterbrochenen Lauf aus
@@ -90,3 +92,46 @@ gelesen und weder kopiert noch verändert.
 Die neuen Implementierungsänderungen sind zunächst nur per Code-Review
 beurteilt; auf ausdrücklichen Wunsch wurden **keine zusätzlichen Tests
 oder Wiener Datenläufe gestartet**.
+
+## GIP-Kantenvereinigung vor der Flächenzuordnung
+
+Nach `gip-index` läuft automatisch `gip-merge`. Dieser Schritt baut
+`work/wien/gip_merged.sqlite` als **neuen abgeleiteten Graphen**;
+`work/wien/gip.sqlite` sowie
+`/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg` bleiben unverändert.
+
+Die bereits vorhandene 20-m-Parallelanalyse liefert die Kandidaten
+(85 % der kürzeren / 60 % der längeren Achse sowie höchstens 25°
+Richtungsabweichung). Bei zwei Straßenachsen wird zusätzlich ein
+übereinstimmender, nicht leerer Straßenname verlangt. Fuß-/Radwege
+(FOW 15/504/505) können nur einer **eindeutig** identifizierten
+Straßengruppe zugeordnet werden; eine unsichere Mehrfachzuordnung bleibt
+unverändert. Fußgängerzonen (FOW 14) werden nicht mit Fahrbahnen
+(FOW 2/3) vereinigt. Verknüpfungsketten werden nicht blind geschlossen:
+Straßenmitglieder benötigen direkte parallele Evidenz zueinander.
+
+Für jede Gruppe bleibt die längste Straßenachse als repräsentierende
+Original-GIP-ID erhalten. Die geometrische Gruppe enthält die
+**Original-Linien aller Mitglieder**, keine erfundene Mittellinie.
+Die Positionen und die Anzahl der globalen 5-m-Voronoi-Sites
+bleiben unverändert, aber ihre Zuordnung erfolgt auf die gemeinsame
+repräsentative Achsen-ID. Diese Zuordnung wird **vor** der
+Voronoi-Partitionierung verwendet.
+
+Die Originaldaten sind vollständig über `original_axes` und
+`merged_members` in der abgeleiteten SQLite sowie über die
+dauerhafte `output/gip_kanten_zuordnung.csv` nachvollziehbar.
+Die exportierten GeoJSON-/CSV-Abschnitte führen außerdem die
+Spalte/Eigenschaft `original_gip_ids`.
+
+Die bestehende Querschnittsroutine kürzt mehrteilige Achsgeometrien
+bewusst **nicht ohne eindeutige Richtung**. Gruppen aus mehreren
+Originalkanten werden deshalb nicht durch eine ungeprüfte neue
+Querschnittsheuristik verkleinert. Die bisherige
+Flächenbilanzprüfung bleibt Pflicht.
+
+**Wichtig:** Dies ist eine neue Auswertungsmethode. Ein bereits fertiger
+Wien-Lauf ohne Kantenvereinigung ist kein kompatibler Checkpoint; seine
+Zwischendaten dürfen nicht stillschweigend weiterverwendet werden.
+Der bislang erfolgreich erzeugte Output bleibt bestehen, bis ein
+vollständiger neuer Lauf fachlich geprüft und veröffentlicht wurde.
