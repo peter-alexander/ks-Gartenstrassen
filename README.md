@@ -84,3 +84,27 @@ GIP-basierte QA, Messung und PMTiles-Erzeugung.
 
 Die neue Methode wird schrittweise auf den dauerhaft vorbereiteten
 SIS- und GRM-Daten aufgebaut.
+
+## CGAL-Segment-Voronoi: Flächen-Debug
+
+Das aktuelle Segment-Voronoi-Verfahren verwendet **ausschließlich CGAL**.
+Die alten Boost-/pyvoronoi-Diagnosen, Benchmarks und punktbasierten
+Voronoi-Debugverfahren sind entfernt. Die Millimeter-Noding-Vorbereitung
+bleibt erhalten.
+
+Der experimentelle Flächendebug konstruiert CGAL aus allen Wiener
+LINEAR_USE-Segmenten, rekonstruiert die Voronoi-Grenzen im gewählten
+Fenster, polygonisiert sie und verschneidet sie mit der verifizierten
+SIS-Straßenmaske.
+
+```bash
+bash code/scripts/run-cgal-voronoi-debug-wien.sh
+```
+
+Ein Ausschnitt kann mit `--bbox XMIN YMIN XMAX YMAX` in EPSG:31256
+festgelegt werden. Ausgabe:
+`output/cgal_segment_voronoi_sis_debug.geojson` (EPSG:4326).
+
+**Debug, noch keine Fachfreigabe:** Kurvenlinearisierung und Zellzuordnung
+sind auf realen Daten geometrisch zu verifizieren. Kein Boost-Fallback.
+Details und Installation: [code/cgal/README.md](code/cgal/README.md).
