@@ -1,10 +1,13 @@
 """Checks finite true-segment Voronoi cell reconstruction."""
 import unittest
 from unittest.mock import patch
+from tempfile import TemporaryDirectory
+from pathlib import Path
+import json
 from types import SimpleNamespace
 
 from shapely.geometry import LineString, box
-from scripts.build_segment_voronoi_geojson import _cell_polygon, _bounded_diagram
+from scripts.build_segment_voronoi_geojson import _cell_polygon, _bounded_diagram, build
 
 
 class SegmentVoronoiPolygonTests(unittest.TestCase):
@@ -32,6 +35,28 @@ class SegmentVoronoiPolygonTests(unittest.TestCase):
 		cell=SimpleNamespace(is_open=False,site=0,edges=[0,1])
 		with self.assertRaisesRegex(ValueError,"Unverbundene"):
 			_cell_polygon(None,cell,edges,vertices,(0,0))
+
+	def test_complete_small_sis_geojson_export(self):
+		try:
+			import pyvoronoi
+		except ImportError:
+			self.skipTest("pyvoronoi nicht installiert")
+		mask=box(0,0,100,20)
+		axes=[("a",LineString([(0,0),(100,0)])),
+			("b",LineString([(0,20),(100,20)]))]
+		with TemporaryDirectory() as tmp:
+			out=Path(tmp)/"segment_voronoi.geojson"
+			with patch("scripts.build_segment_voronoi_geojson.load_aoi",
+					return_value=mask),patch(
+					"scripts.build_segment_voronoi_geojson._street_mask",
+					return_value=mask),patch(
+					"scripts.build_segment_voronoi_geojson._axes",
+					return_value=axes):
+				count=build("cache","aoi","manifest","street",out)
+			self.assertEqual(count,2)
+			doc=json.loads(out.read_text(encoding="utf-8"))
+			self.assertEqual({feature["properties"]["edge_id"]
+				for feature in doc["features"]},{"a","b"})
 
 	def test_true_boost_segment_diagram_has_finite_real_cells(self):
 		try:
