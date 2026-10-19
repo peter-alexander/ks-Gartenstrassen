@@ -53,10 +53,10 @@ def _noded_segments(axes, *, scale=SCALE):
 		if not isinstance(piece,LineString) or piece.length==0:
 			continue
 		for a,b in zip(piece.coords,piece.coords[1:]):
-			key=tuple(sorted((tuple(map(int,a[:2])),
-				tuple(map(int,b[:2])))))
+			key=tuple(sorted((tuple(round(v) for v in a[:2]),
+				tuple(round(v) for v in b[:2]))))
 			if key[0]==key[1]:
-				continue
+				raise ValueError("Segment nach Noding kleiner als Integer-Raster")
 			mid=Point((a[0]+b[0])/2,(a[1]+b[1])/2)
 			owners=set()
 			for index in tree.query(mid.buffer(0.00001)):
@@ -72,6 +72,10 @@ def _noded_segments(axes, *, scale=SCALE):
 			if key in result and result[key]!=owner:
 				raise ValueError("Mehrdeutige edge_id nach Noding")
 			result[key]=owner
+	# Quantization can move intersections onto unrelated sites. Reject such
+	# configurations rather than silently changing topological ownership.
+	if len(result)!=len(parts) and not result:
+		raise ValueError("Noding lieferte keine gültigen Segmente")
 	return result,(x0,y0)
 
 
