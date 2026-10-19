@@ -25,9 +25,10 @@ def checksum(path):
 def verify(repo):
 	repo = Path(repo).resolve()
 	work = repo / "work"
+	cached = repo / "cache" / "wien"
 	out = repo / "output"
-	if work.is_symlink() or out.is_symlink():
-		raise ValueError("work/ und output/ dürfen keine Symlinks sein")
+	if work.is_symlink() or cached.is_symlink() or out.is_symlink():
+		raise ValueError("work/, cache/ und output/ dürfen keine Symlinks sein")
 	if not work.is_dir():
 		raise FileNotFoundError(f"Arbeitsdaten fehlen: {work}")
 	files = {}
@@ -87,7 +88,7 @@ def verify(repo):
 		raise ValueError("Veröffentlichter Bericht entspricht nicht dem aktuellen Arbeitslauf")
 	# Vor dem Entfernen der einzigen temporären QA-Geopackage zusätzlich
 	# prüfen, ob sie zur eben veröffentlichten Partition gehört.
-	qa = work / "wien" / "qa.gpkg"
+	qa = cached / "qa.gpkg"
 	if qa.is_symlink() or not qa.is_file():
 		raise FileNotFoundError("Wiener QA-GeoPackage fehlt")
 	with sqlite3.connect(f"file:{qa.resolve()}?mode=ro",uri=True) as db:
@@ -99,7 +100,7 @@ def verify(repo):
 		or provenance.get("gip_sha256") != report.get("gip_sha256")
 		or provenance.get("partition_sha256") != report.get("partition_sha256")):
 		raise ValueError("Wiener QA gehört nicht zur veröffentlichten Berechnung")
-	manifest = work / "wien" / "raster.json"
+	manifest = cached / "raster.json"
 	if not manifest.is_file() or report.get("manifest_sha256") != checksum(manifest):
 		raise ValueError("Ausgabe und Wiener Rastermanifest stimmen nicht überein")
 	with files["gip_abschnitte.csv"].open(newline="", encoding="utf-8") as file:
