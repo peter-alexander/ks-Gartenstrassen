@@ -52,38 +52,32 @@ def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
 	"""Assign every tile area, including tiles far from the nearest axis."""
 	if geos_version<(3,12,0):
 		raise RuntimeError("GEOS >= 3.12 für geordnetes Voronoi erforderlich")
-	# A fixed halo is insufficient near the AOI boundary and in areas
-	# without roads. Expand only those tiles which have too few seeds.
-	extent=tree.geometries
-	limits=(min(g.bounds[0] for g in extent),min(g.bounds[1] for g in extent),
-		max(g.bounds[2] for g in extent),max(g.bounds[3] for g in extent))
-	max_radius=max(abs(a-b) for a,b in zip(core.bounds,limits))+spacing_m
-	radius=float(halo_m)
-	while True:
-		search=core.envelope.buffer(radius,cap_style="square",join_style="mitre")
-		seeds={}
-		for idx in tree.query(search):
-			idx=int(idx)
-			section=geoms[idx].intersection(search)
-			for part in (section.geoms if hasattr(section,"geoms") else (section,)):
-				if not isinstance(part,LineString) or part.is_empty or part.length==0:
-					continue
-				for x,y,*_ in segmentize(part,spacing_m).coords:
-					key=(float(x),float(y))
-					owner=ids[idx]
-					if key not in seeds or owner<seeds[key]:
-						seeds[key]=owner
-		if len(seeds)>=3 or radius>=max_radius:
-			break
-		radius=min(max_radius,radius*2)
-	if not seeds:
-		# An isolated, zero-length intersection cannot stand for an axis.
-		# The global nearest nonempty result is guaranteed by _load_axes.
-		idx=int(tree.nearest(core.representative_point()))
-		yield ids[idx],core
-		return
-	if len(seeds)==1:
-		yield next(iter(seeds.values())),core
+	# Bound the search to avoid city-wide Voronoi work in empty tiles.
+	# In sparse areas use the nearest axes with a search envelope based
+	# on actual nearest distance, rather than repeatedly doubling radius.
+	center=core.envelope.centroid
+	nearest_idx=int(tree.nearest(center))
+	nearest_distance=geoms[nearest_idx].distance(center)
+	core_radius=math.hypot(core.bounds[2]-core.bounds[0],
+		core.bounds[3]-core.bounds[1])/2
+	radius=max(float(halo_m),nearest_distance+core_radius+spacing_m)
+	search=core.envelope.buffer(radius,cap_style="square",join_style="mitre")
+	seeds={}
+	for idx in tree.query(search):
+		idx=int(idx)
+		section=geoms[idx].intersection(search)
+		for part in (section.geoms if hasattr(section,"geoms") else (section,)):
+			if not isinstance(part,LineString) or part.is_empty or part.length==0:
+				continue
+			for x,y,*_ in segmentize(part,spacing_m).coords:
+				key=(float(x),float(y))
+				owner=ids[idx]
+				if key not in seeds or owner<seeds[key]:
+					seeds[key]=owner
+	if len(seeds)<3:
+		# In exceptionally sparse areas an entire tile is attributed to
+		# its nearest axis for visualization. No huge global tessellation.
+		yield ids[nearest_idx],core
 		return
 	points=list(seeds)
 	owners=[seeds[p] for p in points]
