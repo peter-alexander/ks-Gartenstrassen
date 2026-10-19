@@ -40,23 +40,43 @@ des gesuchten Voronoi-Diagramms. Es exportiert vorerst keine
 Voronoi-Kurven, Polygone oder Zellflächen. Zahlen von CGAL und Boost sind
 deshalb nicht unmittelbar als identische Topologiegrößen zu vergleichen.
 
-## Großer Test
+## Vollständiger Wien-Lauf nach erfolgreichem Kleintest
 
-Erst nach erfolgreichem Kleintest:
+Der separate Starter verwendet das bereits kompilierte CGAL-Binary,
+führt **nur** die vollständigen Wiener Fälle aus und überschreibt den
+Kleintestbericht nicht:
 
 ```bash
-# Nur wenn der bisherige Bericht nicht mehr unter dem Namen existiert:
-# --out ist über den Python-Aufruf frei wählbar.
-"$PWD/.venv/bin/python" -m scripts.benchmark_cgal_segment_voronoi \
-	--cache cache/wien/linear_use.sqlite \
-	--aoi cache/wien/aoi.geojson \
-	--suspects output/boost_segment_voronoi_reverse_round3_minimal.geojson \
-	--binary build/cgal/cgal_segment_benchmark \
-	--out output/cgal_segment_voronoi_full.json \
-	--timeout 120 --validate --full
+git pull --ff-only
+bash code/scripts/run-cgal-segment-voronoi-full-wien.sh
 ```
 
-Der große Lauf enthält alle genodeten Wiener Segmente und den Rahmen.
-Jeder Fall wird in einem eigenen Prozess mit hartem Python-Timeout
-ausgeführt. Der CGAL-Build selbst benötigt Zeit und ist nicht Bestandteil
-des Laufzeitlimits.
+Ergebnisse: `output/cgal_segment_voronoi_full.json`.
+
+Vier Fälle werden auf dem gleichen genodeten Gesamtbestand getestet:
+
+- Ohne Rahmen
+- Mit unverändertem Rahmen
+- Mit Rahmen und +1 mm Verschiebung von Achsen und Rahmen
+- Mit Rahmen und +1 km Verschiebung von Achsen und Rahmen
+
+Jeder Fall erhält 300 Sekunden Timeout; der Bericht wird nach jedem
+Fall gespeichert. Der Starter verweigert ein versehentliches
+Überschreiben einer vorhandenen Ergebnisdatei. Die
+Graph-Gültigkeitsprüfung (`--validate`) ist aktiviert.
+
+Der Bericht vergleicht die Anzahl von Eingabe-Sites, Ausgabe-Sites,
+Vertices und Faces gegen den unverschobenen Wien-Fall. Gleiche Anzahlen
+sind eine notwendige, **aber keine hinreichende** Bedingung für
+geometrische Gleichheit. Die vollständige Rekonstruktion der dualen
+Voronoi-Kanten, inklusive gekrümmter und unendlicher Grenzen, und der
+Zellpolygone bleibt eine gesonderte Entwicklungsphase.
+
+### Einschränkungen und Freigabe
+
+- Es gibt noch keine produktive CGAL-Engine und keinen Polygonexport.
+- Datenverlust, geometrische Äquivalenz oder fachliche Korrektheit sind
+  mit den Graphzählungen allein nicht ausgeschlossen.
+- Die GPL-Bedingungen des CGAL-Pakets müssen vor einem Produktiveinsatz
+  geklärt sein.
+- Bestehende Boost-Verarbeitung und originale GIP-Daten bleiben unverändert.
