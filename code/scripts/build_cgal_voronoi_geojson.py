@@ -56,10 +56,13 @@ def _window_mask(manifest_path,sis_root,aoi_path,window):
 		raise ValueError("SIS und Voronoi verwenden unterschiedliche AOI")
 	parts=[]
 	for tile in manifest["tiles"]:
-		core=box(*tile["bounds_31256"]).intersection(aoi).intersection(window)
+		full_core=box(*tile["bounds_31256"]).intersection(aoi)
+		core=full_core.intersection(window)
 		if core.is_empty or core.area==0:
 			continue
-		street=load_street_tile(Path(sis_root)/tile["id"]/"street.sqlite",core)
+		# The cache reader verifies the saved geometry against the COMPLETE
+		# tile core. Clip to the debug window only after that verification.
+		street=load_street_tile(Path(sis_root)/tile["id"]/"street.sqlite",full_core)
 		if not street.is_empty:
 			parts.append(street.intersection(core))
 	if not parts:
