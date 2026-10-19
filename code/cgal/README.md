@@ -27,7 +27,7 @@ Die Verarbeitung kann wegen der vielen Grenzstücke, Polygonisierung und
 SIS-Flächen erhebliche RAM-Ressourcen benötigen. Statusmeldungen zeigen
 Kacheleinlesung, Grenzstückimport, Noding und Flächenzuweisung.
 
-Ausgabe: `output/cgal_segment_voronoi_sis_debug.geojson` (GeoJSON
+Ausgabe: `output/cgal_segment_voronoi_sis_wien.geojson` (GeoJSON
 EPSG:4326, Eigentümer `edge_id`, Fläche in m²).
 
 Eine vorhandene Ausgabe wird nicht überschrieben. Zum erneuten Ausführen
