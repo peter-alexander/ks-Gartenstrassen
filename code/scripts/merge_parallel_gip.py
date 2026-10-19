@@ -119,14 +119,27 @@ def _lines(geom):
 	raise ValueError("Parallele GIP-Achse hat keine Liniengeometrie")
 
 
-def run(source, output):
+def run(source, output, *, reuse=False):
 	source,output = Path(source),Path(output)
 	if source.resolve()==output.resolve():
 		raise ValueError("Der ursprüngliche GIP-Index darf nicht überschrieben werden")
 	if not source.is_file() or source.is_symlink():
 		raise FileNotFoundError(f"GIP-Quellindex fehlt: {source}")
-	if output.exists() or output.is_symlink():
-		raise FileExistsError(f"Abgeleiteter GIP-Graph existiert bereits: {output}")
+	if output.is_symlink():
+		raise FileExistsError("Symlink statt abgeleitetem GIP-Index")
+	if output.exists():
+		if not reuse:
+			raise FileExistsError(f"Abgeleiteter GIP-Graph existiert bereits: {output}")
+		with sqlite3.connect(f"file:{output.resolve()}?mode=ro",uri=True) as previous:
+			stored = {k:json.loads(v) for k,v in
+				previous.execute("SELECT key,value FROM meta")}
+			if (stored.get("graph_groups_schema") != SCHEMA
+				or stored.get("source_index_sha256") != checksum(source)):
+				raise ValueError("Vorhandene Gruppen gehören zu einem anderen GIP-Index")
+			if previous.execute("PRAGMA quick_check").fetchone()[0]!="ok":
+				raise ValueError("Gruppen-SQLite ist beschädigt")
+		print("GIP-Graph: geprüften Gruppierungsindex wiederverwendet",flush=True)
+		return stored
 	if output.parent.is_symlink():
 		raise ValueError("Kein Symlink als Zielverzeichnis")
 	output.parent.mkdir(parents=True,exist_ok=True)
@@ -245,8 +258,9 @@ def main():
 	p=argparse.ArgumentParser(description=__doc__)
 	p.add_argument("--source-index",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
+	p.add_argument("--reuse",action="store_true")
 	a=p.parse_args()
-	print(json.dumps(run(a.source_index,a.out),ensure_ascii=False,indent=2))
+	print(json.dumps(run(a.source_index,a.out,reuse=a.reuse),ensure_ascii=False,indent=2))
 
 
 if __name__=="__main__":
