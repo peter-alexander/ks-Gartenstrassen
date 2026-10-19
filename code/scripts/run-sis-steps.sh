@@ -100,7 +100,11 @@ for ((i=start;i<=end;i++)); do
 		gip-merge)
 			"$PYTHON" -m scripts.merge_parallel_gip \
 				--source-index "$DATA/gip.sqlite" --out "$DATA/gip_merged.sqlite" \
-				--reuse;;
+				--reuse
+			# Der eigenständige WGS84-Linienexport entsteht VOR Voronoi,
+			# Messung und PMTiles. Alte SIS-Ausgaben bleiben unverändert.
+			"$PYTHON" -m scripts.export_merged_gip \
+				--gip-index "$DATA/gip_merged.sqlite" --output-dir "$PUBLISH";;
 		street)
 			"$PYTHON" -m scripts.sis_v2_street \
 				--manifest "$DATA/raster.json" --sis-db "$SIS_DB" \
