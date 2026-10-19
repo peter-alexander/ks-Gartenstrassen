@@ -15,7 +15,8 @@ import tempfile
 from time import perf_counter
 
 from pyproj import Transformer
-from shapely import union_all
+import numpy as np
+from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, points as vector_points, union_all
 from shapely.geometry import LineString, Polygon, box, mapping
 from shapely.ops import polygonize_full, transform, unary_union
 from shapely.strtree import STRtree
@@ -167,65 +168,74 @@ def _polygon_candidates(lines,window):
 		"gap_m2":gap,"overlap_m2":overlap}
 
 
-def _assign(polygons,mask,owners,origin):
+def _assign(polygons,mask,owners,origin,*,batch_size=512):
+	"""Batch STRtree and GEOS intersection, retaining full area/overlap QA."""
+	if batch_size<1:
+		raise ValueError("batch_size muss >= 1 sein")
 	ox,oy=origin
 	keys=sorted(owners)
 	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
 		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
 	tree=STRtree(geoms)
-	# Do not intersect every Voronoi face with the entire city-wide mask.
-	# Only intersect with spatially matching SIS polygon components.
 	mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]
 	mask_tree=STRtree(mask_parts)
-	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert",flush=True)
+	mask_array=np.asarray(mask_parts,dtype=object)
+	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert; "
+		f"vektorisierter Verschnitt in Blöcken zu {batch_size}",flush=True)
 	grouped={}
 	started=perf_counter()
-	last=started
-	candidates_checked=0
-	intersections_calculated=0
-	assigned_polygons=0
 	query_seconds=0.
 	intersection_seconds=0.
 	attribution_seconds=0.
-	for polygon_number,polygon in enumerate(polygons,1):
-		if polygon_number%1000==0:
-			now=perf_counter()
-			elapsed=now-started
-			print(f"CGAL: SIS-Verschnitt {polygon_number:,}/{len(polygons):,} "
-				f"({100*polygon_number/len(polygons):.1f} %), "
-				f"{elapsed:.1f} s, letzter Block {now-last:.1f} s; "
-				f"Kandidaten {candidates_checked:,}, Schnitte {intersections_calculated:,}, "
-				f"Zuordnungen {assigned_polygons:,}; "
-				f"Index {query_seconds:.1f} s, Schnitt {intersection_seconds:.1f} s, "
-				f"Achse {attribution_seconds:.1f} s",flush=True)
-			last=now
+	candidates_checked=0
+	intersections_calculated=0
+	assigned_polygons=0
+	total=len(polygons)
+	for offset in range(0,total,batch_size):
+		# Both STRtree.query and shapely.intersection are vectorized C/GEOS
+		# calls. At most one batch of temporary intersections stays in RAM.
+		batch=np.asarray(polygons[offset:offset+batch_size],dtype=object)
 		t0=perf_counter()
-		matching=mask_tree.query(polygon,predicate="intersects")
+		matches=mask_tree.query(batch,predicate="intersects")
 		query_seconds+=perf_counter()-t0
-		candidates_checked+=len(matching)
-		if not len(matching):
-			continue
-		pieces=[]
-		t0=perf_counter()
-		for mask_index in matching:
-			region=mask_parts[int(mask_index)]
-			intersected=polygon.intersection(region)
-			intersections_calculated+=1
-			if not intersected.is_empty and intersected.area>0:
-				pieces.append(intersected)
-		if not pieces:
+		if matches.shape[1]:
+			poly_indices=matches[0]
+			mask_indices=matches[1]
+			candidates_checked+=len(poly_indices)
+			t0=perf_counter()
+			parts=vector_intersection(batch[poly_indices],
+				mask_array[mask_indices])
+			intersections_calculated+=len(poly_indices)
+			nonempty=(~vector_is_empty(parts)) & (vector_area(parts)>0)
+			parts=parts[nonempty]
+			surviving_indices=poly_indices[nonempty]
 			intersection_seconds+=perf_counter()-t0
-			continue
-		part=union_all(pieces) if len(pieces)>1 else pieces[0]
-		intersection_seconds+=perf_counter()-t0
-		t0=perf_counter()
-		# Temporary ownership heuristic; validate on actual Vienna output
-		# before treating this diagnostic as a production GIS result.
-		index=int(tree.nearest(polygon.representative_point()))
-		owner=owners[keys[index]]
-		grouped.setdefault(owner,[]).append(part)
-		assigned_polygons+=1
-		attribution_seconds+=perf_counter()-t0
+			if len(parts):
+				# One nearest-site lookup per intersecting Voronoi polygon;
+				# all SIS subpieces of that polygon inherit the same owner.
+				t0=perf_counter()
+				unique_indices,inverse=np.unique(surviving_indices,
+					return_inverse=True)
+				representatives=np.asarray(
+					[batch[int(i)].representative_point() for i in unique_indices],
+					dtype=object)
+				nearest=tree.nearest(representatives)
+				site_owners=[owners[keys[int(i)]] for i in nearest]
+				for j,part in enumerate(parts):
+					owner=site_owners[int(inverse[j])]
+					grouped.setdefault(owner,[]).append(part)
+				assigned_polygons+=len(unique_indices)
+				attribution_seconds+=perf_counter()-t0
+		completed=min(offset+batch_size,total)
+		if completed%10240<batch_size or completed==total:
+			elapsed=perf_counter()-started
+			print(f"CGAL: SIS-Verschnitt {completed:,}/{total:,} "
+				f"({100*completed/total:.1f} %), {elapsed:.1f} s; "
+				f"Kandidaten {candidates_checked:,}, Schnitte "
+				f"{intersections_calculated:,}, zugeordnete Flächen "
+				f"{assigned_polygons:,}; Index {query_seconds:.1f} s, "
+				f"Schnitt {intersection_seconds:.1f} s, "
+				f"Achse {attribution_seconds:.1f} s",flush=True)
 	print(f"CGAL: SIS-Verschnitt fertig nach {perf_counter()-started:.1f} s; "
 		f"{intersections_calculated:,} Schnittoperationen",flush=True)
 	if not grouped:
@@ -242,7 +252,9 @@ def _assign(polygons,mask,owners,origin):
 		raise ValueError(f"CGAL/SIS-Flächenbilanz: Lücke {gap:.3f} m², "
 			f"Überlappung {overlap:.3f} m²")
 	return merged,{"gap_m2":gap,"overlap_m2":overlap,
-		"street_m2":mask.area,"assigned_m2":union.area}
+		"street_m2":mask.area,"assigned_m2":union.area,
+		"intersections_calculated":intersections_calculated,
+		"batch_size":batch_size}
 
 
 def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
