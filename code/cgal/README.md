@@ -11,23 +11,21 @@ sudo apt-get update
 sudo apt-get install -y build-essential cmake libcgal-dev libgmp-dev libmpfr-dev
 ```
 
-## Debug-Ausschnitt berechnen
+## Debugflächen für ganz Wien berechnen
 
 ```bash
 git pull --ff-only
 bash code/scripts/run-cgal-voronoi-debug-wien.sh
 ```
 
-Standardmäßig wird ein 500 m × 500 m großes Debugfenster am Schwerpunkt
-der AOI verwendet und auf die AOI begrenzt.
+Der Lauf konstruiert das vollständige Wiener Segment-Voronoi-Diagramm,
+polygonisiert den **gesamten Wiener Begrenzungsbereich** und schneidet
+die Flächen mit der realen Wien-AOI und SIS-Straßenmaske.
 
-Ein bestimmter Kartenausschnitt (EPSG:31256, Meter) wird mit `--bbox`
-gewählt:
-
-```bash
-bash code/scripts/run-cgal-voronoi-debug-wien.sh \
-	--bbox XMIN YMIN XMAX YMAX
-```
+Es gibt keinen automatischen 500-m-Testausschnitt und keine BBOX-Option.
+Die Verarbeitung kann wegen der vielen Grenzstücke, Polygonisierung und
+SIS-Flächen erhebliche RAM-Ressourcen benötigen. Statusmeldungen zeigen
+Kacheleinlesung, Grenzstückimport, Noding und Flächenzuweisung.
 
 Ausgabe: `output/cgal_segment_voronoi_sis_debug.geojson` (GeoJSON
 EPSG:4326, Eigentümer `edge_id`, Fläche in m²).
@@ -44,7 +42,7 @@ muss die alte Ausgabe ausdrücklich umbenannt oder entfernt werden.
 3. Duale Voronoi-Kanten extrahieren. Gerade Kanten, Strahlen und Linien
    werden unterschieden; CGAL linearisiert Parabelstücke für die
    Debugdarstellung.
-4. Kanten im gewünschten Fenster begrenzen, GIS-Polygonisierung,
+4. Kanten an der Wiener AOI-Umgrenzung begrenzen, GIS-Polygonisierung,
    Flächen anhand des nächsten GIP-Segments einem `edge_id` zuordnen.
 5. Mit der auf Herkunft und AOI geprüften SIS-Straßenmaske verschneiden.
 6. Flächendeckung/Überlappung prüfen, erst danach GeoJSON atomar schreiben.
