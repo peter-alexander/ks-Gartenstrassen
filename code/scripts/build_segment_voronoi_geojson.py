@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+from time import perf_counter
 
 from pyproj import Transformer
 from shapely import union_all
@@ -23,12 +24,12 @@ from scripts.wienwide_grid import read_manifest, checksum, load_aoi
 from scripts.wienwide_street import load_street_tile
 
 
-def _bounded_diagram(axes,extent,*,scale=SCALE):
+def _bounded_diagram(axes,extent,*,scale=SCALE,progress=None):
 	try:
 		import pyvoronoi
 	except ImportError as exc:
 		raise RuntimeError("pyvoronoi==1.2.8 fehlt") from exc
-	segments,(ox,oy)=_noded_segments(axes,scale=scale)
+	segments,(ox,oy)=_noded_segments(axes,scale=scale,progress=progress)
 	minx,miny,maxx,maxy=extent.bounds
 	diameter=math.hypot(maxx-minx,maxy-miny)
 	margin=max(1000.0,4*diameter)
@@ -42,7 +43,12 @@ def _bounded_diagram(axes,extent,*,scale=SCALE):
 	for a,b in zip(frame,frame[1:]+frame[:1]):
 		pv.AddSegment([[a[0]-ox,a[1]-oy],[b[0]-ox,b[1]-oy]])
 		owners.append(None)
+	if progress is not None:
+		progress(f"Boost-Voronoi: {len(owners)-4:,} Liniensegmente; Start")
+	started=perf_counter()
 	pv.Construct()
+	if progress is not None:
+		progress(f"Boost-Voronoi: fertig in {perf_counter()-started:.1f} s")
 	return pv,owners,(ox,oy)
 
 
@@ -109,10 +115,17 @@ def build(cache,aoi_path,sis_manifest,sis_root,out,*,curve_step_m=0.25):
 		raise FileExistsError(out)
 	if not math.isfinite(curve_step_m) or curve_step_m<=0:
 		raise ValueError("Kurvendiskretisierung muss positiv und endlich sein")
+	started=perf_counter()
+	def report(message):
+		print(f"[{perf_counter()-started:8.1f} s] {message}",flush=True)
+	report("AOI und SIS-Flächen laden")
 	aoi=load_aoi(aoi_path)
 	mask=_street_mask(sis_manifest,sis_root,aoi_path)
+	report(f"SIS geladen: {mask.area:,.0f} m²; LINEAR_USE laden")
 	axes=_axes(cache)
-	pv,owners,origin=_bounded_diagram(axes,aoi)
+	report(f"LINEAR_USE: {len(axes):,} Achsen; Noding vorbereiten")
+	pv,owners,origin=_bounded_diagram(axes,aoi,progress=report)
+	report("Voronoi-Zellen für SIS polygonisieren")
 	cells=pv.GetCells()
 	edges=pv.GetEdges()
 	vertices=pv.GetVertices()
@@ -130,8 +143,11 @@ def build(cache,aoi_path,sis_manifest,sis_root,out,*,curve_step_m=0.25):
 		piece=polygon.intersection(mask)
 		if piece.area>0:
 			groups.setdefault(owner,[]).append(piece)
-		if i%10000==0:
-			print(f"Segment-Voronoi: {i}/{len(cells)} Zellen",flush=True)
+		if (i+1)%1000==0:
+			report(f"Segment-Voronoi: {i+1:,}/{len(cells):,} Zellen "
+				f"({100*(i+1)/len(cells):.1f} %), "
+				f"{len(groups):,} Achsen mit SIS-Fläche")
+	report("Qualitätsprüfung: SIS-Flächendeckung und Überlappung")
 	assigned=union_all([union_all(parts) for parts in groups.values()]) if groups else Polygon()
 	missing=mask.difference(assigned).area
 	tolerance=max(0.01,mask.area*1e-7)
@@ -140,6 +156,7 @@ def build(cache,aoi_path,sis_manifest,sis_root,out,*,curve_step_m=0.25):
 	overlap=sum(sum(p.area for p in parts) for parts in groups.values())-assigned.area
 	if overlap>tolerance:
 		raise ValueError(f"Segment-Voronoi hat ueberlappende SIS-Flaechen: {overlap:.3f} m2")
+	report(f"Qualitätsprüfung bestanden; GeoJSON für {len(groups):,} Achsen schreiben")
 	out.parent.mkdir(parents=True,exist_ok=True)
 	stage=None
 	to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -166,6 +183,7 @@ def build(cache,aoi_path,sis_manifest,sis_root,out,*,curve_step_m=0.25):
 				count+=1
 			stream.write("]}\n")
 		os.replace(stage,out)
+		report(f"GeoJSON geschrieben: {count:,} Features")
 		stage=None
 	finally:
 		if stage is not None:
