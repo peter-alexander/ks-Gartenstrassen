@@ -19,6 +19,7 @@ No distance, angle, street-name or merge heuristic is used here.
 from dataclasses import dataclass
 import math
 
+from shapely import line_merge, union_all
 from shapely.geometry import LineString
 
 
@@ -28,6 +29,7 @@ ALIGNMENT_SAMPLES = 21
 
 @dataclass(frozen=True)
 class MeanAxisAudit:
+	method: str
 	input_lines: int
 	sample_points: int
 	reversed_lines: int
@@ -128,12 +130,33 @@ def build_mean_axis(lines, *, sample_spacing_m=DEFAULT_SAMPLE_SPACING_M):
 	if len(lines)==1:
 		line=lines[0]
 		return line,MeanAxisAudit(
+			method="single",
 			input_lines=1,
 			sample_points=len(line.coords),
 			reversed_lines=0,
 			min_length_m=line.length,
 			max_length_m=line.length,
 			length_ratio_min_max=1.0,
+			max_correspondence_spread_m=0.0,
+			mean_correspondence_spread_m=0.0,
+		)
+
+	# LINEAR_USE can contain several consecutive pieces with the same edge_id.
+	# If their exact linework forms one single chain, preserve that source
+	# geometry and merely merge the pieces. No tolerance or proximity heuristic.
+	merged=line_merge(union_all(lines))
+	if isinstance(merged,LineString) and (
+			not merged.is_empty and merged.is_valid and merged.is_simple
+			and merged.length>0
+	):
+		return merged,MeanAxisAudit(
+			method="line_merge",
+			input_lines=len(lines),
+			sample_points=len(merged.coords),
+			reversed_lines=0,
+			min_length_m=min(lengths),
+			max_length_m=max(lengths),
+			length_ratio_min_max=min(lengths)/max(lengths),
 			max_correspondence_spread_m=0.0,
 			mean_correspondence_spread_m=0.0,
 		)
@@ -163,6 +186,7 @@ def build_mean_axis(lines, *, sample_spacing_m=DEFAULT_SAMPLE_SPACING_M):
 		raise ValueError(
 			"Aus den gruppierten Linien entsteht keine einfache gültige Mittelachse")
 	return axis,MeanAxisAudit(
+		method="mean_axis",
 		input_lines=len(lines),
 		sample_points=count,
 		reversed_lines=sum(reversed_flags),
