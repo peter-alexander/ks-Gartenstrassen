@@ -50,9 +50,17 @@ def _candidate_geojson(path,base,extra,owners,origin):
 	tmp.replace(path)
 
 
+def _resolve_resume_path(path):
+	"""Accept paths relative to current directory or repository root."""
+	path=Path(path).expanduser()
+	if path.is_absolute() or path.exists():
+		return path
+	return Path(__file__).resolve().parents[2]/path
+
+
 def _read_candidate_geojson(path,owners,origin):
 	"""Restore the exact noded integer keys from an EPSG:31256 debug export."""
-	doc=json.loads(Path(path).read_text(encoding="utf-8"))
+	doc=json.loads(_resolve_resume_path(path).read_text(encoding="utf-8"))
 	if doc.get("type")!="FeatureCollection" or doc.get("crs",{}).get(
 			"properties",{}).get("name")!="EPSG:31256":
 		raise ValueError("Fortsetzungs-GeoJSON muss EPSG:31256 enthalten")
