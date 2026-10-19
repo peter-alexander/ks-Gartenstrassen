@@ -71,6 +71,40 @@ def _safe_clip(cell,core):
 	return result
 
 
+def _robust_voronoi(seeds,extent):
+	"""Retry a numerically degenerate GEOS tessellation on a fine grid.
+
+	Grid coordinates and their owners are deduplicated together so that
+	ordered=True can never assign a cell to the wrong edge_id.
+	"""
+	last_error=None
+	for grid in (None,0.001,0.01,0.1):
+		if grid is None:
+			points=list(seeds)
+			owners=[seeds[p] for p in points]
+		else:
+			rounded={}
+			for (x,y),owner in seeds.items():
+				key=(round(x/grid)*grid,round(y/grid)*grid)
+				if key not in rounded or owner<rounded[key]:
+					rounded[key]=owner
+			points=list(rounded)
+			owners=[rounded[p] for p in points]
+		if len(points)<3:
+			continue
+		try:
+			cells=voronoi_polygons(MultiPoint(points),
+				extend_to=extent,ordered=True)
+			if len(cells.geoms)!=len(points):
+				raise ValueError("Voronoi-Zellzahl weicht von Stützpunkten ab")
+			return owners,cells
+		except GEOSException as exc:
+			last_error=exc
+	raise ValueError(
+		"Voronoi scheitert auch mit 1 mm, 1 cm und 10 cm "
+		f"Koordinatenraster: {last_error}") from last_error
+
+
 def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
 	"""Assign every tile area, including tiles far from the nearest axis."""
 	if geos_version<(3,12,0):
@@ -102,11 +136,7 @@ def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
 		# its nearest axis for visualization. No huge global tessellation.
 		yield ids[nearest_idx],core
 		return
-	points=list(seeds)
-	owners=[seeds[p] for p in points]
-	cells=voronoi_polygons(MultiPoint(points),extend_to=search.envelope,ordered=True)
-	if len(cells.geoms)!=len(points):
-		raise ValueError("Voronoi-Zellzahl stimmt nicht mit Stützpunkten überein")
+	owners,cells=_robust_voronoi(seeds,search.envelope)
 	pieces={}
 	for owner,cell in zip(owners,cells.geoms):
 		if not cell.intersects(core):
