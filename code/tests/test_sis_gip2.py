@@ -56,6 +56,9 @@ class GIP2GeometryTests(unittest.TestCase):
 				"-m", "scripts.sis_gip2", "--source", str(source),
 				"--manifest", str(processed/"raster.json"),
 				"--out", str(processed/"gip.sqlite"),
+				"-m", "scripts.verify_wien_cache", "gip",
+				"--cache", str(processed), "--gip-source", str(source),
+				"--tile-m", "1000",
 			])
 			self.assertTrue(result.stdout.splitlines()[-1].startswith(
 				"== gip-index abgeschlossen in "))
