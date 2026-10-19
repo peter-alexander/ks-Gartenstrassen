@@ -49,26 +49,44 @@ def _polygon_parts(geometry):
 
 
 def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
-	search=core.envelope.buffer(halo_m,cap_style="square",join_style="mitre")
-	# Same-coordinate points from distinct axes have a deterministic owner.
-	seeds={}
-	for idx in tree.query(search):
-		idx=int(idx)
-		section=geoms[idx].intersection(search)
-		for part in (section.geoms if hasattr(section,"geoms") else (section,)):
-			if not isinstance(part,LineString) or part.is_empty or part.length==0:
-				continue
-			for x,y,*_ in segmentize(part,spacing_m).coords:
-				key=(float(x),float(y))
-				owner=ids[idx]
-				if key not in seeds or owner<seeds[key]:
-					seeds[key]=owner
-	if len(seeds)<3:
-		raise ValueError("Zu wenige Voronoi-Stützpunkte in Kachel")
-	points=list(seeds)
-	owners=[seeds[p] for p in points]
+	"""Assign every tile area, including tiles far from the nearest axis."""
 	if geos_version<(3,12,0):
 		raise RuntimeError("GEOS >= 3.12 für geordnetes Voronoi erforderlich")
+	# A fixed halo is insufficient near the AOI boundary and in areas
+	# without roads. Expand only those tiles which have too few seeds.
+	extent=tree.geometries
+	limits=(min(g.bounds[0] for g in extent),min(g.bounds[1] for g in extent),
+		max(g.bounds[2] for g in extent),max(g.bounds[3] for g in extent))
+	max_radius=max(abs(a-b) for a,b in zip(core.bounds,limits))+spacing_m
+	radius=float(halo_m)
+	while True:
+		search=core.envelope.buffer(radius,cap_style="square",join_style="mitre")
+		seeds={}
+		for idx in tree.query(search):
+			idx=int(idx)
+			section=geoms[idx].intersection(search)
+			for part in (section.geoms if hasattr(section,"geoms") else (section,)):
+				if not isinstance(part,LineString) or part.is_empty or part.length==0:
+					continue
+				for x,y,*_ in segmentize(part,spacing_m).coords:
+					key=(float(x),float(y))
+					owner=ids[idx]
+					if key not in seeds or owner<seeds[key]:
+						seeds[key]=owner
+		if len(seeds)>=3 or radius>=max_radius:
+			break
+		radius=min(max_radius,radius*2)
+	if not seeds:
+		# An isolated, zero-length intersection cannot stand for an axis.
+		# The global nearest nonempty result is guaranteed by _load_axes.
+		idx=int(tree.nearest(core.representative_point()))
+		yield ids[idx],core
+		return
+	if len(seeds)==1:
+		yield next(iter(seeds.values())),core
+		return
+	points=list(seeds)
+	owners=[seeds[p] for p in points]
 	cells=voronoi_polygons(MultiPoint(points),extend_to=search.envelope,ordered=True)
 	if len(cells.geoms)!=len(points):
 		raise ValueError("Voronoi-Zellzahl stimmt nicht mit Stützpunkten überein")
@@ -79,6 +97,8 @@ def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
 		clipped=cell.intersection(core)
 		if not clipped.is_empty and clipped.area>0:
 			pieces.setdefault(owner,[]).append(clipped)
+	if not pieces:
+		raise ValueError("Voronoi-Zellen decken Kachel nicht ab")
 	for owner,parts in sorted(pieces.items()):
 		merged=union_all(parts)
 		if not merged.is_empty:
