@@ -62,14 +62,14 @@ def _noded_segments(axes, *, scale=SCALE):
 	parts=list(noded.geoms) if hasattr(noded,"geoms") else [noded]
 	tree=STRtree(source)
 	result={}
+	collapsed_after_noding=0
+	collapsed_owners=set()
 	for piece in parts:
 		if not isinstance(piece,LineString) or piece.length==0:
 			continue
 		for a,b in zip(piece.coords,piece.coords[1:]):
 			key=tuple(sorted((tuple(round(v) for v in a[:2]),
 				tuple(round(v) for v in b[:2]))))
-			if key[0]==key[1]:
-				raise ValueError("Segment nach Noding kleiner als Integer-Raster")
 			mid=Point((a[0]+b[0])/2,(a[1]+b[1])/2)
 			owners=set()
 			for index in tree.query(mid.buffer(0.00001)):
@@ -82,6 +82,14 @@ def _noded_segments(axes, *, scale=SCALE):
 				raise ValueError(
 					"Unklare Segmentzuordnung an einer Kreuzung/Überlappung")
 			owner=next(iter(owners))
+			if key[0]==key[1]:
+				# GEOS may split a valid integer-grid edge at a fractional
+				# intersection. This sub-grid fragment cannot be encoded as
+				# a Boost site; adjacent surviving segments represent its
+				# geometry to the declared millimetre resolution.
+				collapsed_after_noding+=1
+				collapsed_owners.add(owner)
+				continue
 			if key in result and result[key]!=owner:
 				raise ValueError("Mehrdeutige edge_id nach Noding")
 			result[key]=owner
@@ -89,6 +97,11 @@ def _noded_segments(axes, *, scale=SCALE):
 	# configurations rather than silently changing topological ownership.
 	if not result:
 		raise ValueError("Noding lieferte keine gültigen Segmente")
+	missing=collapsed_owners-set(result.values())
+	if missing:
+		raise ValueError(
+			"Achsen nach Noding vollständig im Integer-Raster verschwunden: "
+			+", ".join(sorted(missing)[:10]))
 	return result,(x0,y0)
 
 
