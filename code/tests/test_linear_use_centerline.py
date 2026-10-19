@@ -3,7 +3,7 @@ import unittest
 
 from shapely.geometry import LineString
 
-from scripts.linear_use_centerline import build_mean_axis
+from scripts.linear_use_centerline import build_edge_axes, build_mean_axis
 
 
 class MeanAxisTests(unittest.TestCase):
@@ -96,6 +96,27 @@ class MeanAxisTests(unittest.TestCase):
 		self.assertTrue(first.equals_exact(second,1e-9)
 			or first.equals_exact(LineString(list(second.coords)[::-1]),1e-9))
 
+	def test_edge_id_is_the_only_grouping_key(self):
+		records=[
+			("edge-b",LineString([(0,0),(100,0)])),
+			("edge-a",LineString([(0,0),(100,0)])),
+			("edge-a",LineString([(0,10),(100,10)])),
+			("edge-a",LineString([(0,20),(100,20)])),
+		]
+		groups=build_edge_axes(records,sample_spacing_m=50)
+		self.assertEqual(list(groups),["edge-a","edge-b"])
+		axis_a,audit_a=groups["edge-a"]
+		axis_b,audit_b=groups["edge-b"]
+		self.assertCoordsAlmostEqual(list(axis_a.coords),[
+			(0,10),(50,10),(100,10),
+		])
+		self.assertEqual(audit_a.input_lines,3)
+		self.assertTrue(axis_b.equals_exact(records[0][1],0))
+		self.assertEqual(audit_b.input_lines,1)
+
+	def test_missing_edge_id_is_rejected(self):
+		with self.assertRaisesRegex(ValueError,"edge_id fehlt"):
+			build_edge_axes([(None,LineString([(0,0),(1,0)]))])
 	def test_invalid_inputs_fail_explicitly(self):
 		with self.assertRaisesRegex(ValueError,"Mindestens"):
 			build_mean_axis([])
