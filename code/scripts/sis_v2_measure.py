@@ -32,7 +32,7 @@ TO_WGS = Transformer.from_crs("EPSG:31256", "EPSG:4326", always_xy=True).transfo
 VEGETATION = VEGETATION_CODES
 FIELDS = ("gip_id", "strassenname", "fow", "abschnitt_flaeche_m2",
 	"boden_m2", "boden_pct", "nicht_begruent_m2",
-	"nicht_begruent_pct", "grm_kronen_m2", "grm_kronen_pct", "kachelteile")
+	"nicht_begruent_pct", "grm_kronen_m2", "grm_kronen_pct", "kachelteile", "original_gip_ids")
 
 
 def _mask(db, core, categories):
@@ -141,6 +141,14 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 		balance = report_results(partition,manifest)
 		axes = {str(gid):(name,fow) for gid,name,fow in gip.execute(
 			"SELECT gip,name,fow FROM axes")}
+		grouping = gip.execute("SELECT name FROM sqlite_master WHERE "
+			"name='merged_members'").fetchone() is not None
+		member_ids = defaultdict(list)
+		if grouping:
+			for original,rep in gip.execute(
+				"SELECT original_id,representative_id FROM merged_members "
+				"ORDER BY representative_id,original_id"):
+				member_ids[rep].append(original)
 		groups = defaultdict(lambda:{"area":0.,"vegetation":0.,
 			"crown":0.,"parts":0,"geometries":[]})
 		checkpoint.execute("PRAGMA journal_mode=DELETE")
@@ -287,7 +295,8 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 						"nicht_begruent_pct":100*max(0.,area-item["vegetation"])/area,
 						"grm_kronen_m2":item["crown"] if grm_root is not None else None,
 						"grm_kronen_pct":100*item["crown"]/area if grm_root is not None else None,
-						"kachelteile":item["parts"]}
+						"kachelteile":item["parts"],
+						"original_gip_ids":";".join(member_ids[gid]) if grouping else gid}
 					writer.writerow(row)
 					merged = union_all(item["geometries"])
 					if not merged.is_valid or abs(merged.area-area) > max(.05,area*1e-6):
@@ -319,6 +328,12 @@ def run(manifest_path, gip_path, sis_path, street_root, partition_path,
 				"boden_ueberlagerungsregel":"BL/ST/WI nur außerhalb aller übrigen BELAG-Flächen begrünt; Konfliktflächen konservativ nicht begrünt",
 				"klassifikation":"SIS BELAG BL/ST/WI = begrünt; alle anderen BELAG = nicht begrünt; alle TYPE einschließlich M1/M2 enthalten",
 				"kreuzungen":config["junction_policy"],
+				"gip_kantenvereinigung": ("parallel-gip-groups-v1" if grouping
+					else "keine"),
+				"gip_quellkanten_gesamt": (sum(len(v) for v in member_ids.values())
+					if grouping else len(axes)),
+				"gip_vereinigte_gruppen": (sum(len(v)>1 for v in member_ids.values())
+					if grouping else 0),
 				"geojson_sha256":checksum(stage/"gip_abschnitte.geojson"),
 				"csv_sha256":checksum(stage/"gip_abschnitte.csv")}
 			(stage/"bericht.json").write_text(json.dumps(report,ensure_ascii=False,
