@@ -16,6 +16,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake g++ libcgal-dev libgmp-dev libmpfr-dev
+      - name: Syntax-check CGAL Python pipeline
+        run: |
+          python3 -m py_compile code/scripts/build_cgal_voronoi_geojson.py code/scripts/cgal_segment_input.py
+          bash -n code/scripts/run-cgal-voronoi-debug-wien.sh
       - name: Build CGAL dual exporter
         run: |
           cmake -S code/cgal -B build/cgal -DCMAKE_BUILD_TYPE=Release
