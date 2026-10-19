@@ -3,6 +3,16 @@ from shapely.geometry import LineString
 from scripts.segment_voronoi_engine import _segments, _noded_segments, construct_segment_diagram
 
 class SegmentVoronoiTests(unittest.TestCase):
+	def test_noding_progress_reports_phases(self):
+		messages=[]
+		segments,_=_noded_segments([
+			("a",LineString([(0,0),(10,0)])),
+			("b",LineString([(5,-5),(5,5)]))],progress=messages.append)
+		self.assertEqual(len(segments),4)
+		self.assertTrue(any("Noding (GEOS unary_union): Start" in m
+			or "Noding (GEOS unary_union):" in m for m in messages))
+		self.assertTrue(any("Segmentzuordnung: fertig" in m for m in messages))
+
 	def test_polyline_sites(self):
 		segs=_segments([("a",LineString([(0,0),(10,0),(10,10)]))])
 		self.assertEqual(len(segs),2)
