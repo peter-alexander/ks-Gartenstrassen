@@ -54,6 +54,24 @@ def verify(repo):
 	report = json.loads(files["bericht.json"].read_text(encoding="utf-8"))
 	if not isinstance(report.get("gip_ids"), int) or report["gip_ids"] < 10000:
 		raise ValueError("Bericht enthält keine Wien-weiten GIP-Abschnitte")
+	if report.get("gip_kantenvereinigung")=="parallel-gip-groups-v1":
+		mapping = out / "gip_kanten_zuordnung.csv"
+		if mapping.is_symlink() or not mapping.is_file():
+			raise FileNotFoundError("Dauerhafte Original-GIP-Zuordnung fehlt")
+		if release.get("files_sha256",{}).get(mapping.name)!=checksum(mapping):
+			raise ValueError("Original-GIP-Zuordnung ist nicht vollständig freigegeben")
+		with mapping.open(newline="",encoding="utf-8") as f:
+			rows=csv.DictReader(f)
+			if rows.fieldnames!=["original_gip_id","repraesentant_gip_id",
+					"rolle","original_fow","original_name"]:
+				raise ValueError("Original-GIP-Zuordnung hat falsches Schema")
+			count=0
+			for item in rows:
+				if not item["original_gip_id"] or not item["repraesentant_gip_id"]:
+					raise ValueError("Unvollständige GIP-Zuordnungszeile")
+				count+=1
+		if count!=report.get("gip_quellkanten_gesamt"):
+			raise ValueError("Unvollständige Original-GIP-Liste im Output")
 	if report.get("grm_available") is not True:
 		raise ValueError("Baumkronen-Auswertung fehlt; work/ bleibt erhalten")
 	if (release.get("manifest_sha256") != report.get("manifest_sha256")
