@@ -63,6 +63,33 @@ class GIP2GeometryTests(unittest.TestCase):
 			self.assertTrue(result.stdout.splitlines()[-1].startswith(
 				"== gip-index abgeschlossen in "))
 
+	def test_gip_merge_stage_exports_lines_before_any_partitioning(self):
+		with tempfile.TemporaryDirectory() as folder:
+			root=Path(folder)
+			index=root/"cache"/"wien"
+			index.mkdir(parents=True)
+			fake_python=root/"python"
+			fake_python.write_text("#!/bin/sh\\nprintf '%s\\n' \"$@\"\\n")
+			fake_python.chmod(0o755)
+			env=os.environ | {
+				"PYTHON":str(fake_python),
+				"SIS_V2_CACHE_WIEN":str(index),
+				"SIS_V2_ROOT":str(root/"work"/"wien"),
+				"SIS_V2_PUBLISH_DIR":str(root/"output"),
+			}
+			result=subprocess.run(
+				["bash","scripts/run-sis-steps.sh",
+					"--from","gip-merge","--until","gip-merge"],
+				check=True,capture_output=True,text=True,env=env)
+			commands=result.stdout
+			self.assertIn("-m\\nscripts.merge_parallel_gip\\n",commands)
+			self.assertIn("-m\\nscripts.export_merged_gip\\n",commands)
+			self.assertIn("--out\\n"+str(index/"gip_merged.sqlite"),commands)
+			self.assertIn("--output-dir\\n"+str(root/"output"),commands)
+			self.assertLess(commands.index("scripts.merge_parallel_gip"),
+				commands.index("scripts.export_merged_gip"))
+			self.assertNotIn("scripts.wienwide_partition",commands)
+
 	def test_gpkg_geometry_without_envelope(self):
 		g = Point(16.3627,48.1907)
 		self.assertTrue(gpkg_geom(gpkg(g)).equals(g))
