@@ -99,7 +99,33 @@ def _require_columns(db):
 			"LINEAR_USE: Pflichtspalten fehlen: "+", ".join(sorted(missing)))
 
 
-def _source_rows(db,geom_column):
+def _pk_column(db):
+	for row in db.execute("PRAGMA table_info('LINEAR_USE')"):
+		if row[5]:
+			return row[1]
+	raise ValueError("LINEAR_USE: Primärschlüssel für räumlichen Index fehlt")
+
+
+def _source_rows(db,geom_column,source_aoi_bounds):
+	pk=_pk_column(db)
+	rtree=f"rtree_LINEAR_USE_{geom_column}"
+	has_rtree=db.execute(
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+		(rtree,)).fetchone() is not None
+	if has_rtree:
+		minx,miny,maxx,maxy=source_aoi_bounds
+		query=f"""
+			SELECT l.object_id,l.edge_id,l.edge_percentage_from,
+				l.edge_percentage_to,l.base_type,l.length_m,l.feature_name,
+				l."{geom_column}"
+			FROM LINEAR_USE l
+			JOIN "{rtree}" r ON r.id=l."{pk}"
+			WHERE l.base_type=?
+				AND r.maxx>=? AND r.minx<=?
+				AND r.maxy>=? AND r.miny<=?
+			ORDER BY l.edge_id,l.object_id
+		"""
+		return db.execute(query,(BASE_TYPE,minx,maxx,miny,maxy)),True
 	query=f"""
 		SELECT object_id,edge_id,edge_percentage_from,edge_percentage_to,
 			base_type,length_m,feature_name,"{geom_column}"
@@ -107,7 +133,7 @@ def _source_rows(db,geom_column):
 		WHERE base_type=?
 		ORDER BY edge_id,object_id
 	"""
-	return db.execute(query,(BASE_TYPE,))
+	return db.execute(query,(BASE_TYPE,)),False
 
 
 def _json_list(values):
@@ -182,11 +208,19 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0):
 			geom_column,source_crs=_source_geometry_info(src)
 			to_metric=Transformer.from_crs(
 				source_crs,TARGET_CRS,always_xy=True).transform
-			source_rows=0
+			from_metric=Transformer.from_crs(
+				TARGET_CRS,source_crs,always_xy=True).transform
+			source_aoi=transform(from_metric,aoi)
+			total_base_type_1=src.execute(
+				"SELECT COUNT(*) FROM LINEAR_USE WHERE base_type=?",
+				(BASE_TYPE,)).fetchone()[0]
+			rows,used_rtree=_source_rows(
+				src,geom_column,source_aoi.bounds)
+			candidate_rows=0
 			selected_rows=0
 			for (object_id,edge_id,pct_from,pct_to,base_type,length_m,
-					feature_name,blob) in _source_rows(src,geom_column):
-				source_rows+=1
+					feature_name,blob) in rows:
+				candidate_rows+=1
 				object_id=str(object_id or "").strip()
 				edge_id=str(edge_id or "").strip()
 				if not object_id:
@@ -299,7 +333,9 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0):
 				"target_crs":TARGET_CRS,
 				"base_type":BASE_TYPE,
 				"sample_spacing_m":sample_spacing_m,
-				"linear_use_rows_base_type_1":source_rows,
+				"linear_use_rows_base_type_1":total_base_type_1,
+				"spatial_prefilter":"gpkg_rtree" if used_rtree else "none",
+				"linear_use_rows_spatial_candidates":candidate_rows,
 				"linear_use_rows_in_aoi":selected_rows,
 				"edge_axes":len(axes),
 				"multi_line_edge_ids":sum(
