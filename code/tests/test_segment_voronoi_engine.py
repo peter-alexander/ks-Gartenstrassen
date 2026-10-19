@@ -26,6 +26,25 @@ class SegmentVoronoiTests(unittest.TestCase):
 		self.assertEqual(list(segments.values()).count("a"),2)
 		self.assertEqual(list(segments.values()).count("b"),2)
 
+	def test_short_intermediate_segment_collapses_without_losing_axis(self):
+		segments,_=_noded_segments([
+			("a",LineString([(0,0),(0.0002,0.0002),(10,0)])),
+			("b",LineString([(0,5),(10,5)]))])
+		self.assertEqual(len(segments),2)
+		self.assertEqual(set(segments.values()),{"a","b"})
+
+	def test_entire_axis_below_grid_still_fails(self):
+		with self.assertRaisesRegex(ValueError,"gesamte Achse"):
+			_noded_segments([
+				("tiny",LineString([(0,0),(0.0002,0.0002)])),
+				("normal",LineString([(0,5),(10,5)]))])
+
+	def test_short_vertex_retains_remainder_of_polyline(self):
+		segments,_=_noded_segments([
+			("a",LineString([(0,0),(10,0),(10.0002,0.0002),(10,10)]))])
+		self.assertEqual(len(segments),2)
+		self.assertEqual(set(segments.values()),{"a"})
+
 	def test_overlapping_different_owners_rejected(self):
 		with self.assertRaisesRegex(ValueError,"[Dd]eckungsgleiche|Unklare"):
 			_noded_segments([
