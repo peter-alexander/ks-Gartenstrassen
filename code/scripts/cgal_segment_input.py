@@ -6,7 +6,7 @@ from threading import Event, Thread
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-SCALE=1000  # One millimetre integer-grid input to Boost.
+SCALE=1000  # One millimetre integer-grid input to CGAL.
 
 
 def _segments(axes):
@@ -42,7 +42,7 @@ def _noded_segments(axes, *, scale=SCALE, progress=None):
 		owner=str(edge_id)
 		# Quantize the entire polyline, not independent segment pairs.
 		# Consecutive sub-millimetre vertices are redundant in the
-		# representable Boost geometry; keep their surviving neighbours.
+		# representable CGAL geometry; keep their surviving neighbours.
 		quantized=[]
 		for coordinate in line.coords:
 			point=(round((coordinate[0]-x0)*scale),
@@ -115,7 +115,7 @@ def _noded_segments(axes, *, scale=SCALE, progress=None):
 			if key[0]==key[1]:
 				# GEOS may split a valid integer-grid edge at a fractional
 				# intersection. This sub-grid fragment cannot be encoded as
-				# a Boost site; adjacent surviving segments represent its
+				# a CGAL site; adjacent surviving segments represent its
 				# geometry to the declared millimetre resolution.
 				collapsed_after_noding+=1
 				collapsed_owners.add(owner)
