@@ -34,6 +34,9 @@ from scripts.probe_grm2023_wms import (
 from scripts.wienwide_grid import checksum,read_manifest
 
 SCHEMA=1
+# Bestehende Masken ohne diese Angabe entsprechen der ursprünglichen Methode v1.
+# Bei Änderungen der Pixelklassifikation/Polygonisierung Version erhöhen.
+MASK_METHOD="grm2023-rgb-canopy-v1"
 PIXEL_M=.5
 CHUNK_M=500
 MAX_CHUNKS=1200  # Sicherheitsgrenze JE Rasterkachel, nicht für ganz Wien
@@ -300,8 +303,9 @@ def read_mask(root,tile,*,manifest,aoi,manifest_sha256=None,raw_root=None):
 		row=db.execute("SELECT geom FROM canopy").fetchone()
 		if row is None:
 			raise ValueError(f"{tile['id']}: Kronengeometrie fehlt")
-	if meta.get("schema_version")!="1" or meta.get("crs")!="EPSG:31256":
-		raise ValueError(f"{tile['id']}: ungültige GRM-Maskenmetadaten")
+	if (meta.get("schema_version")!="1" or meta.get("crs")!="EPSG:31256"
+		or meta.get("mask_method",MASK_METHOD)!=MASK_METHOD):
+		raise ValueError(f"{tile['id']}: ungültige/veraltete GRM-Maskenmethode")
 	if manifest_sha256 is None:
 		manifest_sha256=checksum(manifest)
 	if meta.get("manifest_sha256")!=manifest_sha256:
@@ -368,6 +372,7 @@ def build(manifest_path,root,*,raw_root=None):
 				db.execute("CREATE TABLE canopy(geom BLOB NOT NULL)")
 				db.execute("INSERT INTO canopy VALUES (?)",(dumps(clipped),))
 				data={"schema_version":"1","crs":"EPSG:31256",
+					"mask_method":MASK_METHOD,
 					"manifest_sha256":checksum(manifest_path),
 					"png_sha256":json.dumps(digests,sort_keys=True),
 					"baumschicht_m2":repr(clipped.area),
