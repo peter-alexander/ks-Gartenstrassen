@@ -69,7 +69,7 @@ class GIP2GeometryTests(unittest.TestCase):
 			index=root/"cache"/"wien"
 			index.mkdir(parents=True)
 			fake_python=root/"python"
-			fake_python.write_text("#!/bin/sh\\nprintf '%s\\n' \"$@\"\\n")
+			fake_python.write_text("#!/bin/sh\nprintf '%s\n' \"$@\"\n")
 			fake_python.chmod(0o755)
 			env=os.environ | {
 				"PYTHON":str(fake_python),
@@ -82,10 +82,10 @@ class GIP2GeometryTests(unittest.TestCase):
 					"--from","gip-merge","--until","gip-merge"],
 				check=True,capture_output=True,text=True,env=env)
 			commands=result.stdout
-			self.assertIn("-m\\nscripts.merge_parallel_gip\\n",commands)
-			self.assertIn("-m\\nscripts.export_merged_gip\\n",commands)
-			self.assertIn("--out\\n"+str(index/"gip_merged.sqlite"),commands)
-			self.assertIn("--output-dir\\n"+str(root/"output"),commands)
+			self.assertIn("-m\nscripts.merge_parallel_gip\n",commands)
+			self.assertIn("-m\nscripts.export_merged_gip\n",commands)
+			self.assertIn("--out\n"+str(index/"gip_merged.sqlite"),commands)
+			self.assertIn("--output-dir\n"+str(root/"output"),commands)
 			self.assertLess(commands.index("scripts.merge_parallel_gip"),
 				commands.index("scripts.export_merged_gip"))
 			self.assertNotIn("scripts.wienwide_partition",commands)
