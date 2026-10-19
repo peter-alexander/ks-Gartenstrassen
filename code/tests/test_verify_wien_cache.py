@@ -21,9 +21,15 @@ class CachedViennaDataTests(unittest.TestCase):
 		self.root=Path(self.dir.name)
 		self.cached=self.root/"cache"/"wien"
 		self.cached.mkdir(parents=True)
+		to_metric=Transformer.from_crs("EPSG:4326","EPSG:31256",
+			always_xy=True).transform
 		to_wgs=Transformer.from_crs("EPSG:31256","EPSG:4326",
 			always_xy=True).transform
-		geom=transform(to_wgs,box(0,0,15,15))
+		x,y=to_metric(16.36,48.22)
+		from math import floor
+		x=floor(x/1000)*1000+100
+		y=floor(y/1000)*1000+100
+		geom=transform(to_wgs,box(x,y,x+15,y+15))
 		(self.cached/"aoi.geojson").write_text(json.dumps(mapping(geom)))
 		self.manifest=self.cached/"raster.json"
 		write_manifest(self.manifest,build_manifest(
