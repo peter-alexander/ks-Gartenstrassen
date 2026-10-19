@@ -29,6 +29,26 @@ class LinearUseVoronoiTests(unittest.TestCase):
 		self.assertAlmostEqual(polygons["a"].union(
 			polygons["b"]).area,10000,places=5)
 
+	def test_sparse_tile_far_from_axes(self):
+		lines=[LineString([(5000,0),(5050,0)]),
+			LineString([(5000,100),(5050,100)])]
+		core=box(0,0,100,100)
+		pieces=list(_tile_polygons(["a","b"],lines,STRtree(lines),
+			core,spacing_m=20,halo_m=50))
+		self.assertTrue(pieces)
+		from shapely import union_all
+		self.assertAlmostEqual(union_all([p for _,p in pieces]).area,
+			core.area,delta=0.01)
+
+	def test_single_short_axis_covers_tile(self):
+		lines=[LineString([(5000,0),(5000.01,0)])]
+		core=box(0,0,100,100)
+		pieces=list(_tile_polygons(["a"],lines,STRtree(lines),
+			core,spacing_m=20,halo_m=50))
+		self.assertEqual(len(pieces),1)
+		self.assertEqual(pieces[0][0],"a")
+		self.assertAlmostEqual(pieces[0][1].area,core.area,places=5)
+
 	def test_debug_geojson_from_sqlite(self):
 		with TemporaryDirectory() as tmp:
 			root=Path(tmp)
