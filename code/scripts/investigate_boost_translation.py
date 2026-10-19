@@ -183,13 +183,12 @@ def investigate(cache,aoi,suspects,out,*,timeout=15,precision=0.01):
 		"comparison_scope":"undirected finite straight edges and finite vertices",
 		"cell_area_comparison":"not_available_without_clipped_curved_cell_polygons",
 		"cases":[]}
-	reference=None
+	results={}
 	for case in cases:
 		print(f"Boost {case['name']} ({len(sites):,} Linien, {timeout:g}s Limit)",
 			flush=True)
 		raw=_timed(case,precision,timeout)
-		if case["name"]=="original":
-			reference=raw
+		results[case["name"]]=raw
 		entry={"name":case["name"],"dx_mm":case["dx_mm"],
 			"dy_mm":case["dy_mm"],"move_sites":case["move_sites"],
 			"move_frame":case["move_frame"],
@@ -197,22 +196,16 @@ def investigate(cache,aoi,suspects,out,*,timeout=15,precision=0.01):
 		report["cases"].append(entry)
 		_save(out,report)
 		print(f"  {raw['status']} nach {raw['wall_s']:.3f}s",flush=True)
-	# Original times out; use translated +1km result as reference instead.
-	reference_name="both_plus_1km"
-	successful={}
-	for case in cases:
-		# Recomputing successful cases ensures exact geometry comparison
-		# without persisting huge sets to disk. Timeout results are skipped.
-		entry=next(x for x in report["cases"] if x["name"]==case["name"])
-		if entry["result"]["status"]=="ok" and case["move_sites"]==case["move_frame"]:
-			successful[case["name"]]=_timed(case,precision,timeout)
-	if reference_name in successful and successful[reference_name]["status"]=="ok":
-		reference=successful[reference_name]
+	# The unshifted run hangs; compare all successful pure translations
+	# directly to the +1km control without storing massive geometries on disk.
+	reference=results["both_plus_1km"]
+	if reference["status"]=="ok":
 		for entry in report["cases"]:
 			name=entry["name"]
-			if name in successful:
+			if (entry["result"]["status"]=="ok" and
+					entry["move_sites"] and entry["move_frame"]):
 				entry["comparison_to_both_plus_1km"]=_comparison(
-					successful[name],reference)
+					results[name],reference)
 	else:
 		report["comparison_error"]="reference translation +1km did not complete"
 	_save(out,report)
