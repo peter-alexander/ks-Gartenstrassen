@@ -77,6 +77,10 @@ def _record_line(kind,coords,window):
 	"""Window CGAL line/ray/segment primitives in EPSG:31256 metric coordinates."""
 	a,b=coords
 	if kind=="S":
+		# CGAL may emit zero-length linearized parabola fragments; these
+		# cannot form a polygon boundary and are not valid LineStrings.
+		if a==b:
+			return None
 		line=LineString((a,b))
 	elif kind in ("R","L"):
 		dx,dy=b[0]-a[0],b[1]-a[1]
@@ -96,14 +100,16 @@ def _record_line(kind,coords,window):
 	else:
 		raise ValueError(f"Unbekannter CGAL-Kantentyp: {kind}")
 	if not line.is_valid:
-		raise ValueError("Ungültiges CGAL-Liniensegment")
+		raise ValueError(f"Ungültiges CGAL-Liniensegment: "
+			f"Typ={kind}, Start={a}, Ende={b}, "
+			f"Länge={line.length:.12g} m")
 	return line.intersection(window)
 
 
 def _read_dual_lines(path,window,origin):
 	ox,oy=origin
 	lines=[]
-	stats={"S":0,"R":0,"L":0,"clipped":0}
+	stats={"S":0,"R":0,"L":0,"clipped":0,"degenerate_S":0}
 	with Path(path).open("r",encoding="utf-8") as source:
 		for line_number,line in enumerate(source,1):
 			fields=line.split()
@@ -114,8 +120,15 @@ def _read_dual_lines(path,window,origin):
 				raise ValueError(f"Nicht endliche CGAL-Koordinate, Zeile {line_number}")
 			coords=((values[0]/SCALE+ox,values[1]/SCALE+oy),
 				(values[2]/SCALE+ox,values[3]/SCALE+oy))
-			section=_record_line(fields[0],coords,window)
+			try:
+				section=_record_line(fields[0],coords,window)
+			except ValueError as exc:
+				raise ValueError(f"CGAL-Dualgrenze in Zeile {line_number}: "
+					f"{line.strip()!r}: {exc}") from exc
 			stats[fields[0]]+=1
+			if section is None:
+				stats["degenerate_S"]+=1
+				continue
 			for part in (section.geoms if hasattr(section,"geoms") else (section,)):
 				if isinstance(part,LineString) and part.length>0:
 					lines.append(part)
