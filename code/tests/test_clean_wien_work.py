@@ -17,12 +17,14 @@ class CleanWienWorkTests(unittest.TestCase):
 		self.root = Path(self.tmp.name)
 		out = self.root / "output"
 		work = self.root / "work" / "wien"
+		cache = self.root / "cache" / "wien"
 		raw = self.root / "raw"
 		out.mkdir()
 		work.mkdir(parents=True)
+		cache.mkdir(parents=True)
 		raw.mkdir()
 		(raw / "source.txt").write_text("unaltered", encoding="utf-8")
-		(work / "raster.json").write_text('{"tiles": []}', encoding="utf-8")
+		(cache / "raster.json").write_text('{"tiles": []}', encoding="utf-8")
 		(work / "intermediate.db").write_bytes(b"REGENERABLE")
 		(out / "gartenstrassen.pmtiles").write_bytes(b"PMTiles\x03" + b"archive")
 		(out / "gip_abschnitte.geojson").write_text(
@@ -32,7 +34,7 @@ class CleanWienWorkTests(unittest.TestCase):
 			writer.writerow(["gip_id", "fow", "abschnitt_flaeche_m2"])
 			for i in range(10000):
 				writer.writerow([i, 3, 100])
-		fingerprint = checksum(work / "raster.json")
+		fingerprint = checksum(cache / "raster.json")
 		report = {"gip_ids": 10000, "manifest_sha256": fingerprint,
 			"grm_available": True, "gip_sha256": "gip-sha",
 			"partition_sha256": "partition-sha",
@@ -42,7 +44,7 @@ class CleanWienWorkTests(unittest.TestCase):
 		(work / "ergebnisse").mkdir()
 		(work / "ergebnisse" / "bericht.json").write_text(
 			json.dumps(report),encoding="utf-8")
-		with sqlite3.connect(work / "qa.gpkg") as db:
+		with sqlite3.connect(cache / "qa.gpkg") as db:
 			db.execute("CREATE TABLE qa_provenienz(key TEXT,value TEXT)")
 			db.executemany("INSERT INTO qa_provenienz VALUES (?,?)", [
 				("manifest_sha256",json.dumps(fingerprint)),
@@ -67,10 +69,12 @@ class CleanWienWorkTests(unittest.TestCase):
 		clean(self.root, apply=True)
 		self.assertFalse((self.root / "work").exists())
 		self.assertEqual((self.root / "raw" / "source.txt").read_text(), "unaltered")
+		self.assertTrue((self.root / "cache" / "wien" / "qa.gpkg").is_file())
+		self.assertTrue((self.root / "cache" / "wien" / "raster.json").is_file())
 		self.assertTrue((self.root / "output" / "gartenstrassen.pmtiles").exists())
 
 	def test_wrong_manifest_prevents_deletion(self):
-		(self.root / "work" / "wien" / "raster.json").write_text("changed")
+		(self.root / "cache" / "wien" / "raster.json").write_text("changed")
 		with self.assertRaisesRegex(ValueError, "stimmen nicht überein"):
 			clean(self.root, apply=True)
 		self.assertTrue((self.root / "work" / "wien").exists())
@@ -97,7 +101,7 @@ class CleanWienWorkTests(unittest.TestCase):
 			with self.assertRaises(sqlite3.OperationalError):
 				db.execute("CREATE TABLE should_fail (id INT)")
 		self.assertEqual(sorted(p.name for p in self.root.iterdir()),
-			["output", "raw", "source.gpkg", "work"])
+			["cache", "output", "raw", "source.gpkg", "work"])
 
 
 if __name__ == "__main__":
