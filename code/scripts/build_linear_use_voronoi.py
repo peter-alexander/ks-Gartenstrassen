@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+from functools import lru_cache
 
 from pyproj import Transformer
 from shapely import geos_version, make_valid, segmentize, union_all, voronoi_polygons, intersection
@@ -20,7 +21,8 @@ from shapely.strtree import STRtree
 from shapely.wkb import loads
 from shapely.errors import GEOSException
 
-from scripts.wienwide_grid import load_aoi, plan
+from scripts.wienwide_grid import load_aoi, plan, read_manifest, checksum
+from scripts.wienwide_street import load_street_tile
 
 
 def _load_axes(path):
@@ -157,7 +159,42 @@ def _tile_polygons(ids,geoms,tree,core,*,spacing_m,halo_m):
 			yield owner,merged
 
 
-def build(cache,aoi_path,out,*,tile_m=500,halo_m=250,spacing_m=20,max_tiles=None):
+def _sis_mask_reader(manifest_path,sis_root,aoi_path):
+	"""Read verified SIS tile geometries lazily, regardless of tile size."""
+	manifest_path,sis_root=Path(manifest_path),Path(sis_root)
+	manifest,aoi=read_manifest(manifest_path)
+	if checksum(aoi_path)!=manifest["aoi_sha256"]:
+		raise ValueError("SIS-Raster und LINEAR_USE-AOI stimmen nicht überein")
+	tiles=manifest["tiles"]
+	cores=[box(*tile["bounds_31256"]).intersection(aoi) for tile in tiles]
+	tree=STRtree(cores)
+
+	@lru_cache(maxsize=16)
+	def load_tile(index):
+		tile=tiles[index]
+		path=sis_root/tile["id"]/"street.sqlite"
+		return load_street_tile(path,cores[index])
+
+	def mask(core):
+		parts=[]
+		for index in tree.query(core):
+			index=int(index)
+			overlap=cores[index].intersection(core)
+			if overlap.is_empty or overlap.area<=0:
+				continue
+			sis=load_tile(index)
+			if sis.is_empty or not sis.intersects(overlap):
+				continue
+			piece=_safe_clip(sis,overlap)
+			if not piece.is_empty and piece.area>0:
+				parts.append(piece)
+		return union_all(parts) if parts else None
+
+	return mask
+
+
+def build(cache,aoi_path,out,*,sis_manifest,sis_root,
+		tile_m=500,halo_m=250,spacing_m=20,max_tiles=None):
 	cache,aoi_path,out=map(Path,(cache,aoi_path,out))
 	if out.exists() or out.is_symlink():
 		raise FileExistsError(out)
@@ -166,6 +203,7 @@ def build(cache,aoi_path,out,*,tile_m=500,halo_m=250,spacing_m=20,max_tiles=None
 	if halo_m<2*spacing_m:
 		raise ValueError("Halo muss mindestens den doppelten Abtastabstand haben")
 	aoi=load_aoi(aoi_path)
+	sis_mask=_sis_mask_reader(sis_manifest,sis_root,aoi_path)
 	ids,geoms=_load_axes(cache)
 	tree=STRtree(geoms)
 	tiles=plan(aoi,size=tile_m,halo=halo_m)
@@ -184,12 +222,22 @@ def build(cache,aoi_path,out,*,tile_m=500,halo_m=250,spacing_m=20,max_tiles=None
 			target.write('{"type":"FeatureCollection","features":[')
 			for number,tile in enumerate(tiles,1):
 				core=box(*tile["bounds_31256"]).intersection(aoi)
+				mask=sis_mask(core)
+				if mask is None or mask.is_empty:
+					print(f"Voronoi: {number}/{len(tiles)} Kacheln, "
+						f"{features} Polygone (SIS leer)",flush=True)
+					continue
 				try:
 					polygons=list(_tile_polygons(ids,geoms,tree,core,
 						spacing_m=spacing_m,halo_m=halo_m))
 				except (GEOSException,ValueError) as exc:
 					raise ValueError(f"Voronoi-Kachel {tile['id']}: {exc}") from exc
 				for edge_id,geometry in polygons:
+					try:
+						geometry=_safe_clip(geometry,mask)
+					except (GEOSException,ValueError) as exc:
+						raise ValueError(
+							f"Voronoi/SIS-Schnitt {tile['id']}, {edge_id}: {exc}") from exc
 					for polygon in _polygon_parts(geometry):
 						if polygon.area<=0:
 							continue
@@ -212,6 +260,7 @@ def build(cache,aoi_path,out,*,tile_m=500,halo_m=250,spacing_m=20,max_tiles=None
 			tmp.unlink(missing_ok=True)
 	print(json.dumps({"geojson":str(out),"features":features,
 		"tiles":len(tiles),"spacing_m":spacing_m,"halo_m":halo_m,
+		"sis_manifest":str(sis_manifest),"sis_root":str(sis_root),
 		"debug_approximation":True},ensure_ascii=False,indent=2))
 	return features
 
@@ -220,13 +269,16 @@ def main():
 	parser=argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--cache",type=Path,required=True)
 	parser.add_argument("--aoi",type=Path,required=True)
+	parser.add_argument("--sis-manifest",type=Path,required=True)
+	parser.add_argument("--sis-root",type=Path,required=True)
 	parser.add_argument("--out",type=Path,required=True)
 	parser.add_argument("--tile-m",type=int,default=500)
 	parser.add_argument("--halo-m",type=int,default=250)
 	parser.add_argument("--spacing-m",type=float,default=20)
 	parser.add_argument("--max-tiles",type=int,default=None)
 	args=parser.parse_args()
-	build(args.cache,args.aoi,args.out,tile_m=args.tile_m,
+	build(args.cache,args.aoi,args.out,sis_manifest=args.sis_manifest,
+		sis_root=args.sis_root,tile_m=args.tile_m,
 		halo_m=args.halo_m,spacing_m=args.spacing_m,max_tiles=args.max_tiles)
 
 
