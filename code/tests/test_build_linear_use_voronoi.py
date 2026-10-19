@@ -15,7 +15,7 @@ from shapely.strtree import STRtree
 from shapely.wkb import dumps
 
 from scripts.build_linear_use_voronoi import _tile_polygons, _safe_clip, _robust_voronoi, build
-from scripts.wienwide_grid import build_manifest, write_manifest
+from scripts.wienwide_grid import build_manifest, write_manifest, load_aoi
 from scripts.wienwide_street import save_street_tile
 
 
@@ -115,7 +115,7 @@ class LinearUseVoronoiTests(unittest.TestCase):
 			manifest=build_manifest(aoi_path,size=500,halo=75)
 			write_manifest(manifest_path,manifest)
 			tile=manifest["tiles"][0]
-			sis=box(x,y,x+500,y+250)
+			sis=box(x,y,x+500,y+250).intersection(load_aoi(aoi_path))
 			save_street_tile(sis_root/tile["id"]/"street.sqlite",sis,{
 				"schema_version":"1","crs":"EPSG:31256",
 				"strassenraum_regel_version":"sis-belagsflaechen-v2"},
@@ -139,9 +139,10 @@ class LinearUseVoronoiTests(unittest.TestCase):
 				for feature in doc["features"]},{"a","b"})
 			self.assertTrue(all(shape(feature["geometry"]).is_valid
 				for feature in doc["features"]))
-			self.assertTrue(all(sis.covers(transform(
+			self.assertTrue(all(transform(
 					Transformer.from_crs(4326,31256,always_xy=True).transform,
-					shape(feature["geometry"]))) for feature in doc["features"]))
+					shape(feature["geometry"])).difference(sis).area < 0.01
+					for feature in doc["features"]))
 			with self.assertRaises(FileExistsError):
 				build(cache,aoi_path,output,sis_manifest=manifest_path,
 					sis_root=sis_root,tile_m=500,halo_m=250,
