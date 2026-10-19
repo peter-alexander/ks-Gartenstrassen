@@ -7,6 +7,7 @@ No silent fallback to point sampling is permitted.
 
 from shapely.geometry import LineString, Point
 from time import perf_counter
+from threading import Event, Thread
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -69,7 +70,20 @@ def _noded_segments(axes, *, scale=SCALE, progress=None):
 	source=[LineString(pair) for pair in inputs]
 	report(f"Noding (GEOS unary_union): {len(source):,} Segmente; Start")
 	step=perf_counter()
-	noded=unary_union(source)
+	stop=Event()
+	def heartbeat():
+		while not stop.wait(30):
+			report(f"Noding (GEOS unary_union): läuft seit "
+				f"{perf_counter()-step:.0f} s ({len(source):,} Eingabesegmente)")
+	worker=Thread(target=heartbeat,daemon=True)
+	if progress is not None:
+		worker.start()
+	try:
+		noded=unary_union(source)
+	finally:
+		stop.set()
+		if progress is not None:
+			worker.join()
 	report(f"Noding (GEOS unary_union): beendet in {perf_counter()-step:.1f} s")
 	parts=list(noded.geoms) if hasattr(noded,"geoms") else [noded]
 	tree=STRtree(source)
