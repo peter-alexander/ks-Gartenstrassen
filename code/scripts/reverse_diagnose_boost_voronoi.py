@@ -20,8 +20,7 @@ from scripts.wienwide_grid import load_aoi
 def _reproduce_order(original_base,site,selected):
 	"""Maintain the previous Boost insertion order: base followed by suspect."""
 	selected_set=set(selected)
-	if len(selected_set)!=len(selected) or any(
-			key not in selected_set for key in ()):
+	if len(selected_set)!=len(selected) or not selected_set.issubset(set(original_base)):
 		raise ValueError("Ungültige Segmentauswahl")
 	return [key for key in original_base if key in selected_set]+[site]
 
