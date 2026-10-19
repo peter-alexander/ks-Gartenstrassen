@@ -101,8 +101,8 @@ SIS-Straßenmaske.
 bash code/scripts/run-cgal-voronoi-debug-wien.sh
 ```
 
-Ein Ausschnitt kann mit `--bbox XMIN YMIN XMAX YMAX` in EPSG:31256
-festgelegt werden. Ausgabe:
+Es wird immer **ganz Wien** gerechnet und mit der SIS-Maske verschnitten.
+Ausgabe:
 `output/cgal_segment_voronoi_sis_debug.geojson` (EPSG:4326).
 
 **Debug, noch keine Fachfreigabe:** Kurvenlinearisierung und Zellzuordnung
