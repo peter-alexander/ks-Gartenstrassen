@@ -159,28 +159,6 @@ def _atomic_geojson(path,features):
 			stage.unlink(missing_ok=True)
 
 
-def _write_diagnostics(path,failures):
-	to_wgs=Transformer.from_crs(TARGET_CRS,WGS84,always_xy=True).transform
-	features=[]
-	for failure in failures:
-		for item in failure["members"]:
-			features.append({
-				"type":"Feature",
-				"id":item["object_id"],
-				"properties":{
-					"edge_id":failure["edge_id"],
-					"object_id":item["object_id"],
-					"feature_name":item["feature_name"],
-					"edge_percentage_from":item["edge_percentage_from"],
-					"edge_percentage_to":item["edge_percentage_to"],
-					"length_m":item["length_m"],
-					"problem":failure["error"],
-				},
-				"geometry":mapping(transform(to_wgs,item["geometry"])),
-			})
-	_atomic_geojson(path,features)
-
-
 def _write_geojson(path,axes):
 	path=Path(path)
 	if path.exists() or path.is_symlink():
@@ -229,12 +207,9 @@ def _write_geojson(path,axes):
 			stage.unlink(missing_ok=True)
 
 
-def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0,
-		diagnostics=None):
+def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0):
 	source,aoi_path,output_db,geojson=map(Path,
 		(source,aoi_path,output_db,geojson))
-	diagnostics=(Path(diagnostics) if diagnostics is not None
-		else geojson.with_name(geojson.stem+"_probleme.geojson"))
 	if output_db.exists() or output_db.is_symlink():
 		raise FileExistsError(output_db)
 	if geojson.exists() or geojson.is_symlink():
@@ -312,11 +287,7 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0,
 					[item[1] for item in items],
 					sample_spacing_m=sample_spacing_m)
 			except ValueError as exc:
-				failures.append({
-					"edge_id":edge_id,
-					"error":str(exc),
-					"members":members_by_edge[edge_id],
-				})
+				failures.append((edge_id,len(items),str(exc)))
 				continue
 			names=sorted({m["feature_name"] for m in members_by_edge[edge_id]
 				if m["feature_name"]})
@@ -329,14 +300,13 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0,
 				"audit":audit,
 			})
 		if failures:
-			_write_diagnostics(diagnostics,failures)
 			preview=", ".join(
-				f"{item['edge_id']} ({len(item['members'])} Linien)"
-				for item in failures[:10])
-			more=(f"; weitere {len(failures)-10}" if len(failures)>10 else "")
+				f"{edge_id} ({count} Linien: {reason})"
+				for edge_id,count,reason in failures[:10])
+			more=f"; weitere {len(failures)-10}" if len(failures)>10 else ""
 			raise ValueError(
 				f"{len(failures)} edge_id-Gruppen erzeugen keine einfache "
-				f"Mittelachse: {preview}{more}. Diagnose: {diagnostics}")
+				f"Mittelachse: {preview}{more}")
 		with sqlite3.connect(temp) as dst:
 			dst.executescript("""
 				CREATE TABLE metadata(
@@ -454,13 +424,10 @@ def main():
 	parser.add_argument("--geojson",type=Path,required=True,
 		help="WGS84-Kontroll-GeoJSON der Mittelachsen")
 	parser.add_argument("--sample-spacing-m",type=float,default=5.0)
-	parser.add_argument("--diagnostics",type=Path,
-		help="GeoJSON der LINEAR_USE-Quelllinien problematischer edge_id-Gruppen")
 	args=parser.parse_args()
 	print(json.dumps(build(
 		args.source,args.aoi,args.out,args.geojson,
-		sample_spacing_m=args.sample_spacing_m,
-		diagnostics=args.diagnostics),
+		sample_spacing_m=args.sample_spacing_m),
 		ensure_ascii=False,indent=2))
 
 
