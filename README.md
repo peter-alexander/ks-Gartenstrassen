@@ -48,7 +48,13 @@ SIS_WIEN_KEEP_WORK=1 bash code/scripts/run-sis-v2-wien.sh
 bash code/scripts/run-gip-parallel-wien.sh
 ```
 
-Parallelkanten werden bislang **nur erkannt, nicht vereinigt**. Die Veröffentlichung
+Parallele Kanten werden im Schritt `gip-merge` **vor der Voronoi-Zuordnung
+konservativ zu Straßenraumgruppen zusammengefasst**. Original-GIP-IDs,
+Quelllinien und sämtliche 5-m-Stützpunktkoordinaten bleiben nachvollziehbar.
+Die Gruppenzuordnung steht dauerhaft in
+`output/gip_kanten_zuordnung.csv` und `original_gip_ids` im GeoJSON.
+Mehrdeutige Rad-/Fußweganbindungen bleiben unabhängig; die einzelnen
+Gruppen sind anhand direkter Parallel-Evidenz abgesichert. Die Veröffentlichung
 enthält FOW 2/3/14 ab 100 m²; Fuß-/Radwege 15/504/505 dienen nur als
 begleitende Infrastruktur beim Parallelabgleich.
 
