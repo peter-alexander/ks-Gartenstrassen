@@ -92,7 +92,7 @@ class CachedViennaDataTests(unittest.TestCase):
 		with sqlite3.connect(qa) as db:
 			db.execute("UPDATE qa_provenienz SET value=? WHERE key='partition_sha256'",
 				(json.dumps("other"),))
-		with self.assertRaisesRegex(ValueError,"anderen"):
+		with self.assertRaisesRegex(ValueError,"anderem Partitionsstand"):
 			verify("qa",self.cached)
 
 
