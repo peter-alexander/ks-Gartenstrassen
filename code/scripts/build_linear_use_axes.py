@@ -206,6 +206,7 @@ def _write_geojson(path,axes):
 						"linear_use_count":item["source_count"],
 						"linear_use_object_ids":item["object_ids"],
 						"feature_names":item["feature_names"],
+						"geometry_method":item["audit"].method,
 						"mean_axis_length_m":item["geometry"].length,
 						"source_length_min_m":item["audit"].min_length_m,
 						"source_length_max_m":item["audit"].max_length_m,
@@ -357,6 +358,7 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0,
 					linear_use_count INTEGER NOT NULL,
 					linear_use_object_ids TEXT NOT NULL,
 					feature_names TEXT NOT NULL,
+					geometry_method TEXT NOT NULL,
 					mean_axis_length_m REAL NOT NULL,
 					sample_points INTEGER NOT NULL,
 					reversed_lines INTEGER NOT NULL,
@@ -378,11 +380,11 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0,
 			for item in axes:
 				audit=item["audit"]
 				dst.execute(
-					"INSERT INTO edge_axes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+					"INSERT INTO edge_axes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
 					(item["edge_id"],item["source_count"],
 						_json_list(item["object_ids"]),
 						_json_list(item["feature_names"]),
-						item["geometry"].length,audit.sample_points,
+						audit.method,item["geometry"].length,audit.sample_points,
 						audit.reversed_lines,audit.min_length_m,
 						audit.max_length_m,audit.length_ratio_min_max,
 						audit.max_correspondence_spread_m,
@@ -405,6 +407,10 @@ def build(source,aoi_path,output_db,geojson,*,sample_spacing_m=5.0,
 				"edge_axes":len(axes),
 				"multi_line_edge_ids":sum(
 					item["source_count"]>1 for item in axes),
+				"merged_segment_edge_ids":sum(
+					item["audit"].method=="line_merge" for item in axes),
+				"mean_axis_edge_ids":sum(
+					item["audit"].method=="mean_axis" for item in axes),
 				"max_linear_use_per_edge":max(
 					item["source_count"] for item in axes),
 			}
