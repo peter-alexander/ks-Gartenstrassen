@@ -42,8 +42,8 @@ def _read_sites(lines, owners, origin, scale):
 				(b[0]/scale+ox,b[1]/scale+oy))).interpolate(0.5,normalized=True)
 		else:
 			raise ValueError(f"Site-Zeile {i}: ungültiges Format")
-		if not ids:
-			raise ValueError(f"Site-Zeile {i}: CGAL-Site nicht in LINEAR_USE")
+		# Frame or CGAL-derived generators may have no LINEAR_USE owner.
+		# Keep them as ownerless rather than invent an edge_id.
 		result.append((geom,frozenset(ids)))
 	return result
 
@@ -57,7 +57,8 @@ def classify_polygon_generators(polygons, sites):
 		raise ValueError("Keine CGAL-Sites")
 	geoms=[s[0] for s in sites]
 	tree=STRtree(geoms)
-	stats={"unambiguous":0,"ambiguous":0,"missing":0}
+	stats={"unambiguous":0,"ambiguous":0,"missing":0,
+		"ownerless_generator_faces":0}
 	owners=[]
 	for polygon in polygons:
 		# Points on boundaries can be shared by adjacent cells. Querying
@@ -67,6 +68,10 @@ def classify_polygon_generators(polygons, sites):
 		if not owners_found:
 			owners.append(None)
 			stats["missing"]+=1
+		elif frozenset() in owners_found:
+			owners.append(None)
+			stats["ambiguous"]+=1
+			stats["ownerless_generator_faces"]+=1
 		elif len(owners_found)==1 and len(next(iter(owners_found)))==1:
 			owners.append(next(iter(next(iter(owners_found)))))
 			stats["unambiguous"]+=1
