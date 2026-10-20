@@ -21,6 +21,7 @@ on:
       - "code/scripts/cgal_shared_boundary_audit.py"
       - "code/scripts/cgal_native_source_audit.py"
       - "code/scripts/cgal_degenerate_ray_sides.py"
+      - "code/scripts/cgal_endpoint_dual_candidates.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
