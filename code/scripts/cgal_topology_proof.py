@@ -4,8 +4,6 @@ This is deliberately a *small-network diagnostic*, not the Vienna builder.
 No cell is labelled unless every non-window boundary section is covered by
 labelled CGAL dual edges and all incident site pairs share one generator.
 """
-from collections import defaultdict
-
 from shapely.geometry import LineString
 from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
@@ -58,14 +56,15 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7):
 			generators.append(None)
 			stats["missing_boundary_labels"]+=1
 			continue
+		if len(set(site_pairs))<2:
+			# One bisector does not reveal which adjacent cell we occupy.
+			generators.append(None)
+			stats["insufficient_incidence"]+=1
+			continue
 		common=set.intersection(*(set(p) for p in site_pairs))
 		if len(common)!=1:
 			generators.append(None)
 			stats["conflicting_labels"]+=1
-		elif len(set(site_pairs))<2:
-			# A single bisector never proves which side of it we occupy.
-			generators.append(None)
-			stats["insufficient_incidence"]+=1
 		else:
 			generators.append(next(iter(common)))
 			stats["proven"]+=1
