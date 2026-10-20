@@ -15,6 +15,7 @@ on:
       - "code/scripts/cgal_subface_validation.py"
       - "code/scripts/cgal_repair_test_cells.py"
       - "code/scripts/cgal_generator_mismatch_audit.py"
+      - "code/scripts/cgal_grid_conflict_audit.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 

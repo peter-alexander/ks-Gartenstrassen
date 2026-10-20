@@ -20,6 +20,7 @@ from scripts.cgal_unresolved_site_audit import inspect_unresolved_faces
 from scripts.cgal_internal_dual_audit import audit_internal_duals
 from scripts.cgal_subface_validation import inspect_subfaces
 from scripts.cgal_repair_test_cells import repair_test_cells
+from scripts.cgal_grid_conflict_audit import audit_conflicting_faces
 
 
 def _site_geometry(site,scale):
@@ -95,6 +96,9 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			carried_polygons,carried_labels,edges)
 		carried_stats["internal_duals"]=audit_internal_duals(
 			carried_polygons,carried_labels,segments)
+		if fixture=="grid":
+			carried_stats["grid_conflicts"]=audit_conflicting_faces(
+				carried_polygons,carried_labels,segments)
 		if fixture=="oblique":
 			target=carried_stats["internal_duals"][0]["face_index"]
 			carried_stats["subface_validation"]=inspect_subfaces(
@@ -103,7 +107,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
