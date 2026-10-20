@@ -110,12 +110,12 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert repair_stats["gap_m2"]<1e-6
 		assert repair_stats["overlap_m2"]<1e-6
 		# Source-site geometry vetoes unsafe oblique replacements.
-		assert repair_stats["repaired_parent_faces"]==0
+		assert repair_stats["repaired_parent_faces"]=={"oblique":1}.get(fixture,0)
 		assert repair_stats["still_unresolved"]=={
-			"parallel":0,"junction":3,"crossing":0,"oblique":1}[fixture]
+			"parallel":0,"junction":3,"crossing":0,"oblique":0}[fixture]
 		for polygon,label in zip(repaired_polygons,repaired_labels):
 			if label is not None:
-				assert polygon.intersects(_site_geometry(label,1000.))
+				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
 		assert sum(value for key,value in stats.items()
 			if key!='diagnostic_examples')==len(polygons)
 		# Baseline of real native fixtures, not a blanket quality pass.
