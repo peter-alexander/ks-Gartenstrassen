@@ -56,7 +56,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		temp=Path(temp)
 		command=[str(Path(binary).resolve()),"--edges",str(temp/"dual.txt"),
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
-			str(temp/"labelled.txt"),"--bounds","-5000","-5000","25000","25000"]
+			str(temp/"labelled.txt"),"--edge-topology",
+			str(temp/"topology.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
 			capture_output=True,timeout=90,check=True)
 		native=json.loads(result.stdout)
@@ -64,6 +65,17 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			raise AssertionError(native)
 		edges=list(labelled_edges_file(temp/"labelled.txt"))
 		assert native["labelled_edges"]==len(edges)
+		topology=(temp/"topology.txt").read_text(encoding="utf-8").splitlines()
+		assert len(topology)==len(edges)
+		endpoint_ids=[]
+		for index,record in enumerate(topology):
+			fields=record.split(maxsplit=4)
+			assert fields[:2]==["T",str(index)]
+			assert fields[2] in ("0","1") and fields[3]=="CW"
+			assert " | CCW " in fields[4]
+			if fields[2]=="1":
+				endpoint_ids.append(index)
+		assert native["endpoint_duals"]==len(endpoint_ids)
 		assert len(edges)>0
 		segments=list(metric_labelled_segments_file(temp/"labelled.txt",window))
 		assert segments,"Native CGAL fixture produced no clipped dual edges"
@@ -113,6 +125,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				carried_stats["shared_boundary_audit"],edges,segments,window)
 			carried_stats["degenerate_ray_sides"]=audit_degenerate_ray_sides(
 				carried_stats["native_source_audit"])
+			for finding in carried_stats["degenerate_ray_sides"]:
+				assert set(finding["native_edge_ids"]).issubset(endpoint_ids)
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
@@ -170,7 +184,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			stats["missing_boundary_labels"])
 		assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
-			"cells":len(polygons),**stats,"experimental_noded":new_stats,
+			"cells":len(polygons),"native_endpoint_duals":len(endpoint_ids),**stats,"experimental_noded":new_stats,
 			"experimental_carried":carried_stats,
 			"experimental_repair":repair_stats}
 

@@ -77,7 +77,7 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path;
+	std::string path,site_path,labelled_path,topology_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
@@ -88,6 +88,8 @@ int main(int argc,char** argv) {
 			site_path=argv[++i];
 		} else if (option=="--labelled-edges" && i+1<argc) {
 			labelled_path=argv[++i];
+		} else if (option=="--edge-topology" && i+1<argc) {
+			topology_path=argv[++i];
 		} else if (option=="--bounds" && i+4<argc) {
 			xmin=std::stod(argv[++i]);
 			ymin=std::stod(argv[++i]);
@@ -159,17 +161,38 @@ int main(int argc,char** argv) {
 			throw std::runtime_error("Edge output write failed");
 		}
 		std::size_t labelled_edges=0;
+		std::size_t endpoint_duals=0;
 		if (!labelled_path.empty()) {
 			std::ofstream labelled(labelled_path);
 			if (!labelled) throw std::runtime_error("Cannot create labelled output");
 			labelled << std::setprecision(17);
 			Recorder labelled_recorder{labelled,xmin,ymin,xmax,ymax};
+			std::ofstream topology;
+			if (!topology_path.empty()) {
+				topology.open(topology_path);
+				if (!topology) throw std::runtime_error("Cannot create topology output");
+				topology << std::setprecision(17);
+			}
 			for (auto edge=diagram.finite_edges_begin();
 					edge!=diagram.finite_edges_end();++edge) {
 				const auto face=edge->first;
 				const int i=edge->second;
 				const auto a=face->vertex(diagram.cw(i))->site();
 				const auto b=face->vertex(diagram.ccw(i))->site();
+				const auto endpoint_of=[](const auto& point,const auto& segment) {
+					return point.is_point() && segment.is_segment() &&
+						(point.point()==segment.source() || point.point()==segment.target());
+				};
+				const bool endpoint_pair=endpoint_of(a,b) || endpoint_of(b,a);
+				if (endpoint_pair) ++endpoint_duals;
+				if (topology.is_open()) {
+					topology << "T " << labelled_edges << " " << (endpoint_pair?1:0)
+						<< " CW ";
+					write_site(topology,a);
+					topology << " | CCW ";
+					write_site(topology,b);
+					topology << "\n";
+				}
 				labelled << "E " << labelled_edges << " ";
 				write_site(labelled,a);
 				labelled << " | ";
@@ -177,6 +200,9 @@ int main(int argc,char** argv) {
 				labelled << "\n";
 				diagram.draw_dual_edge(*edge,labelled_recorder);
 				++labelled_edges;
+			}
+			if (topology.is_open() && !topology.good()) {
+				throw std::runtime_error("Topology output write failed");
 			}
 			if (!labelled.good()) {
 				throw std::runtime_error("Labelled edge output write failed");
@@ -194,6 +220,7 @@ int main(int argc,char** argv) {
 			<< ",\"rays\":" << recorder.rays
 			<< ",\"lines\":" << recorder.lines
 			<< ",\"labelled_edges\":" << labelled_edges
+			<< ",\"endpoint_duals\":" << endpoint_duals
 			<< ",\"point_sites\":" << point_sites
 			<< ",\"segment_sites\":" << segment_sites
 			<< "}" << std::endl;
