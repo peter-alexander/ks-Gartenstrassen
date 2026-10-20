@@ -27,9 +27,12 @@ jobs:
       - name: Validate small native dual output
         run: |
           printf '0 0 10000 0\n0 10000 10000 10000\n20000 0 30000 0\n' |
-            build/cgal/cgal_voronoi_edges --edges /tmp/cgal-dual.txt --sites /tmp/cgal-sites.txt --bounds -5000 -5000 35000 20000
+            build/cgal/cgal_voronoi_edges --edges /tmp/cgal-dual.txt --sites /tmp/cgal-sites.txt --labelled-edges /tmp/cgal-labelled.txt --bounds -5000 -5000 35000 20000
           test -s /tmp/cgal-dual.txt
           test -s /tmp/cgal-sites.txt
+          test -s /tmp/cgal-labelled.txt
+          grep -q "^E [0-9]" /tmp/cgal-labelled.txt
+          grep -Eq "^E [0-9]+ [PS] .* \\| [PS] " /tmp/cgal-labelled.txt
           grep -q "^S " /tmp/cgal-sites.txt
           grep -q "^P " /tmp/cgal-sites.txt
           head -n 5 /tmp/cgal-dual.txt
