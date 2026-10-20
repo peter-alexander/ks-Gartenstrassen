@@ -2,6 +2,7 @@
 // stdin: x1 y1 x2 y2 in integer millimetres, one site per row.
 // --bounds xmin ymin xmax ymax: clip candidate output to this integer-mm window.
 // --edges PATH: write S (segment), R (ray), L (line) records.
+// --sites PATH: export CGAL graph sites (point and segment generators).
 // Parabolic boundaries are linearized by CGAL's Parabola_segment_2::draw.
 // Never treat this approximation as a verified exact polygon partition.
 #include <CGAL/Simple_cartesian.h>
@@ -59,13 +60,15 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path;
+	std::string path,site_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
 		if (option=="--edges" && i+1<argc) {
 			path=argv[++i];
+		} else if (option=="--sites" && i+1<argc) {
+			site_path=argv[++i];
 		} else if (option=="--bounds" && i+4<argc) {
 			xmin=std::stod(argv[++i]);
 			ymin=std::stod(argv[++i]);
@@ -78,7 +81,7 @@ int main(int argc,char** argv) {
 		}
 	}
 	if (path.empty() || !has_bounds || !(xmin<xmax && ymin<ymax)) {
-		std::cerr << "Usage: --edges FILE --bounds XMIN YMIN XMAX YMAX (mm)\n";
+		std::cerr << "Usage: --edges FILE [--sites FILE] --bounds XMIN YMIN XMAX YMAX (mm)\n";
 		return 2;
 	}
 	try {
@@ -99,6 +102,33 @@ int main(int argc,char** argv) {
 		if (!diagram.is_valid(false,1)) {
 			throw std::runtime_error("CGAL segment Delaunay graph invalid");
 		}
+		// A graph vertex stores the actual CGAL generating site, unlike
+		// draw_dual() which exports only anonymous boundaries. This is an
+		// independent diagnostic dataset; polygon ownership needs a
+		// subsequent explicit face-to-site association.
+		std::size_t point_sites=0,segment_sites=0;
+		if (!site_path.empty()) {
+			std::ofstream sites(site_path);
+			if (!sites) throw std::runtime_error("Cannot create sites output");
+			sites << std::setprecision(17);
+			for (auto vertex=diagram.finite_vertices_begin();
+					vertex!=diagram.finite_vertices_end();++vertex) {
+				const auto site=vertex->site();
+				if (site.is_point()) {
+					const auto p=site.point();
+					sites << "P " << p.x() << " " << p.y() << "\n";
+					++point_sites;
+				} else if (site.is_segment()) {
+					const auto a=site.source(), b=site.target();
+					sites << "S " << a.x() << " " << a.y() << " "
+						<< b.x() << " " << b.y() << "\n";
+					++segment_sites;
+				} else {
+					throw std::runtime_error("Unknown graph site type");
+				}
+			}
+			if (!sites.good()) throw std::runtime_error("Sites output write failed");
+		}
 		std::ofstream out(path);
 		if (!out) {
 			throw std::runtime_error("Cannot create edge output");
@@ -112,7 +142,10 @@ int main(int argc,char** argv) {
 		std::cout << "{\"status\":\"ok\",\"input_segments\":" << n
 			<< ",\"segments\":" << recorder.segments
 			<< ",\"rays\":" << recorder.rays
-			<< ",\"lines\":" << recorder.lines << "}" << std::endl;
+			<< ",\"lines\":" << recorder.lines
+			<< ",\"point_sites\":" << point_sites
+			<< ",\"segment_sites\":" << segment_sites
+			<< "}" << std::endl;
 		return 0;
 	} catch (const std::exception& e) {
 		std::cerr << "CGAL Voronoi export: " << e.what() << "\n";
