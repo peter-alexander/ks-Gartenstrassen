@@ -19,6 +19,7 @@ on:
       - "code/scripts/cgal_directed_boundary_audit.py"
       - "code/scripts/cgal_pair_constraints.py"
       - "code/scripts/cgal_shared_boundary_audit.py"
+      - "code/scripts/cgal_native_source_audit.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
