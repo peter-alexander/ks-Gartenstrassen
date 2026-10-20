@@ -121,6 +121,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		kept_union=unary_union(kept_sources)
 		skeleton_to_kept=skeleton_union.difference(kept_union).length
 		kept_to_skeleton=kept_union.difference(skeleton_union).length
+		assert skeleton_to_kept<1e-8 and kept_to_skeleton<1e-8, (
+			fixture,skeleton_to_kept,kept_to_skeleton)
 		skeleton_removed=full_union.difference(skeleton_union).length
 		skeleton_faces=list(polygonize(unary_union([window.boundary,*skeleton_lines])))
 		skeleton_covered=unary_union(skeleton_faces)
