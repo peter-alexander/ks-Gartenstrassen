@@ -40,14 +40,16 @@ def carried_provenance(window,lines,pairs,*,tolerance=1e-8):
 			for part in geometry.geoms:
 				collect(part)
 	collect(arrangement)
-	tree=STRtree(lines)
+	# Spatial node index avoids the quadratic all-nodes/all-lines loop.
+	node_points=[Point(node) for node in sorted(nodes)]
+	node_tree=STRtree(node_points)
 	labels={}
 	# Transfer source identity by splitting source segments at common nodes.
 	# Boundary recognition below is a key join, not GEOS line intersection.
 	for source_id,line in enumerate(lines):
 		positions={0.,line.length}
-		for node in nodes:
-			point=Point(node)
+		for index in node_tree.query(line.buffer(tolerance)):
+			point=node_points[int(index)]
 			if point.distance(line)<=tolerance:
 				positions.add(line.project(point))
 		ordered=sorted(positions)
