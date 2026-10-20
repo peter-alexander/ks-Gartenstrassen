@@ -60,10 +60,24 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
 			stats["missing_boundary_labels"]+=1
 			if diagnose and len(stats["diagnostic_examples"])<32:
 				missing=boundary.difference(unary_union(covered)) if covered else boundary
+				# A line can be almost coincident without a positive-length
+				# overlap. Report geometric proximity separately from topology.
+				missing_parts=[part for part in getattr(missing,"geoms",(missing,))
+					if isinstance(part,LineString) and part.length>tolerance]
+				all_lines=unary_union(lines)
+				proximity=[{
+					"length_m":part.length,
+					"nearest_input_distance_m":part.distance(all_lines),
+					"hausdorff_to_input_m":min(part.hausdorff_distance(line)
+						for line in lines),
+					"endpoints_to_input_m":[
+						part.boundary.geoms[i].distance(all_lines) for i in range(2)]
+					} for part in missing_parts]
 				stats["diagnostic_examples"].append({
 					"face_index":face_index,"reason":"missing_boundary_labels",
 					"area_m2":polygon.area,"missing_length_m":missing.length,
 					"boundary_length_m":boundary.length,"missing_wkt":missing.wkt,
+					"missing_parts":proximity,
 					"face_bounds":list(polygon.bounds),
 					"labelled_pair_count":len(set(site_pairs))})
 			continue
