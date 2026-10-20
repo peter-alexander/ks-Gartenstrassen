@@ -37,7 +37,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		"parallel":"0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n",
 		"junction":"0 0 20000 0\n10000 0 10000 15000\n10000 15000 20000 20000\n",
 		"crossing":"0 10000 20000 10000\n10000 0 10000 20000\n",
-		"oblique":"0 0 17000 9000\n0 18000 20000 15000\n5000 22000 15000 4000\n"}
+		"oblique":"0 0 17000 9000\n0 18000 20000 15000\n5000 22000 15000 4000\n",
+		"fan":"10000 10000 10000 22000\n10000 10000 22000 10000\n10000 10000 2000 2000\n",
+		"grid":"0 0 0 20000\n10000 0 10000 20000\n20000 0 20000 20000\n0 10000 20000 10000\n",
+		"near_parallel":"0 0 20000 200\n0 3000 20000 3300\n0 8000 20000 8300\n"}
 	if fixture not in fixtures:
 		raise ValueError(f"Unknown fixture {fixture}")
 	input_lines=fixtures[fixture]
@@ -74,9 +77,9 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert label in sites,"Unrecognized native CGAL generator"
 			geometry=_site_geometry(label,1000.)
 			if geometry.geom_type=="Point":
-				assert polygon.covers(geometry),"Proven point site outside cell"
+				assert polygon.distance(geometry)<=1e-8,"Proven point site outside cell"
 			else:
-				assert polygon.intersects(geometry),"Proven segment site outside cell"
+				assert polygon.distance(geometry)<=1e-8,"Proven segment site outside cell"
 		# Experimental comparison; established QA remains the baseline.
 		new_polygons,new_labels,new_stats=reconstruct_test_cells(
 			window,segments,noded_provenance=True)
@@ -84,7 +87,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert sum(new_stats.values())==len(polygons)
 		for polygon,label in zip(new_polygons,new_labels):
 			if label is not None:
-				assert polygon.intersects(_site_geometry(label,1000.))
+				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
 		carried_polygons,carried_labels,carried_stats=reconstruct_test_cells(
 			window,segments,carried_provenance=True,diagnose=True)
 		assert len(carried_polygons)==len(polygons)
@@ -103,16 +106,24 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
-				assert polygon.intersects(_site_geometry(label,1000.))
+				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
 		repaired_polygons,repaired_labels,repair_stats=repair_test_cells(
 			window,segments)
 		assert len(repaired_polygons)==len(repaired_labels)
 		assert repair_stats["gap_m2"]<1e-6
 		assert repair_stats["overlap_m2"]<1e-6
 		# Source-site geometry vetoes unsafe oblique replacements.
-		assert repair_stats["repaired_parent_faces"]=={"oblique":1}.get(fixture,0)
-		assert repair_stats["still_unresolved"]=={
-			"parallel":0,"junction":3,"crossing":0,"oblique":0}[fixture]
+		if fixture in ("parallel","junction","crossing","oblique"):
+			assert repair_stats["repaired_parent_faces"]=={"oblique":1}.get(fixture,0)
+			assert repair_stats["still_unresolved"]=={
+				"parallel":0,"junction":3,"crossing":0,"oblique":0}[fixture]
+		repair_expected={
+			"parallel":(9,9,0),"junction":(8,5,3),
+			"crossing":(8,8,0),"oblique":(13,13,0),
+			"fan":(6,5,1),"grid":(14,10,4),
+			"near_parallel":(5,2,3)}
+		assert (repair_stats["output_faces"],repair_stats["output_proven"],
+			repair_stats["still_unresolved"])==repair_expected[fixture]
 		for polygon,label in zip(repaired_polygons,repaired_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
@@ -124,7 +135,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"parallel":(9,9,0,0,0),
 			"junction":(8,4,2,1,1),
 			"crossing":(8,8,0,0,0),
-			"oblique":(6,2,0,0,4)}
+			"oblique":(6,2,0,0,4),
+			"fan":(6,5,0,1,0),
+			"grid":(14,10,4,0,0),
+			"near_parallel":(5,2,1,0,2)}
 		actual=(len(polygons),stats["proven"],
 			stats["conflicting_labels"],stats["insufficient_incidence"],
 			stats["missing_boundary_labels"])
@@ -141,7 +155,8 @@ def main():
 	parser.add_argument("--diagnose",action="store_true",
 		help="Include concrete unresolved face and missing-boundary geometry")
 	args=parser.parse_args()
-	for fixture in ("parallel","junction","crossing","oblique"):
+	for fixture in ("parallel","junction","crossing","oblique",
+			"fan","grid","near_parallel"):
 		print(json.dumps(verify_native_fixture(args.binary,fixture=fixture,
 			diagnose=args.diagnose),sort_keys=True))
 
