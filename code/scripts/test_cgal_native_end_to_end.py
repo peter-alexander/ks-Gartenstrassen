@@ -11,9 +11,10 @@ import tempfile
 from pathlib import Path
 
 from shapely.geometry import Point,LineString,box
-from shapely.ops import unary_union
+from shapely.ops import unary_union,polygonize
 
 from scripts.cgal_native_adapter import metric_labelled_segments_file
+from scripts.build_cgal_voronoi_geojson import _record_line
 from scripts.cgal_topology_proof import reconstruct_test_cells
 from scripts.cgal_labelled_edges import labelled_edges_file
 from scripts.cgal_unresolved_site_audit import inspect_unresolved_faces
@@ -57,7 +58,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		command=[str(Path(binary).resolve()),"--edges",str(temp/"dual.txt"),
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
-			str(temp/"topology.txt"),"--bounds","-5000","-5000","25000","25000"]
+			str(temp/"topology.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
 			capture_output=True,timeout=90,check=True)
 		native=json.loads(result.stdout)
@@ -76,9 +77,35 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if fields[2]=="1":
 				endpoint_ids.append(index)
 		assert native["endpoint_duals"]==len(endpoint_ids)
+		skeleton_lines=[]
+		for record in (temp/"skeleton.txt").read_text(encoding="utf-8").splitlines():
+			fields=record.split()
+			assert fields[0] in ("S","R","L") and len(fields)==5
+			coords=[float(value)/1000. for value in fields[1:]]
+			shape=_record_line(fields[0],
+				((coords[0],coords[1]),(coords[2],coords[3])),window)
+			if shape is not None and not shape.is_empty:
+				skeleton_lines.extend(shape.geoms if hasattr(shape,"geoms")
+					else [shape])
+		
+
 		assert len(edges)>0
 		segments=list(metric_labelled_segments_file(temp/"labelled.txt",window))
 		assert segments,"Native CGAL fixture produced no clipped dual edges"
+		full_lines=[line for line,_ in segments]
+		full_union=unary_union(full_lines)
+		skeleton_union=unary_union(skeleton_lines)
+		skeleton_outside=skeleton_union.difference(full_union).length
+		skeleton_removed=full_union.difference(skeleton_union).length
+		skeleton_faces=list(polygonize(unary_union([window.boundary,*skeleton_lines])))
+		skeleton_covered=unary_union(skeleton_faces)
+		
+		skeleton_gap=window.difference(skeleton_covered).area
+		if fixture=="grid":
+			assert len(skeleton_faces)==6
+			assert skeleton_removed>0
+			assert skeleton_outside<1e-6
+
 		polygons,labels,stats=reconstruct_test_cells(window,segments,
 			diagnose=diagnose)
 		assert polygons,"Native CGAL produced no polygon faces"
@@ -184,7 +211,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			stats["missing_boundary_labels"])
 		assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
-			"cells":len(polygons),"native_endpoint_duals":len(endpoint_ids),**stats,"experimental_noded":new_stats,
+			"cells":len(polygons),"native_endpoint_duals":len(endpoint_ids),
+			"skeleton_comparison":{"full_fragments":len(full_lines),
+				"skeleton_fragments":len(skeleton_lines),
+				"removed_length_m":skeleton_removed,
+				"extra_length_m":skeleton_outside,
+				"skeleton_faces":len(skeleton_faces),
+				"skeleton_gap_m2":skeleton_gap},**stats,"experimental_noded":new_stats,
 			"experimental_carried":carried_stats,
 			"experimental_repair":repair_stats}
 
