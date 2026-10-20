@@ -25,6 +25,7 @@ from scripts.cgal_directed_boundary_audit import directed_face_edges
 from scripts.cgal_directed_boundary_audit import directed_face_edges,audit_boundary_sides
 from scripts.cgal_pair_constraints import audit_pair_constraints
 from scripts.cgal_shared_boundary_audit import audit_shared_boundaries
+from scripts.cgal_native_source_audit import audit_native_shared_sources
 
 
 def _site_geometry(site,scale):
@@ -107,6 +108,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				carried_polygons,carried_labels,segments)
 			carried_stats["shared_boundary_audit"]=audit_shared_boundaries(
 				carried_polygons,carried_labels,segments)
+			carried_stats["native_source_audit"]=audit_native_shared_sources(
+				carried_stats["shared_boundary_audit"],edges,segments,window)
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
@@ -123,7 +126,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
