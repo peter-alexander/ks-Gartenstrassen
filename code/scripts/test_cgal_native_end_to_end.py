@@ -26,10 +26,17 @@ def _site_geometry(site,scale):
 		(coordinates[2]/scale,coordinates[3]/scale)))
 
 
-def verify_native_fixture(binary):
+def verify_native_fixture(binary, *, fixture='parallel'):
 	# Three parallel, non-intersecting segment generators. Endpoints
 	# introduce point sites that a point-only Delaunay fixture misses.
-	input_lines="0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n"
+	fixtures={
+		"parallel":"0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n",
+		"junction":"0 0 20000 0\n10000 0 10000 15000\n10000 15000 20000 20000\n",
+		"crossing":"0 10000 20000 10000\n10000 0 10000 20000\n",
+		"oblique":"0 0 17000 9000\n0 18000 20000 15000\n5000 22000 15000 4000\n"}
+	if fixture not in fixtures:
+		raise ValueError(f"Unknown fixture {fixture}")
+	input_lines=fixtures[fixture]
 	window=box(-5,-5,25,25)
 	with tempfile.TemporaryDirectory(prefix="cgal-native-test-") as temp:
 		temp=Path(temp)
@@ -66,7 +73,18 @@ def verify_native_fixture(binary):
 			else:
 				assert polygon.intersects(geometry),"Proven segment site outside cell"
 		assert sum(stats.values())==len(polygons)
-		return {"native_edges":len(edges),"clipped_fragments":len(segments),
+		# Baseline of real native fixtures, not a blanket quality pass.
+		# Open cases remain unresolved rather than receiving guessed sites.
+		expected={
+			"parallel":(9,9,0,0,0),
+			"junction":(8,4,2,1,1),
+			"crossing":(8,8,0,0,0),
+			"oblique":(6,2,0,0,4)}
+		actual=(len(polygons),stats["proven"],
+			stats["conflicting_labels"],stats["insufficient_incidence"],
+			stats["missing_boundary_labels"])
+		assert actual==expected[fixture],(fixture,actual,expected[fixture])
+		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
 			"cells":len(polygons),**stats}
 
 
@@ -74,7 +92,8 @@ def main():
 	parser=argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--binary",type=Path,required=True)
 	args=parser.parse_args()
-	print(json.dumps(verify_native_fixture(args.binary),sort_keys=True))
+	for fixture in ("parallel","junction","crossing","oblique"):
+		print(json.dumps(verify_native_fixture(args.binary,fixture=fixture),sort_keys=True))
 
 
 if __name__=="__main__":

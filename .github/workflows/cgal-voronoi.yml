@@ -4,6 +4,14 @@ on:
   push:
     paths:
       - "code/cgal/**"
+      - "code/scripts/test_cgal_native_end_to_end.py"
+      - ".github/workflows/cgal-voronoi.yml"
+  pull_request:
+    paths:
+      - "code/cgal/**"
+      - "code/scripts/test_cgal_native_end_to_end.py"
+      - "code/scripts/cgal_native_adapter.py"
+      - "code/scripts/cgal_topology_proof.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
