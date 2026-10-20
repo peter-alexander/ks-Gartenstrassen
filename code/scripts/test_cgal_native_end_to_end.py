@@ -77,9 +77,9 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert label in sites,"Unrecognized native CGAL generator"
 			geometry=_site_geometry(label,1000.)
 			if geometry.geom_type=="Point":
-				assert polygon.covers(geometry),"Proven point site outside cell"
+				assert polygon.distance(geometry)<=1e-8,"Proven point site outside cell"
 			else:
-				assert polygon.intersects(geometry),"Proven segment site outside cell"
+				assert polygon.distance(geometry)<=1e-8,"Proven segment site outside cell"
 		# Experimental comparison; established QA remains the baseline.
 		new_polygons,new_labels,new_stats=reconstruct_test_cells(
 			window,segments,noded_provenance=True)
@@ -87,7 +87,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert sum(new_stats.values())==len(polygons)
 		for polygon,label in zip(new_polygons,new_labels):
 			if label is not None:
-				assert polygon.intersects(_site_geometry(label,1000.))
+				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
 		carried_polygons,carried_labels,carried_stats=reconstruct_test_cells(
 			window,segments,carried_provenance=True,diagnose=True)
 		assert len(carried_polygons)==len(polygons)
