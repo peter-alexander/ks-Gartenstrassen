@@ -16,11 +16,12 @@ from time import perf_counter
 
 from pyproj import Transformer
 import numpy as np
-from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, prepare, union_all
-from shapely.geometry import LineString, Polygon, box, mapping
+from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, prepare, union_all, make_valid
+from shapely.geometry import LineString, Polygon, MultiPolygon, box, mapping
 from shapely.ops import polygonize_full, transform, unary_union
 from shapely.strtree import STRtree
 from shapely.wkb import loads
+from shapely.validation import explain_validity
 
 from scripts.cgal_segment_input import SCALE, _noded_segments
 from scripts.wienwide_grid import checksum, load_aoi, read_manifest
@@ -277,6 +278,48 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 		"mask_tile_parts":len(mask_parts)}
 
 
+
+def _polygonal(geometry):
+	"""Collect polygonal make_valid parts without fabricating buffered area."""
+	if isinstance(geometry,Polygon):
+		return [geometry] if not geometry.is_empty and geometry.area>0 else []
+	if isinstance(geometry,MultiPolygon):
+		return [p for p in geometry.geoms if not p.is_empty and p.area>0]
+	if hasattr(geometry,"geoms"):
+		return [p for g in geometry.geoms for p in _polygonal(g)]
+	return []
+
+
+def _export_wgs84_polygon(metric, to_wgs, to_metric, *, edge_id,
+		tolerance_m2=0.01):
+	"""Repair only degenerate projection rings proven to preserve footprint."""
+	wgs=transform(to_wgs,metric)
+	if wgs.is_valid and not wgs.is_empty:
+		return wgs, None
+	reason=explain_validity(wgs)
+	if not reason.startswith("Too few points in geometry component"):
+		raise ValueError(f"{edge_id}: GeoJSON-Transformation ungültig: {reason}")
+	candidate=make_valid(wgs)
+	parts=_polygonal(candidate)
+	if not parts:
+		raise ValueError(f"{edge_id}: Transformation ohne polygonale Fläche: {reason}")
+	repaired=union_all(parts)
+	if not repaired.is_valid or repaired.is_empty:
+		raise ValueError(f"{edge_id}: make_valid lieferte ungültige Fläche")
+	roundtrip=transform(to_metric,repaired)
+	if not roundtrip.is_valid:
+		raise ValueError(f"{edge_id}: reparierte Fläche nach Rückprojektion ungültig")
+	try:
+		symdiff=metric.symmetric_difference(roundtrip).area
+	except Exception as exc:
+		raise ValueError(f"{edge_id}: Flächentreue nicht nachweisbar: {exc}") from exc
+	if symdiff>tolerance_m2:
+		raise ValueError(f"{edge_id}: make_valid verändert Fläche um "
+			f"{symdiff:.9f} m² (zulässig {tolerance_m2:.9f} m²)")
+	return repaired, {"edge_id":edge_id,"reason":reason,
+		"method":"make_valid_polygonal_area_verified",
+		"symmetric_difference_m2":symdiff}
+
 def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	if not math.isfinite(timeout) or timeout<=0:
 		raise ValueError("Timeout muss positiv sein")
@@ -325,19 +368,28 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 		groups,balance=_assign(candidates,mask,owners,origin,
 			mask_parts=mask_parts)
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
 		features=[]
+		repairs=[]
 		for edge_id,geom in sorted(groups.items()):
+			converted,repair=_export_wgs84_polygon(geom,to_wgs,to_metric,
+				edge_id=edge_id)
+			if repair is not None:
+				repairs.append(repair)
 			features.append({"type":"Feature",
 				"properties":{"edge_id":edge_id,"area_m2":geom.area,
 					"method":"cgal_segment_voronoi",
 					"debug":True,"curve_linearization":"cgal_draw"},
-				"geometry":mapping(transform(to_wgs,geom))})
+				"geometry":mapping(converted)})
+		print(f"GeoJSON-Export: {len(repairs)} flächentreu reparierte "
+			"degenerierte Ringe",flush=True)
 		collection={"type":"FeatureCollection",
 			"features":features,
 			"metadata":{"schema":"cgal-segment-voronoi-sis-debug-v1",
 				"crs":"EPSG:4326","bbox_31256":list(window.bounds),
 				"source_segments":len(owners),"dual_primitives":stats,
 				"polygonization":topology,"balance":balance,
+				"export_geometry_repairs":repairs,
 				"experimental":True,
 				"note":"CGAL-curve tessellation and cell ownership require "
 					"independent geometric acceptance tests."}}
