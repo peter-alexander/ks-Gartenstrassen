@@ -35,4 +35,18 @@ jobs:
           grep -Eq "^E [0-9]+ [PS] .* \\| [PS] " /tmp/cgal-labelled.txt
           grep -q "^S " /tmp/cgal-sites.txt
           grep -q "^P " /tmp/cgal-sites.txt
+          PYTHONPATH=code python3 - <<'PY'
+          from collections import Counter
+          from scripts.cgal_labelled_edges import labelled_edges_file
+          with open("/tmp/cgal-dual.txt",encoding="utf-8") as stream:
+              plain=Counter(line.strip() for line in stream)
+          labelled=Counter()
+          edges=0
+          for idx,sites,fragments in labelled_edges_file("/tmp/cgal-labelled.txt"):
+              edges+=1
+              for kind,coords in fragments:
+                  labelled[f"{kind} "+ " ".join(format(x,".17g") for x in coords)]+=1
+          assert edges>0
+          assert plain==labelled,(plain-labelled,labelled-plain)
+          PY
           head -n 5 /tmp/cgal-dual.txt
