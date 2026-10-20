@@ -70,6 +70,15 @@ def classify_polygon_generators(polygons, sites, *, window_bounds=None):
 		"missing_boundary_faces":0,"missing_interior_faces":0,
 		"ambiguous_boundary_faces":0,"ambiguous_interior_faces":0}
 	MAX_EXAMPLES_PER_CATEGORY=12
+	# Separate numerical slivers from substantial missing/ambiguous cells.
+	# Area in m²; bins are disjoint and cover every positive polygon.
+	area_bins=((0.,0.01),(0.01,1.),(1.,100.),
+		(100.,10000.),(10000.,float("inf")))
+	stats["area_distribution"]={
+		kind:{"count":0,"area_m2":0.,
+			"by_size":[{"min_m2":lo,"max_m2":hi if hi!=float("inf") else None,
+				"count":0,"area_m2":0.} for lo,hi in area_bins]}
+		for kind in ("unambiguous","ambiguous","missing")}
 	owners=[]
 	for face_index,polygon in enumerate(polygons):
 		# Points on boundaries can be shared by adjacent cells. Querying
@@ -90,6 +99,16 @@ def classify_polygon_generators(polygons, sites, *, window_bounds=None):
 			owners.append(None)
 			stats["ambiguous"]+=1
 		category="missing" if not owners_found else "ambiguous"
+		status="unambiguous" if owners[-1] is not None else category
+		distribution=stats["area_distribution"][status]
+		distribution["count"]+=1
+		distribution["area_m2"]+=polygon.area
+		for bin_data in distribution["by_size"]:
+			if polygon.area>=bin_data["min_m2"] and (
+				bin_data["max_m2"] is None or polygon.area<bin_data["max_m2"]):
+				bin_data["count"]+=1
+				bin_data["area_m2"]+=polygon.area
+				break
 		boundary=False
 		if window_bounds is not None:
 			bounds=polygon.bounds

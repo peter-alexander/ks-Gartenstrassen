@@ -50,6 +50,19 @@ class FaceSiteTests(unittest.TestCase):
 		self.assertTrue(stats["unresolved_examples"][0]["touches_window_boundary"])
 		self.assertFalse(stats["unresolved_interior_examples"][0]["touches_window_boundary"])
 
+	def test_area_distribution_exposes_large_missing_and_sliver_faces(self):
+		sites=[(Point(1,1),frozenset({"known"}))]
+		polygons=[box(0,0,2,2),box(20,20,21,21),
+			box(30,30,130,130),box(5,5,5.001,5.001)]
+		labels,stats=classify_polygon_generators(polygons,sites)
+		self.assertEqual(labels,["known",None,None,None])
+		missing=stats["area_distribution"]["missing"]
+		self.assertEqual(missing["count"],3)
+		self.assertAlmostEqual(missing["area_m2"],10001.000001)
+		self.assertEqual([v["count"] for v in missing["by_size"]],
+			[1,0,1,0,1])
+		self.assertEqual(stats["area_distribution"]["unambiguous"]["count"],1)
+
 	def test_unmapped_site_is_kept_ownerless(self):
 		owners={((0,0),(10000,0)):"street"}
 		sites=_read_sites(["S 0 0 10000 0",
