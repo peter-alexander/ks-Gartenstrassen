@@ -253,7 +253,8 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 	return merged,{"gap_m2":gap,"overlap_m2":overlap,
 		"street_m2":mask.area,"assigned_m2":union.area,
 		"intersections_calculated":intersections_calculated,
-		"batch_size":batch_size,\n\t\t"mask_tile_parts":len(mask_parts)}
+		"batch_size":batch_size,
+		"mask_tile_parts":len(mask_parts)}
 
 
 def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
