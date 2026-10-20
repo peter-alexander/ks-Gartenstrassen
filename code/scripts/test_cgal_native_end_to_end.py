@@ -101,6 +101,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		skeleton_covered=unary_union(skeleton_faces)
 		
 		skeleton_gap=window.difference(skeleton_covered).area
+		if fixture=="grid":
+			assert len(skeleton_faces)==6
+			assert skeleton_removed>0
+			assert skeleton_outside<1e-6
 
 		polygons,labels,stats=reconstruct_test_cells(window,segments,
 			diagnose=diagnose)
