@@ -117,6 +117,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert repair_stats["repaired_parent_faces"]=={"oblique":1}.get(fixture,0)
 			assert repair_stats["still_unresolved"]=={
 				"parallel":0,"junction":3,"crossing":0,"oblique":0}[fixture]
+		repair_expected={
+			"parallel":(9,9,0),"junction":(8,5,3),
+			"crossing":(8,8,0),"oblique":(13,13,0),
+			"fan":(6,5,1),"grid":(14,10,4),
+			"near_parallel":(5,2,3)}
+		assert (repair_stats["output_faces"],repair_stats["output_proven"],
+			repair_stats["still_unresolved"])==repair_expected[fixture]
 		for polygon,label in zip(repaired_polygons,repaired_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
@@ -128,12 +135,14 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"parallel":(9,9,0,0,0),
 			"junction":(8,4,2,1,1),
 			"crossing":(8,8,0,0,0),
-			"oblique":(6,2,0,0,4)}
+			"oblique":(6,2,0,0,4),
+			"fan":(6,5,0,1,0),
+			"grid":(14,10,4,0,0),
+			"near_parallel":(5,2,1,0,2)}
 		actual=(len(polygons),stats["proven"],
 			stats["conflicting_labels"],stats["insufficient_incidence"],
 			stats["missing_boundary_labels"])
-		if fixture in expected:
-			assert actual==expected[fixture],(fixture,actual,expected[fixture])
+		assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
 			"cells":len(polygons),**stats,"experimental_noded":new_stats,
 			"experimental_carried":carried_stats,
