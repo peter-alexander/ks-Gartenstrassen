@@ -17,6 +17,7 @@ from scripts.cgal_native_adapter import metric_labelled_segments_file
 from scripts.cgal_topology_proof import reconstruct_test_cells
 from scripts.cgal_labelled_edges import labelled_edges_file
 from scripts.cgal_unresolved_site_audit import inspect_unresolved_faces
+from scripts.cgal_internal_dual_audit import audit_internal_duals
 
 
 def _site_geometry(site,scale):
@@ -87,10 +88,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert len(carried_polygons)==len(polygons)
 		carried_stats["site_audit"]=inspect_unresolved_faces(
 			carried_polygons,carried_labels,edges)
+		carried_stats["internal_duals"]=audit_internal_duals(
+			carried_polygons,carried_labels,segments)
 		assert len(carried_stats["site_audit"])==sum(
 			label is None for label in carried_labels)
+		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.intersects(_site_geometry(label,1000.))
