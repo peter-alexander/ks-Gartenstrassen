@@ -3,6 +3,8 @@
 // --bounds xmin ymin xmax ymax: clip candidate output to this integer-mm window.
 // --edges PATH: write S (segment), R (ray), L (line) records.
 // --sites PATH: export CGAL graph sites (point and segment generators).
+// --labelled-edges PATH: E records with both generating sites, followed by
+// the corresponding S/R/L dual primitives (including parabola fragments).
 // Parabolic boundaries are linearized by CGAL's Parabola_segment_2::draw.
 // Never treat this approximation as a verified exact polygon partition.
 #include <CGAL/Simple_cartesian.h>
@@ -22,6 +24,21 @@ using Kernel = CGAL::Simple_cartesian<double>;
 using Traits = CGAL::Segment_Delaunay_graph_filtered_traits_2<Kernel>;
 using Diagram = CGAL::Segment_Delaunay_graph_2<Traits>;
 using Point = Kernel::Point_2;
+
+template <typename Site>
+void write_site(std::ostream& out,const Site& site) {
+	if (site.is_point()) {
+		const auto p=site.point();
+		out << "P " << p.x() << " " << p.y();
+	} else if (site.is_segment()) {
+		const auto a=site.source(),b=site.target();
+		out << "S " << a.x() << " " << a.y() << " "
+			<< b.x() << " " << b.y();
+	} else {
+		throw std::runtime_error("Unknown generating site");
+	}
+}
+
 
 struct Recorder {
 	std::ostream& output;
@@ -60,7 +77,7 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path;
+	std::string path,site_path,labelled_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
@@ -69,6 +86,8 @@ int main(int argc,char** argv) {
 			path=argv[++i];
 		} else if (option=="--sites" && i+1<argc) {
 			site_path=argv[++i];
+		} else if (option=="--labelled-edges" && i+1<argc) {
+			labelled_path=argv[++i];
 		} else if (option=="--bounds" && i+4<argc) {
 			xmin=std::stod(argv[++i]);
 			ymin=std::stod(argv[++i]);
@@ -81,7 +100,7 @@ int main(int argc,char** argv) {
 		}
 	}
 	if (path.empty() || !has_bounds || !(xmin<xmax && ymin<ymax)) {
-		std::cerr << "Usage: --edges FILE [--sites FILE] --bounds XMIN YMIN XMAX YMAX (mm)\n";
+		std::cerr << "Usage: --edges FILE [--sites FILE] [--labelled-edges FILE] --bounds XMIN YMIN XMAX YMAX (mm)\n";
 		return 2;
 	}
 	try {
@@ -139,10 +158,42 @@ int main(int argc,char** argv) {
 		if (!out.good()) {
 			throw std::runtime_error("Edge output write failed");
 		}
+		std::size_t labelled_edges=0;
+		if (!labelled_path.empty()) {
+			std::ofstream labelled(labelled_path);
+			if (!labelled) throw std::runtime_error("Cannot create labelled output");
+			labelled << std::setprecision(17);
+			Recorder labelled_recorder{labelled,xmin,ymin,xmax,ymax};
+			for (auto edge=diagram.finite_edges_begin();
+					edge!=diagram.finite_edges_end();++edge) {
+				const auto face=edge->first;
+				const int i=edge->second;
+				const auto a=face->vertex(diagram.cw(i))->site();
+				const auto b=face->vertex(diagram.ccw(i))->site();
+				labelled << "E " << labelled_edges << " ";
+				write_site(labelled,a);
+				labelled << " | ";
+				write_site(labelled,b);
+				labelled << "\n";
+				diagram.draw_dual_edge(*edge,labelled_recorder);
+				++labelled_edges;
+			}
+			if (!labelled.good()) {
+				throw std::runtime_error("Labelled edge output write failed");
+			}
+			// Exact same primitive counts are expected in both exports.
+			if (labelled_recorder.segments!=recorder.segments ||
+					labelled_recorder.rays!=recorder.rays ||
+					labelled_recorder.lines!=recorder.lines) {
+				throw std::runtime_error("Labelled/unlabelled dual mismatch");
+			}
+		}
+
 		std::cout << "{\"status\":\"ok\",\"input_segments\":" << n
 			<< ",\"segments\":" << recorder.segments
 			<< ",\"rays\":" << recorder.rays
 			<< ",\"lines\":" << recorder.lines
+			<< ",\"labelled_edges\":" << labelled_edges
 			<< ",\"point_sites\":" << point_sites
 			<< ",\"segment_sites\":" << segment_sites
 			<< "}" << std::endl;
