@@ -106,7 +106,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
-				assert polygon.intersects(_site_geometry(label,1000.))
+				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
 		repaired_polygons,repaired_labels,repair_stats=repair_test_cells(
 			window,segments)
 		assert len(repaired_polygons)==len(repaired_labels)
