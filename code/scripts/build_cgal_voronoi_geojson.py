@@ -422,7 +422,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
 				try:
 					json.dump(report,target,ensure_ascii=False,indent=2,
 						allow_nan=False)
-					target.write("\\n")
+					target.write("\n")
 				except BaseException:
 					staged.unlink(missing_ok=True)
 					raise
