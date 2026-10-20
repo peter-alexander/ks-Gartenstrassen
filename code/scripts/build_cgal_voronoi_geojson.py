@@ -397,7 +397,8 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
 		lines,stats=_read_dual_lines(edges,box(*window.bounds),origin)
 		candidates,topology=_polygon_candidates(lines,box(*window.bounds))
 		face_labels,face_stats=classify_polygon_generators_file(
-			candidates,sites,owners,origin,SCALE)
+			candidates,sites,owners,origin,SCALE,
+			window_bounds=window.bounds)
 		print("CGAL-Zellgeneratoren: "
 			+json.dumps(face_stats,ensure_ascii=False),flush=True)
 		if diagnostic_report is not None:

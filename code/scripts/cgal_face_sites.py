@@ -50,7 +50,7 @@ def _read_sites(lines, owners, origin, scale):
 	return result
 
 
-def classify_polygon_generators(polygons, sites):
+def classify_polygon_generators(polygons, sites, *, window_bounds=None):
 	"""Classify cells; only one uniquely owned generating site is definitive.
 
 	Other cells are unresolved, not assigned by nearest distance.
@@ -65,7 +65,10 @@ def classify_polygon_generators(polygons, sites):
 	full_tree=STRtree(full_geoms)
 	stats={"unambiguous":0,"ambiguous":0,"missing":0,
 		"ownerless_generator_faces":0,
-		"unresolved_examples":[]}
+		"unresolved_examples":[],
+		"unresolved_interior_examples":[],
+		"missing_boundary_faces":0,"missing_interior_faces":0,
+		"ambiguous_boundary_faces":0,"ambiguous_interior_faces":0}
 	MAX_EXAMPLES_PER_CATEGORY=12
 	owners=[]
 	for face_index,polygon in enumerate(polygons):
@@ -86,11 +89,21 @@ def classify_polygon_generators(polygons, sites):
 		else:
 			owners.append(None)
 			stats["ambiguous"]+=1
+		category="missing" if not owners_found else "ambiguous"
+		boundary=False
+		if window_bounds is not None:
+			bounds=polygon.bounds
+			boundary=any(abs(bounds[i]-window_bounds[i])<=1e-6
+				for i in range(4))
+			if owners[-1] is None:
+				kind="boundary" if boundary else "interior"
+				stats[f"{category}_{kind}_faces"]+=1
+		sample_list=(stats["unresolved_interior_examples"]
+			if window_bounds is not None and not boundary
+			else stats["unresolved_examples"])
 		if owners[-1] is None and sum(
-			e["category"]==("missing" if not owners_found else "ambiguous")
-			for e in stats["unresolved_examples"])<MAX_EXAMPLES_PER_CATEGORY:
-			# Diagnostic samples only. Avoid per-face nearest-neighbour
-			# calls across the full Vienna polygonization.
+			e["category"]==category for e in sample_list)<MAX_EXAMPLES_PER_CATEGORY:
+			# Nearest and intersection queries only for retained samples.
 			sample=polygon.representative_point()
 			nearest=int(tree.nearest(sample))
 			full_hits=full_tree.query(polygon,predicate="intersects")
@@ -103,9 +116,10 @@ def classify_polygon_generators(polygons, sites):
 					segment_crossings+=1
 					segment_crossing_owners.update(sites[index][1])
 			generator=geoms[nearest]
-			stats["unresolved_examples"].append({
+			sample_list.append({
 				"face_index":face_index,
-				"category":"missing" if not owners_found else "ambiguous",
+				"category":category,
+				"touches_window_boundary":boundary,
 				"area_m2":polygon.area,
 				"bounds_31256":list(polygon.bounds),
 				"site_count_in_face":len(matches),
@@ -118,7 +132,9 @@ def classify_polygon_generators(polygons, sites):
 	return owners,stats
 
 
-def classify_polygon_generators_file(polygons,path,owners,origin,scale):
+def classify_polygon_generators_file(polygons,path,owners,origin,scale,*,
+		window_bounds=None):
 	with Path(path).open(encoding="utf-8") as stream:
 		sites=_read_sites(stream,owners,origin,scale)
-	return classify_polygon_generators(polygons,sites)
+	return classify_polygon_generators(polygons,sites,
+		window_bounds=window_bounds)
