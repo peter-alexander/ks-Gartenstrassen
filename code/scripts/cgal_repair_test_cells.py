@@ -30,8 +30,8 @@ def repair_test_cells(window,labelled_segments,*,tolerance=1e-7):
 			tolerance=tolerance,return_cells=True)
 		if (report["geometry_valid"] and len(candidates)>1
 				and all(owner is not None for _,owner in candidates)
-				and all(subface.intersects(_metric_site(owner,1000.))
-					for subface,owner in candidates)
+				and all(subface.distance(_metric_site(owner,1000.))
+					<=min(tolerance,1e-8) for subface,owner in candidates)
 				and report["proven_subfaces"]==len(candidates)):
 			repaired+=1
 			replaced_faces.append({"face_index":face_id,
