@@ -10,7 +10,7 @@ from shapely.strtree import STRtree
 
 
 def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
-		diagnose=False,noded_provenance=False):
+		diagnose=False,noded_provenance=False,carried_provenance=False):
 	"""Return (polygons, generator labels, diagnostic counters).
 
 	labelled_segments: sequence of (LineString, (site_a, site_b)).
@@ -32,7 +32,17 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
 			raise ValueError("Ungültige CGAL-Grenzgeometrie")
 		lines.append(geometry)
 		pairs.append(frozenset(pair))
-	if noded_provenance:
+	if noded_provenance and carried_provenance:
+		raise ValueError("Choose only one experimental provenance mode")
+	if carried_provenance:
+		from scripts.cgal_carried_provenance import carried_provenance as build
+		arrangement,carried_edges=build(window,lines,pairs)
+		polygons=list(polygonize(arrangement))
+		atomic=[item[0] for item in carried_edges]
+		edge_pairs=[item[1] for item in carried_edges]
+		noded_tree=STRtree(atomic)
+		epsilon=min(tolerance,1e-8)
+	elif noded_provenance:
 		noded=unary_union([window.boundary,*lines])
 		polygons=list(polygonize(noded))
 		# Split the same noded graph as polygonize into atomic straight edges.
@@ -79,7 +89,7 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
 			continue
 		covered=[]
 		site_pairs=[]
-		if noded_provenance:
+		if noded_provenance or carried_provenance:
 			for index in noded_tree.query(boundary):
 				i=int(index)
 				edge=atomic[i]
