@@ -29,6 +29,7 @@ from scripts.cgal_shared_boundary_audit import audit_shared_boundaries
 from scripts.cgal_native_source_audit import audit_native_shared_sources
 from scripts.cgal_degenerate_ray_sides import audit_degenerate_ray_sides
 from scripts.cgal_endpoint_dual_candidates import audit_endpoint_dual_candidates
+from scripts.cgal_endpoint_neighbor_audit import audit_endpoint_neighbor_constraints
 
 
 def _site_geometry(site,scale):
@@ -166,6 +167,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			window,segments,carried_provenance=True,diagnose=True)
 		carried_stats["endpoint_dual_experiment"]=audit_endpoint_dual_candidates(
 			carried_polygons,carried_labels,segments,window)
+		carried_stats["endpoint_neighbor_audit"]=audit_endpoint_neighbor_constraints(
+			carried_polygons,carried_labels,segments,window)
 		assert len(carried_stats["endpoint_dual_experiment"])==len(carried_polygons)
 		assert all(item["status"]!="candidate_only_not_proven"
 			or carried_labels[item["face_index"]] is None
@@ -204,7 +207,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_dual_experiment'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_dual_experiment','endpoint_neighbor_audit'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
