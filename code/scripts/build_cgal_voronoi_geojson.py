@@ -177,7 +177,15 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
 		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
 	tree=STRtree(geoms)
-	# Keep the verified SIS tile cores separate for the spatial overlay.\n	# Merging them into city-wide connected components produces extremely\n	# complex geometries: spatial predicates and intersections then take hours.\n	# Tile cores are disjoint in area; the union is still used for QA.\n	if mask_parts is None:\n		mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]\n	mask_parts=[part for part in mask_parts if not part.is_empty and part.area>0]\n	prepare(mask_parts)\n	mask_tree=STRtree(mask_parts)
+	# Keep the verified SIS tile cores separate for the spatial overlay.
+	# Merging them into city-wide connected components produces extremely
+	# complex geometries: spatial predicates and intersections then take hours.
+	# Tile cores are disjoint in area; the union is still used for QA.
+	if mask_parts is None:
+		mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]
+	mask_parts=[part for part in mask_parts if not part.is_empty and part.area>0]
+	prepare(mask_parts)
+	mask_tree=STRtree(mask_parts)
 	mask_array=np.asarray(mask_parts,dtype=object)
 	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert; "
 		f"vektorisierter Verschnitt in Blöcken zu {batch_size}",flush=True)
@@ -302,7 +310,8 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 		lines,stats=_read_dual_lines(edges,box(*window.bounds),origin)
 		candidates,topology=_polygon_candidates(lines,box(*window.bounds))
 		print(f"CGAL: {len(candidates):,} Teilflächen mit SIS verschneiden",flush=True)
-		groups,balance=_assign(candidates,mask,owners,origin,\n			mask_parts=mask_parts)
+		groups,balance=_assign(candidates,mask,owners,origin,
+			mask_parts=mask_parts)
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 		features=[]
 		for edge_id,geom in sorted(groups.items()):
