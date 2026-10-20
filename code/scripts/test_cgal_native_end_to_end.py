@@ -109,6 +109,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert len(repaired_polygons)==len(repaired_labels)
 		assert repair_stats["gap_m2"]<1e-6
 		assert repair_stats["overlap_m2"]<1e-6
+		# Source-site geometry vetoes unsafe oblique replacements.
+		assert repair_stats["repaired_parent_faces"]==0
+		assert repair_stats["still_unresolved"]=={
+			"parallel":0,"junction":3,"crossing":0,"oblique":1}[fixture]
 		for polygon,label in zip(repaired_polygons,repaired_labels):
 			if label is not None:
 				assert polygon.intersects(_site_geometry(label,1000.))
