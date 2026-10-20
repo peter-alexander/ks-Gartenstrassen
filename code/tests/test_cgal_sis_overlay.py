@@ -30,6 +30,21 @@ class CGALSISOverlayTests(unittest.TestCase):
 		self.assertAlmostEqual(baseline["overlap_m2"],optimized["overlap_m2"])
 		self.assertEqual(optimized["mask_tile_parts"],2)
 
+	def test_disconnected_sis_components_use_distinct_owners(self):
+		# One CGAL candidate across two disconnected street islands.
+		polygons=[box(0,0,100,10)]
+		parts=[box(0,0,10,10),box(90,0,100,10)]
+		mask=union_all(parts)
+		owners={
+			((1000,4000),(2000,4000)):"west",
+			((98000,4000),(99000,4000)):"east"}
+		grouped,report=_assign(polygons,mask,owners,(0,0),
+			mask_parts=parts,batch_size=1)
+		self.assertEqual(set(grouped),{"west","east"})
+		self.assertAlmostEqual(grouped["west"].area,100)
+		self.assertAlmostEqual(grouped["east"].area,100)
+		self.assertAlmostEqual(report["gap_m2"],0)
+
 	def test_reject_invalid_batch_size(self):
 		with self.assertRaises(ValueError):
 			_assign([],box(0,0,1,1),{},(0,0),batch_size=0)

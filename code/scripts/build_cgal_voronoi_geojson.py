@@ -218,20 +218,32 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 			surviving_indices=poly_indices[nonempty]
 			intersection_seconds+=perf_counter()-t0
 			if len(parts):
-				# One nearest-site lookup per intersecting Voronoi polygon;
-				# all SIS subpieces of that polygon inherit the same owner.
+				# Attribute each *SIS-clipped polygon component*, not the
+				# uncut CGAL polygon. A CGAL polygon can intersect multiple
+				# disconnected SIS pieces near entirely different sites.
+				# This is still a nearest-site approximation, not a CGAL
+				# face/site identity export. The independent QA remains needed.
 				t0=perf_counter()
-				unique_indices,inverse=np.unique(surviving_indices,
-					return_inverse=True)
-				representatives=np.asarray(
-					[batch[int(i)].representative_point() for i in unique_indices],
-					dtype=object)
-				nearest=tree.nearest(representatives)
-				site_owners=[owners[keys[int(i)]] for i in nearest]
-				for j,part in enumerate(parts):
-					owner=site_owners[int(inverse[j])]
-					grouped.setdefault(owner,[]).append(part)
-				assigned_polygons+=len(unique_indices)
+				component_geometries=[]
+				for part in parts:
+					if part.geom_type=="Polygon":
+						component_geometries.append(part)
+					elif part.geom_type=="MultiPolygon":
+						component_geometries.extend(part.geoms)
+					elif part.geom_type=="GeometryCollection":
+						component_geometries.extend(
+							g for g in part.geoms if g.geom_type=="Polygon")
+				component_geometries=[
+					g for g in component_geometries if not g.is_empty and g.area>0]
+				if component_geometries:
+					representatives=np.asarray(
+						[g.representative_point() for g in component_geometries],
+						dtype=object)
+					nearest=tree.nearest(representatives)
+					for j,part in enumerate(component_geometries):
+						owner=owners[keys[int(nearest[j])]]
+						grouped.setdefault(owner,[]).append(part)
+				assigned_polygons+=len(np.unique(surviving_indices))
 				attribution_seconds+=perf_counter()-t0
 		completed=min(offset+batch_size,total)
 		if completed%10240<batch_size or completed==total:
