@@ -1,0 +1,81 @@
+"""Native CGAL -> labelled dual -> metric polygons -> conservative face QA.
+
+Small deterministic fixture only. This does not validate the Vienna pipeline.
+Invoke from the repository root after compiling the CGAL executable.
+"""
+import argparse
+from collections import Counter
+import json
+import subprocess
+import tempfile
+from pathlib import Path
+
+from shapely.geometry import Point,LineString,box
+from shapely.ops import unary_union
+
+from scripts.cgal_native_adapter import metric_labelled_segments_file
+from scripts.cgal_topology_proof import reconstruct_test_cells
+from scripts.cgal_labelled_edges import labelled_edges_file
+
+
+def _site_geometry(site,scale):
+	kind,coordinates=site
+	if kind=="P":
+		return Point(coordinates[0]/scale,coordinates[1]/scale)
+	return LineString(((coordinates[0]/scale,coordinates[1]/scale),
+		(coordinates[2]/scale,coordinates[3]/scale)))
+
+
+def verify_native_fixture(binary):
+	# Three parallel, non-intersecting segment generators. Endpoints
+	# introduce point sites that a point-only Delaunay fixture misses.
+	input_lines="0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n"
+	window=box(-5,-5,25,25)
+	with tempfile.TemporaryDirectory(prefix="cgal-native-test-") as temp:
+		temp=Path(temp)
+		command=[str(Path(binary).resolve()),"--edges",str(temp/"dual.txt"),
+			"--sites",str(temp/"sites.txt"),"--labelled-edges",
+			str(temp/"labelled.txt"),"--bounds","-5000","-5000","25000","25000"]
+		result=subprocess.run(command,input=input_lines,text=True,
+			capture_output=True,timeout=90,check=True)
+		native=json.loads(result.stdout)
+		if native["status"]!="ok":
+			raise AssertionError(native)
+		edges=list(labelled_edges_file(temp/"labelled.txt"))
+		assert native["labelled_edges"]==len(edges)
+		assert len(edges)>0
+		segments=list(metric_labelled_segments_file(temp/"labelled.txt",window))
+		assert segments,"Native CGAL fixture produced no clipped dual edges"
+		polygons,labels,stats=reconstruct_test_cells(window,segments)
+		assert polygons,"Native CGAL produced no polygon faces"
+		assert len(polygons)==len(labels)
+		assert all(p.is_valid and p.area>0 for p in polygons)
+		area=unary_union(polygons)
+		assert window.difference(area).area<1e-6,"Uncovered window area"
+		assert sum(p.area for p in polygons)-area.area<1e-6,"Overlapping faces"
+		sites=set()
+		for _,pair,_ in edges:
+			sites.update(pair)
+		for polygon,label in zip(polygons,labels):
+			if label is None:
+				continue
+			assert label in sites,"Unrecognized native CGAL generator"
+			geometry=_site_geometry(label,1000.)
+			if geometry.geom_type=="Point":
+				assert polygon.covers(geometry),"Proven point site outside cell"
+			else:
+				assert polygon.intersects(geometry),"Proven segment site outside cell"
+		assert sum(stats.values())==len(polygons)
+		return {"native_edges":len(edges),"clipped_fragments":len(segments),
+			"cells":len(polygons),**stats}
+
+
+def main():
+	parser=argparse.ArgumentParser(description=__doc__)
+	parser.add_argument("--binary",type=Path,required=True)
+	args=parser.parse_args()
+	print(json.dumps(verify_native_fixture(args.binary),sort_keys=True))
+
+
+if __name__=="__main__":
+	main()
