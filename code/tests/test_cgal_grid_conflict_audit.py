@@ -22,6 +22,8 @@ class GridConflictAuditTests(unittest.TestCase):
 		self.assertEqual(len(result),1)
 		self.assertEqual(result[0]["common_generator_count"],0)
 		self.assertEqual(result[0]["boundary_pair_count"],3)
+		self.assertEqual(result[0]["boundary_edge_roles"]["point_point"]["fragments"],2)
+		self.assertEqual(result[0]["boundary_edge_roles"]["point_segment"]["fragments"],1)
 		self.assertGreaterEqual(len(result[0]["point_segment_endpoint_relations"]),1)
 
 	def test_resolved_face_is_skipped(self):

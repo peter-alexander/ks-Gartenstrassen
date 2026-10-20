@@ -30,6 +30,20 @@ def audit_conflicting_faces(polygons,labels,labelled_segments,*,scale=1000.,limi
 		common=set.intersection(*(set(pair) for pair in pairs))
 		if len(common)==1:
 			continue
+		roles={}
+		role_names={"PP":"point_point","PS":"point_segment",
+			"SS":"segment_segment"}
+		for source_index,pair,overlap in incident:
+			key="".join(sorted(site[0] for site in pair))
+			role=role_names.get(key,"other")
+			bucket=roles.setdefault(role,{"fragments":0,"length_m":0.,
+				"pairs":set(),"source_indices":[]})
+			bucket["fragments"]+=1
+			bucket["length_m"]+=overlap
+			bucket["pairs"].add(pair)
+			bucket["source_indices"].append(source_index)
+		for bucket in roles.values():
+			bucket["pair_count"]=len(bucket.pop("pairs"))
 		counter=Counter(site for _,pair,_ in incident for site in pair)
 		all_sites=sorted(counter,key=repr)
 		segments=[site for site in all_sites if site[0]=="S"]
@@ -45,6 +59,7 @@ def audit_conflicting_faces(polygons,labels,labelled_segments,*,scale=1000.,limi
 					"incident_segments":len(matches)}
 		result.append({"face_index":face_index,"area_m2":face.area,
 			"boundary_pair_count":len(pairs),
+			"boundary_edge_roles":roles,
 			"common_generator_count":len(common),
 			"point_site_count":len(points),
 			"segment_site_count":len(segments),
