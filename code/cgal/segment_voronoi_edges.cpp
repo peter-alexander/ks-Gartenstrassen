@@ -77,12 +77,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--face-incidence" && i+1<argc) {
+		if (option=="--ray-directions" && i+1<argc) {
+			ray_directions_path=argv[++i];
+		} else if (option=="--face-incidence" && i+1<argc) {
 			face_incidence_path=argv[++i];
 		} else if (option=="--skeleton-edge-ids" && i+1<argc) {
 			skeleton_edge_ids_path=argv[++i];
@@ -186,6 +188,12 @@ int main(int argc,char** argv) {
 			if (!labelled) throw std::runtime_error("Cannot create labelled output");
 			labelled << std::setprecision(17);
 			Recorder labelled_recorder{labelled,xmin,ymin,xmax,ymax};
+			std::ofstream directions;
+			if (!ray_directions_path.empty()) {
+				directions.open(ray_directions_path);
+				if (!directions) throw std::runtime_error("Cannot create ray directions output");
+				directions << std::setprecision(17);
+			}
 			std::ofstream incidence;
 			if (!face_incidence_path.empty()) {
 				incidence.open(face_incidence_path);
@@ -245,11 +253,21 @@ int main(int argc,char** argv) {
 				labelled << " | ";
 				write_site(labelled,b);
 				labelled << "\n";
+				if (directions.is_open()) {
+					// The Recorder records the precise primitive generated for
+					// this E ID; R's source and second point define its direction.
+					directions << "E " << labelled_edges << "\n";
+					Recorder ray_recorder{directions,xmin,ymin,xmax,ymax};
+					diagram.draw_dual_edge(*edge,ray_recorder);
+				}
 				diagram.draw_dual_edge(*edge,labelled_recorder);
 				++labelled_edges;
 			}
 			if (skeleton_edge_ids.is_open() && !skeleton_edge_ids.good()) {
 				throw std::runtime_error("Skeleton edge IDs write failed");
+			}
+			if (directions.is_open() && !directions.good()) {
+				throw std::runtime_error("Ray direction output write failed");
 			}
 			if (incidence.is_open() && !incidence.good()) {
 				throw std::runtime_error("Face incidence output write failed");
