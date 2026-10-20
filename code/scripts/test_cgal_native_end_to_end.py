@@ -73,6 +73,14 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				assert polygon.covers(geometry),"Proven point site outside cell"
 			else:
 				assert polygon.intersects(geometry),"Proven segment site outside cell"
+		# Experimental comparison; established QA remains the baseline.
+		new_polygons,new_labels,new_stats=reconstruct_test_cells(
+			window,segments,noded_provenance=True)
+		assert len(new_polygons)==len(polygons)
+		assert sum(new_stats.values())==len(polygons)
+		for polygon,label in zip(new_polygons,new_labels):
+			if label is not None:
+				assert polygon.intersects(_site_geometry(label,1000.))
 		assert sum(value for key,value in stats.items()
 			if key!='diagnostic_examples')==len(polygons)
 		# Baseline of real native fixtures, not a blanket quality pass.
@@ -87,7 +95,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			stats["missing_boundary_labels"])
 		assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
-			"cells":len(polygons),**stats}
+			"cells":len(polygons),**stats,"experimental_noded":new_stats}
 
 
 def main():
