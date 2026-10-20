@@ -37,7 +37,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		"parallel":"0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n",
 		"junction":"0 0 20000 0\n10000 0 10000 15000\n10000 15000 20000 20000\n",
 		"crossing":"0 10000 20000 10000\n10000 0 10000 20000\n",
-		"oblique":"0 0 17000 9000\n0 18000 20000 15000\n5000 22000 15000 4000\n"}
+		"oblique":"0 0 17000 9000\n0 18000 20000 15000\n5000 22000 15000 4000\n",
+		"fan":"10000 10000 10000 22000\n10000 10000 22000 10000\n10000 10000 2000 2000\n",
+		"grid":"0 0 0 20000\n10000 0 10000 20000\n20000 0 20000 20000\n0 10000 20000 10000\n",
+		"near_parallel":"0 0 20000 200\n0 3000 20000 3300\n0 8000 20000 8300\n"}
 	if fixture not in fixtures:
 		raise ValueError(f"Unknown fixture {fixture}")
 	input_lines=fixtures[fixture]
@@ -110,9 +113,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert repair_stats["gap_m2"]<1e-6
 		assert repair_stats["overlap_m2"]<1e-6
 		# Source-site geometry vetoes unsafe oblique replacements.
-		assert repair_stats["repaired_parent_faces"]=={"oblique":1}.get(fixture,0)
-		assert repair_stats["still_unresolved"]=={
-			"parallel":0,"junction":3,"crossing":0,"oblique":0}[fixture]
+		if fixture in ("parallel","junction","crossing","oblique"):
+			assert repair_stats["repaired_parent_faces"]=={"oblique":1}.get(fixture,0)
+			assert repair_stats["still_unresolved"]=={
+				"parallel":0,"junction":3,"crossing":0,"oblique":0}[fixture]
 		for polygon,label in zip(repaired_polygons,repaired_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
@@ -128,7 +132,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		actual=(len(polygons),stats["proven"],
 			stats["conflicting_labels"],stats["insufficient_incidence"],
 			stats["missing_boundary_labels"])
-		assert actual==expected[fixture],(fixture,actual,expected[fixture])
+		if fixture in expected:
+			assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
 			"cells":len(polygons),**stats,"experimental_noded":new_stats,
 			"experimental_carried":carried_stats,
@@ -141,7 +146,8 @@ def main():
 	parser.add_argument("--diagnose",action="store_true",
 		help="Include concrete unresolved face and missing-boundary geometry")
 	args=parser.parse_args()
-	for fixture in ("parallel","junction","crossing","oblique"):
+	for fixture in ("parallel","junction","crossing","oblique",
+			"fan","grid","near_parallel"):
 		print(json.dumps(verify_native_fixture(args.binary,fixture=fixture,
 			diagnose=args.diagnose),sort_keys=True))
 
