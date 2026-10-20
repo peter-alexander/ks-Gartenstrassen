@@ -62,3 +62,43 @@ def directed_face_edges(polygons,labels,labelled_segments,*,face_ids=None,
 			"without_neighbor":sum(not e["neighbor_faces"] for e in edges),
 			"with_neighbor":sum(bool(e["neighbor_faces"]) for e in edges)})
 	return out
+
+
+def audit_boundary_sides(polygons,labels,labelled_segments,*,face_ids=None,
+		tolerance=1e-8):
+	"""Cross-check directed left/right adjacency and native pair membership.
+
+	Labels from previously proven neighboring faces are evidence only; an
+	unknown face stays unknown. No nearest-site or side ownership inference.
+	"""
+	records=directed_face_edges(polygons,labels,labelled_segments,
+		face_ids=face_ids,tolerance=tolerance,limit=100000)
+	result=[]
+	for face in records:
+		face_id=face["face_index"]
+		edges=[]
+		for edge in face["reported_edges"]:
+			pair={(site["kind"],tuple(site["coordinates"]))
+				for site in edge["sites"]}
+			left=labels[face_id]
+			neighbors=[]
+			for neighbor in edge["neighbor_faces"]:
+				other_id=neighbor["face_index"]
+				right=labels[other_id]
+				neighbors.append({"face_index":other_id,
+					"right_label_known":right is not None,
+					"right_label_in_pair":right in pair if right is not None else None,
+					"left_label_in_pair":left in pair if left is not None else None,
+					"both_labels_in_pair":({left,right}==pair)
+						if left is not None and right is not None else None})
+			edges.append({"source_index":edge["source_index"],
+				"role":edge["role"],"start":edge["start"],"end":edge["end"],
+				"left_face_index":face_id,"left_label_known":left is not None,
+				"neighbor_checks":neighbors})
+		result.append({"face_index":face_id,"edge_checks":edges,
+			"known_neighbor_checks":sum(n["right_label_known"]
+				for e in edges for n in e["neighbor_checks"]),
+			"neighbor_label_mismatches":sum(
+				n["right_label_in_pair"] is False
+				for e in edges for n in e["neighbor_checks"])})
+	return result
