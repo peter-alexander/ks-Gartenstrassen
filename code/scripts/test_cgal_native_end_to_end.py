@@ -61,7 +61,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
 			str(temp/"topology.txt"),"--face-incidence",
-			str(temp/"incidence.txt"),"--skeleton-edge-ids",
+			str(temp/"incidence.txt"),"--ray-directions",
+			str(temp/"directions.txt"),"--skeleton-edge-ids",
 			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
 			capture_output=True,timeout=90,check=True)
@@ -81,6 +82,21 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if fields[2]=="1":
 				endpoint_ids.append(index)
 		assert native["endpoint_duals"]==len(endpoint_ids)
+		directed_lines=(temp/"directions.txt").read_text(encoding="utf-8").splitlines()
+		assert sum(line.startswith("E ") for line in directed_lines)==len(edges)
+		rays={}
+		current=None
+		for line in directed_lines:
+			parts=line.split()
+			if parts[0]=="E":
+				current=int(parts[1])
+				assert 0<=current<len(edges)
+			elif parts[0]=="R":
+				assert current is not None and len(parts)==5
+				rays.setdefault(current,[]).append([float(x)/1000.
+					for x in parts[1:]])
+		assert all(len(rays.get(edge_id,[]))==1 for edge_id in (18,22,25,26)
+			) if fixture=="grid" else True
 		incidence=(temp/"incidence.txt").read_text(encoding="utf-8").splitlines()
 		assert len(incidence)==len(edges)
 		face_incidence={}
@@ -203,6 +219,12 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				carried_stats["native_source_audit"])
 			for finding in carried_stats["degenerate_ray_sides"]:
 				assert set(finding["native_edge_ids"]).issubset(endpoint_ids)
+				finding["native_directed_rays"]=[
+					{"edge_id":edge_id,"ray_source":ray[:2],
+						"ray_second_point":ray[2:],
+						"direction":[ray[2]-ray[0],ray[3]-ray[1]]}
+					for edge_id in finding["native_edge_ids"]
+					for ray in rays.get(edge_id,[])]
 				finding["primal_face_incidence"]=[
 					{"edge_id":edge_id,**face_incidence[edge_id]}
 					for edge_id in finding["native_edge_ids"]]
