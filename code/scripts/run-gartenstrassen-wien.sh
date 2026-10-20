@@ -38,14 +38,23 @@ if [[ ! -f "$GEOJSON" ]]; then
 fi
 [[ -s "$GEOJSON" ]] || { echo "CGAL-GeoJSON fehlt/leer" >&2; exit 1; }
 
-# Audit is diagnostic for an experimental preview. Preserve report on failure.
+# Audit failure is distinct from a crashed audit: only a written report
+# represents a completed QA check. Preview creation remains possible.
 if [[ ! -e "$AUDIT" ]]; then
-	echo "Prüfe Zellzuordnung (Stichproben) ..."
+	echo "Prüfe Zellzuordnung und Geometriegültigkeit ..."
 	if ! (cd "$REPO/code" && "$PYTHON" -m scripts.audit_cgal_cell_ownership \
 		--cache "$AXES" --geojson "$GEOJSON" --out "$AUDIT"); then
-		echo "WARNUNG: Zellzuordnung nicht bestanden; siehe $AUDIT" >&2
-		echo "PMTiles bleibt ausdrücklich eine experimentelle Sichtprüfung." >&2
+		if [[ -s "$AUDIT" ]]; then
+			echo "QA-Status: Auffälligkeiten im Bericht $AUDIT" >&2
+		else
+			echo "QA-Status: Prüfprozess abgebrochen; kein gültiger QA-Bericht" >&2
+		fi
 	fi
+fi
+if [[ -s "$AUDIT" ]]; then
+	"$PYTHON" -c 'import json,sys; r=json.load(open(sys.argv[1])); print("QA-Status:",r.get("qa_status","unbekannt"),"| ungültige Flächen:",r.get("invalid_geometry_count","?"),"| Zuordnungsfehler:",r.get("ownership_failures","?"))' "$AUDIT"
+else
+	echo "QA-Status: nicht abgeschlossen"
 fi
 
 if [[ -e "$PMTILES" || -L "$PMTILES" ]]; then
@@ -72,4 +81,4 @@ fi
 mv -- "$STAGE" "$PMTILES"
 echo "GeoJSON: $GEOJSON"
 echo "PMTiles: $PMTILES"
-echo "Hinweis: experimentelle CGAL-Flächen, nicht fachlich freigegeben."
+echo "CGAL/SIS-PMTiles zur Sichtprüfung; maßgeblich ist der oben ausgewiesene QA-Status."
