@@ -36,6 +36,20 @@ class FaceSiteTests(unittest.TestCase):
 		self.assertEqual(sample["intersecting_segment_sites"],1)
 		self.assertEqual(sample["intersecting_segment_owner_count"],1)
 
+	def test_window_boundary_vs_interior_missing(self):
+		sites=[(Point(1,1),frozenset({"source"}))]
+		polygons=[box(0,2,4,4),box(5,5,7,7)]
+		labels,stats=classify_polygon_generators(polygons,sites,
+			window_bounds=(0,0,10,10))
+		self.assertEqual(labels,[None,None])
+		self.assertEqual(stats["missing_boundary_faces"],1)
+		self.assertEqual(stats["missing_interior_faces"],1)
+		self.assertEqual(stats["ambiguous_boundary_faces"],0)
+		self.assertEqual(len(stats["unresolved_examples"]),1)
+		self.assertEqual(len(stats["unresolved_interior_examples"]),1)
+		self.assertTrue(stats["unresolved_examples"][0]["touches_window_boundary"])
+		self.assertFalse(stats["unresolved_interior_examples"][0]["touches_window_boundary"])
+
 	def test_unmapped_site_is_kept_ownerless(self):
 		owners={((0,0),(10000,0)):"street"}
 		sites=_read_sites(["S 0 0 10000 0",
