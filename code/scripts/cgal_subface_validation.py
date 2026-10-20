@@ -23,6 +23,13 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 	rings,dangles,cuts,invalid=polygonize_full(noded)
 	subfaces=[p for p in rings.geoms
 		if p.area>0 and face.covers(p.representative_point())]
+	excluded=[p for p in rings.geoms
+		if p.area>0 and not face.covers(p.representative_point())]
+	excluded_details=[{
+		"area_m2":p.area,"bounds":list(p.bounds),
+		"inside_parent_area_m2":p.intersection(face).area,
+		"holes":len(p.interiors),"covers_parent":p.covers(face)}
+		for p in excluded]
 	if not subfaces:
 		raise ValueError("No subfaces")
 	covered=unary_union(subfaces)
@@ -37,12 +44,25 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 	proven=0
 	ambiguous=0
 	reasons={}
+	comparison={"partition_match":False,"reference_subfaces":None,
+		"only_first_area_m2":None,"only_reference_area_m2":None,
+		"max_best_symmetric_difference_m2":None}
 	if geometry_ok and internal:
 		# Independently prove labels and match the very same subface set.
 		proof_polygons,proof_labels,proof_stats=reconstruct_test_cells(
 			face,internal,tolerance=tolerance,carried_provenance=True)
-		match=all(any(p.equals(q) for q in proof_polygons) for p in subfaces)
-		if match and len(proof_polygons)==len(subfaces):
+		differences=[min((p.symmetric_difference(q).area
+			for q in proof_polygons),default=p.area) for p in subfaces]
+		match=(len(proof_polygons)==len(subfaces)
+			and all(any(p.equals(q) for q in proof_polygons) for p in subfaces))
+		first_union=unary_union(subfaces)
+		ref_union=unary_union(proof_polygons)
+		comparison={"partition_match":match,
+			"reference_subfaces":len(proof_polygons),
+			"only_first_area_m2":first_union.difference(ref_union).area,
+			"only_reference_area_m2":ref_union.difference(first_union).area,
+			"max_best_symmetric_difference_m2":max(differences,default=0.)}
+		if match:
 			proven=sum(label is not None for label in proof_labels)
 			ambiguous=len(proof_labels)-proven
 			reasons={key:value for key,value in proof_stats.items()
@@ -55,6 +75,8 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 		reasons={}
 	return {"raw_polygonized_rings":len(rings.geoms),
 		"filtered_out_rings":len(rings.geoms)-len(subfaces),
+		"excluded_ring_details":excluded_details,
+		"independent_comparison":comparison,
 		"subfaces":len(subfaces),"area_m2":face.area,
 		"gap_m2":gap,"outside_m2":outside,"overlap_m2":overlap,
 		"geometry_valid":geometry_ok,

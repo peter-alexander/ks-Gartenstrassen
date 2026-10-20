@@ -12,6 +12,7 @@ on:
       - "code/scripts/test_cgal_native_end_to_end.py"
       - "code/scripts/cgal_native_adapter.py"
       - "code/scripts/cgal_topology_proof.py"
+      - "code/scripts/cgal_subface_validation.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
