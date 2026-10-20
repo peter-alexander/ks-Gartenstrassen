@@ -191,7 +191,7 @@ int main(int argc,char** argv) {
 					write_site(topology,a);
 					topology << " | CCW ";
 					write_site(topology,b);
-					topology << "\\n";
+					topology << "\n";
 				}
 				labelled << "E " << labelled_edges << " ";
 				write_site(labelled,a);
