@@ -23,8 +23,11 @@ Ausgaben:
 
 Die PMTiles dienen der schnellen Sichtprüfung. Es werden keine Geometrien
 bewusst verworfen, aber die Vektorkacheln sind zoomabhängig vereinfacht.
-Fehler im geometrischen Zellzuordnungs-Audit werden ausdrücklich gemeldet,
-verhindern die *experimentelle* Vorschau jedoch nicht. Keine fachliche
+Ein nicht bestandener, unvollständiger oder veralteter QA-Bericht stoppt den PMTiles-Export.
+Für eine **ausdrücklich ungeprüfte** Sichtprüfung kann der Lauf mit
+`ALLOW_FAILED_QA=1 bash code/scripts/run-gartenstrassen-wien.sh` fortgesetzt werden.
+Ein veralteter QA-Bericht wird zuvor archiviert und neu berechnet; der
+bestehende GeoJSON- und PMTiles-Stand wird nicht automatisch überschrieben. Keine fachliche
 Freigabe und keine berechneten Gartenstraßen-Potenzialkennzahlen.
 Vorhandene Ausgaben werden nicht überschrieben; für eine Neuerzeugung
 die betreffende Ausgabe zuvor gesichert/umbenannt entfernen.
