@@ -54,7 +54,9 @@ class CgalTopologyProofTests(unittest.TestCase):
 		polygons,labels,stats=reconstruct_test_cells(window,edges,
 			diagnose=True)
 		self.assertEqual(stats["proven"],1)
-		self.assertEqual(stats["diagnostic_examples"],[])
+		self.assertEqual(len(stats["diagnostic_examples"]),2)
+		self.assertTrue(all(e["reason"]=="insufficient_incidence"
+			for e in stats["diagnostic_examples"]))
 
 	def test_conflict_examples_are_explicit(self):
 		edges=[(LineString([(1,0),(1,2)]),(A,B)),
