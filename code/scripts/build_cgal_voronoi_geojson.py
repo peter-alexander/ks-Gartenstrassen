@@ -24,6 +24,7 @@ from shapely.wkb import loads
 from shapely.validation import explain_validity
 
 from scripts.cgal_segment_input import SCALE, _noded_segments
+from scripts.cgal_site_audit import inspect_sites_file
 from scripts.wienwide_grid import checksum, load_aoi, read_manifest
 from scripts.wienwide_street import load_street_tile
 
@@ -348,7 +349,9 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	out.parent.mkdir(parents=True,exist_ok=True)
 	with tempfile.TemporaryDirectory(prefix="cgal-voronoi-",dir=out.parent) as temp:
 		edges=Path(temp)/"dual.txt"
+		sites=Path(temp)/"sites.txt"
 		command=[str(Path(binary).resolve()),"--edges",str(edges),
+			"--sites",str(sites),
 			"--bounds",*(str(v) for v in bounds)]
 		print(f"CGAL: {len(owners):,} Segmente konstruieren; Dualgrenzen exportieren",
 			flush=True)
@@ -361,6 +364,10 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 			raise RuntimeError(f"CGAL-Dualexport fehlgeschlagen: {proc.stderr[-2000:]}")
 		if not edges.is_file():
 			raise RuntimeError("CGAL lieferte keine Dualgrenzen-Datei")
+		if not sites.is_file():
+			raise RuntimeError("CGAL lieferte keine Site-Datei")
+		site_stats=inspect_sites_file(sites,owners)
+		print("CGAL-Sites: "+json.dumps(site_stats,ensure_ascii=False),flush=True)
 		print("CGAL: Grenzen beschneiden und polygonisieren",flush=True)
 		lines,stats=_read_dual_lines(edges,box(*window.bounds),origin)
 		candidates,topology=_polygon_candidates(lines,box(*window.bounds))
@@ -388,6 +395,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 			"metadata":{"schema":"cgal-segment-voronoi-sis-debug-v1",
 				"crs":"EPSG:4326","bbox_31256":list(window.bounds),
 				"source_segments":len(owners),"dual_primitives":stats,
+				"graph_sites":site_stats,
 				"polygonization":topology,"balance":balance,
 				"export_geometry_repairs":repairs,
 				"experimental":True,
