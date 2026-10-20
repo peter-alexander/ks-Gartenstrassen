@@ -73,6 +73,17 @@ def verify_native_fixture(binary, *, fixture='parallel'):
 			else:
 				assert polygon.intersects(geometry),"Proven segment site outside cell"
 		assert sum(stats.values())==len(polygons)
+		# Baseline of real native fixtures, not a blanket quality pass.
+		# Open cases remain unresolved rather than receiving guessed sites.
+		expected={
+			"parallel":(9,9,0,0,0),
+			"junction":(8,4,2,1,1),
+			"crossing":(8,8,0,0,0),
+			"oblique":(6,2,0,0,4)}
+		actual=(len(polygons),stats["proven"],
+			stats["conflicting_labels"],stats["insufficient_incidence"],
+			stats["missing_boundary_labels"])
+		assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
 			"cells":len(polygons),**stats}
 
