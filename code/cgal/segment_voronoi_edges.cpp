@@ -221,7 +221,7 @@ int main(int argc,char** argv) {
 					// Face and neighbor are primal Delaunay triangular faces.
 					// Their opposite sites are distinct from the two edge sites;
 					// they are not asserted to be left/right Voronoi owners.
-					incidence << "F " << labelled_edges << " "
+					incidence << "F " << labelled_edges << " " << i << " " << face->neighbor(i)->index(face) << " "
 						<< (diagram.is_infinite(face)?0:1) << " "
 						<< (diagram.is_infinite(face->neighbor(i))?0:1)
 						<< " OPP ";
