@@ -77,12 +77,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--skeleton-edge-ids" && i+1<argc) {
+		if (option=="--face-incidence" && i+1<argc) {
+			face_incidence_path=argv[++i];
+		} else if (option=="--skeleton-edge-ids" && i+1<argc) {
 			skeleton_edge_ids_path=argv[++i];
 		} else if (option=="--edges" && i+1<argc) {
 			path=argv[++i];
@@ -184,6 +186,12 @@ int main(int argc,char** argv) {
 			if (!labelled) throw std::runtime_error("Cannot create labelled output");
 			labelled << std::setprecision(17);
 			Recorder labelled_recorder{labelled,xmin,ymin,xmax,ymax};
+			std::ofstream incidence;
+			if (!face_incidence_path.empty()) {
+				incidence.open(face_incidence_path);
+				if (!incidence) throw std::runtime_error("Cannot create face incidence output");
+				incidence << std::setprecision(17);
+			}
 			std::ofstream topology;
 			if (!topology_path.empty()) {
 				topology.open(topology_path);
@@ -201,6 +209,25 @@ int main(int argc,char** argv) {
 						(point.point()==segment.source() || point.point()==segment.target());
 				};
 				const bool endpoint_pair=endpoint_of(a,b) || endpoint_of(b,a);
+				if (incidence.is_open()) {
+					// Face and neighbor are primal Delaunay triangular faces.
+					// Their opposite sites are distinct from the two edge sites;
+					// they are not asserted to be left/right Voronoi owners.
+					incidence << "F " << labelled_edges << " "
+						<< (diagram.is_infinite(face)?0:1) << " "
+						<< (diagram.is_infinite(face->neighbor(i))?0:1)
+						<< " OPP ";
+					if (diagram.is_infinite(face)) incidence << "INF";
+					else write_site(incidence,face->vertex(i)->site());
+					incidence << " | NEIGH ";
+					const auto neighbor=face->neighbor(i);
+					if (diagram.is_infinite(neighbor)) incidence << "INF";
+					else {
+						const int mirror=neighbor->index(face);
+						write_site(incidence,neighbor->vertex(mirror)->site());
+					}
+					incidence << "\n";
+				}
 				if (skeleton_edge_ids.is_open()) {
 					skeleton_edge_ids << "K " << labelled_edges << " " << (endpoint_pair?0:1) << "\n";
 				}
@@ -223,6 +250,9 @@ int main(int argc,char** argv) {
 			}
 			if (skeleton_edge_ids.is_open() && !skeleton_edge_ids.good()) {
 				throw std::runtime_error("Skeleton edge IDs write failed");
+			}
+			if (incidence.is_open() && !incidence.good()) {
+				throw std::runtime_error("Face incidence output write failed");
 			}
 			if (topology.is_open() && !topology.good()) {
 				throw std::runtime_error("Topology output write failed");
