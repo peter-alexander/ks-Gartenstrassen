@@ -15,9 +15,9 @@ class GridConflictAuditTests(unittest.TestCase):
 	def test_conflict_and_segment_endpoint_relation(self):
 		face=box(0,0,10,10)
 		segments=[
-			(LineString([(0,3),(10,3)]),(A,B)),
-			(LineString([(0,7),(10,7)]),(B,C)),
-			(LineString([(3,0),(3,10)]),(A,S))]
+			(LineString([(0,0),(10,0)]),(A,B)),
+			(LineString([(0,10),(10,10)]),(B,C)),
+			(LineString([(0,0),(0,10)]),(A,S))]
 		result=audit_conflicting_faces([face],[None],segments)
 		self.assertEqual(len(result),1)
 		self.assertEqual(result[0]["common_generator_count"],0)
