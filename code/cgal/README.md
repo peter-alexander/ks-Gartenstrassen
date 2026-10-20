@@ -41,7 +41,7 @@ isoliert geprüft werden:
 ```bash
 git pull --ff-only
 bash code/scripts/run-cgal-voronoi-debug-wien.sh \
-	--diagnostic-report output/cgal_face_site_preflight_wien.json
+	--diagnostic-report "$PWD/output/cgal_face_site_preflight_wien.json"
 ```
 
 Der Modus konstruiert und polygonisiert weiterhin das **ganze**
