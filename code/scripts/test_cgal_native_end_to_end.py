@@ -82,9 +82,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if label is not None:
 				assert polygon.intersects(_site_geometry(label,1000.))
 		carried_polygons,carried_labels,carried_stats=reconstruct_test_cells(
-			window,segments,carried_provenance=True)
+			window,segments,carried_provenance=True,diagnose=True)
 		assert len(carried_polygons)==len(polygons)
-		assert sum(carried_stats.values())==len(polygons)
+		assert sum(value for key,value in carried_stats.items()
+			if key!='diagnostic_examples')==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.intersects(_site_geometry(label,1000.))
