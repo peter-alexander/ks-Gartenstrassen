@@ -25,6 +25,7 @@ from shapely.validation import explain_validity
 
 from scripts.cgal_segment_input import SCALE, _noded_segments
 from scripts.cgal_site_audit import inspect_sites_file
+from scripts.cgal_face_sites import classify_polygon_generators_file
 from scripts.wienwide_grid import checksum, load_aoi, read_manifest
 from scripts.wienwide_street import load_street_tile
 
@@ -371,6 +372,10 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 		print("CGAL: Grenzen beschneiden und polygonisieren",flush=True)
 		lines,stats=_read_dual_lines(edges,box(*window.bounds),origin)
 		candidates,topology=_polygon_candidates(lines,box(*window.bounds))
+		face_labels,face_stats=classify_polygon_generators_file(
+			candidates,sites,owners,origin,SCALE)
+		print("CGAL-Zellgeneratoren: "
+			+json.dumps(face_stats,ensure_ascii=False),flush=True)
 		print(f"CGAL: {len(candidates):,} Teilflächen mit SIS verschneiden",flush=True)
 		groups,balance=_assign(candidates,mask,owners,origin,
 			mask_parts=mask_parts)
@@ -396,6 +401,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 				"crs":"EPSG:4326","bbox_31256":list(window.bounds),
 				"source_segments":len(owners),"dual_primitives":stats,
 				"graph_sites":site_stats,
+				"face_site_diagnostic":face_stats,
 				"polygonization":topology,"balance":balance,
 				"export_geometry_repairs":repairs,
 				"experimental":True,
