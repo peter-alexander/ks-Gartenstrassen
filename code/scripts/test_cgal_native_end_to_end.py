@@ -16,6 +16,7 @@ from shapely.ops import unary_union
 from scripts.cgal_native_adapter import metric_labelled_segments_file
 from scripts.cgal_topology_proof import reconstruct_test_cells
 from scripts.cgal_labelled_edges import labelled_edges_file
+from scripts.cgal_unresolved_site_audit import inspect_unresolved_faces
 
 
 def _site_geometry(site,scale):
@@ -84,8 +85,12 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		carried_polygons,carried_labels,carried_stats=reconstruct_test_cells(
 			window,segments,carried_provenance=True,diagnose=True)
 		assert len(carried_polygons)==len(polygons)
+		carried_stats["site_audit"]=inspect_unresolved_faces(
+			carried_polygons,carried_labels,edges)
+		assert len(carried_stats["site_audit"])==sum(
+			label is None for label in carried_labels)
 		assert sum(value for key,value in carried_stats.items()
-			if key!='diagnostic_examples')==len(polygons)
+			if key not in ('diagnostic_examples','site_audit'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.intersects(_site_geometry(label,1000.))
