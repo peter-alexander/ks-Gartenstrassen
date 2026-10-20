@@ -20,6 +20,8 @@ class SubfaceValidationTests(unittest.TestCase):
 		self.assertAlmostEqual(data["gap_m2"],0)
 		self.assertAlmostEqual(data["overlap_m2"],0)
 		self.assertEqual(data["proven_subfaces"],0)
+		self.assertIn("independent_comparison",data)
+		self.assertEqual(len(data["excluded_ring_details"]),data["filtered_out_rings"])
 
 	def test_open_internal_cut_does_not_create_spurious_subfaces(self):
 		data=inspect_subfaces(box(0,0,10,10),[
