@@ -61,11 +61,15 @@ command -v tippecanoe >/dev/null || {
 # presenting partial archives as completed previews.
 STAGE="$REPO/output/.cgal_segment_voronoi_sis_wien.$$.pmtiles"
 trap 'rm -f -- "$STAGE"' EXIT
-tippecanoe -o "$STAGE" -l gartenstrassen -zg \
-	--read-parallel --drop-densest-as-needed \
+tippecanoe -o "$STAGE" -l gartenstrassen -Z 8 -z 15 \
+	--no-feature-limit --no-tile-size-limit \
 	"$GEOJSON"
 [[ -s "$STAGE" ]] || { echo "PMTiles-Ausgabe fehlt/leer" >&2; exit 1; }
-mv -n -- "$STAGE" "$PMTILES"
+if [[ -e "$PMTILES" || -L "$PMTILES" ]]; then
+	echo "Zieldatei wurde inzwischen angelegt; kein Überschreiben" >&2
+	exit 1
+fi
+mv -- "$STAGE" "$PMTILES"
 echo "GeoJSON: $GEOJSON"
 echo "PMTiles: $PMTILES"
 echo "Hinweis: experimentelle CGAL-Flächen, nicht fachlich freigegeben."
