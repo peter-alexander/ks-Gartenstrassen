@@ -14,7 +14,6 @@ from shapely.wkb import loads
 from shapely.wkb import dumps
 
 from scripts.sis_belagsflaechen import build, read_surfaces
-from scripts.sis_v2_measure import _vegetation_mask
 
 
 class SISBelagsflaechenTests(unittest.TestCase):
@@ -207,13 +206,13 @@ class SISBelagsflaechenTests(unittest.TestCase):
 		report=build(self.source,self.base/"out")
 		self.assertIn("buffer(0)-Referenz",report["geometriekorrekturen"][0]["flaechentreue_nachweis"])
 
-	def test_conflicting_non_green_source_has_conservative_precedence(self):
-		with sqlite3.connect(":memory:") as db:
-			db.execute("CREATE TABLE surfaces (belag TEXT, geom BLOB)")
-			db.execute("INSERT INTO surfaces VALUES (?,?)", ("WI", dumps(box(0,0,10,10))))
-			db.execute("INSERT INTO surfaces VALUES (?,?)", ("GA", dumps(box(5,0,15,10))))
-			mask = _vegetation_mask(db, box(0,0,20,20))
-		self.assertAlmostEqual(mask.area, 50)
+	def test_conflicting_ground_classes_are_rejected(self):
+		doc = json.loads(self.source.read_text(encoding="utf-8"))
+		doc["features"][1]["geometry"] = doc["features"][0]["geometry"]
+		self.source.write_text(json.dumps(doc), encoding="utf-8")
+		with self.assertRaisesRegex(ValueError, "widersprüchlich"):
+			build(self.source, self.base/"out")
+		self.assertFalse((self.base/"out").exists())
 
 
 if __name__ == "__main__":
