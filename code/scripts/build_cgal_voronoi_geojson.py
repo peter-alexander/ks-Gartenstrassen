@@ -171,10 +171,17 @@ def _polygon_candidates(lines,window):
 		"gap_m2":gap,"overlap_m2":overlap}
 
 
-def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
+def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512,
+		face_labels=None):
 	"""Batch STRtree and GEOS intersection, retaining full area/overlap QA."""
 	if batch_size<1:
 		raise ValueError("batch_size muss >= 1 sein")
+	if face_labels is not None and len(face_labels)!=len(polygons):
+		raise ValueError("Anzahl der CGAL-Face-Labels stimmt nicht")
+	if face_labels is not None and any(
+		label is not None and label not in set(owners.values())
+		for label in face_labels):
+		raise ValueError("Unbekannte CGAL-Face-edge_id")
 	ox,oy=origin
 	keys=sorted(owners)
 	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
@@ -200,6 +207,8 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 	candidates_checked=0
 	intersections_calculated=0
 	assigned_polygons=0
+	direct_components=0
+	fallback_components=0
 	total=len(polygons)
 	for offset in range(0,total,batch_size):
 		# Both STRtree.query and shapely.intersection are vectorized C/GEOS
@@ -228,24 +237,31 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 				# face/site identity export. The independent QA remains needed.
 				t0=perf_counter()
 				component_geometries=[]
-				for part in parts:
-					if part.geom_type=="Polygon":
-						component_geometries.append(part)
-					elif part.geom_type=="MultiPolygon":
-						component_geometries.extend(part.geoms)
-					elif part.geom_type=="GeometryCollection":
-						component_geometries.extend(
-							g for g in part.geoms if g.geom_type=="Polygon")
-				component_geometries=[
-					g for g in component_geometries if not g.is_empty and g.area>0]
-				if component_geometries:
+				component_labels=[]
+				for part,poly_index in zip(parts,surviving_indices):
+					components=_polygonal(part)
+					component_geometries.extend(components)
+					label=(face_labels[offset+int(poly_index)]
+						if face_labels is not None else None)
+					component_labels.extend([label]*len(components))
+				fallback_indices=[i for i,label in enumerate(component_labels)
+					if label is None]
+				fallback_owners={}
+				if fallback_indices:
 					representatives=np.asarray(
-						[g.representative_point() for g in component_geometries],
-						dtype=object)
+						[component_geometries[i].representative_point()
+							for i in fallback_indices],dtype=object)
 					nearest=tree.nearest(representatives)
-					for j,part in enumerate(component_geometries):
-						owner=owners[keys[int(nearest[j])]]
-						grouped.setdefault(owner,[]).append(part)
+					fallback_owners={i:owners[keys[int(j)]]
+						for i,j in zip(fallback_indices,nearest)}
+				for j,part in enumerate(component_geometries):
+					owner=component_labels[j]
+					if owner is None:
+						owner=fallback_owners[j]
+						fallback_components+=1
+					else:
+						direct_components+=1
+					grouped.setdefault(owner,[]).append(part)
 				assigned_polygons+=len(np.unique(surviving_indices))
 				attribution_seconds+=perf_counter()-t0
 		completed=min(offset+batch_size,total)
@@ -277,7 +293,9 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 		"street_m2":mask.area,"assigned_m2":union.area,
 		"intersections_calculated":intersections_calculated,
 		"batch_size":batch_size,
-		"mask_tile_parts":len(mask_parts)}
+		"mask_tile_parts":len(mask_parts),
+		"direct_site_components":direct_components,
+		"fallback_components":fallback_components}
 
 
 
@@ -378,7 +396,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 			+json.dumps(face_stats,ensure_ascii=False),flush=True)
 		print(f"CGAL: {len(candidates):,} Teilflächen mit SIS verschneiden",flush=True)
 		groups,balance=_assign(candidates,mask,owners,origin,
-			mask_parts=mask_parts)
+			mask_parts=mask_parts,face_labels=face_labels)
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 		to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
 		features=[]
