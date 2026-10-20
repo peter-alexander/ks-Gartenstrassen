@@ -60,7 +60,7 @@ def classify_polygon_generators(polygons, sites):
 	stats={"unambiguous":0,"ambiguous":0,"missing":0,
 		"ownerless_generator_faces":0,
 		"unresolved_examples":[]}
-	MAX_EXAMPLES=24
+	MAX_EXAMPLES_PER_CATEGORY=12
 	owners=[]
 	for face_index,polygon in enumerate(polygons):
 		# Points on boundaries can be shared by adjacent cells. Querying
@@ -80,7 +80,9 @@ def classify_polygon_generators(polygons, sites):
 		else:
 			owners.append(None)
 			stats["ambiguous"]+=1
-		if owners[-1] is None and len(stats["unresolved_examples"])<MAX_EXAMPLES:
+		if owners[-1] is None and sum(
+			e["category"]==("missing" if not owners_found else "ambiguous")
+			for e in stats["unresolved_examples"])<MAX_EXAMPLES_PER_CATEGORY:
 			# Diagnostic samples only. Avoid per-face nearest-neighbour
 			# calls across the full Vienna polygonization.
 			sample=polygon.representative_point()
