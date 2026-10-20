@@ -49,9 +49,13 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 				if isinstance(value,int)}
 		else:
 			geometry_ok=False
-	else:
+	if not geometry_ok:
+		proven=0
 		ambiguous=len(subfaces)
-	return {"subfaces":len(subfaces),"area_m2":face.area,
+		reasons={}
+	return {"raw_polygonized_rings":len(rings.geoms),
+		"filtered_out_rings":len(rings.geoms)-len(subfaces),
+		"subfaces":len(subfaces),"area_m2":face.area,
 		"gap_m2":gap,"outside_m2":outside,"overlap_m2":overlap,
 		"geometry_valid":geometry_ok,
 		"proven_subfaces":proven,"unresolved_subfaces":ambiguous,
