@@ -4,7 +4,7 @@ This is deliberately a *small-network diagnostic*, not the Vienna builder.
 No cell is labelled unless every non-window boundary section is covered by
 labelled CGAL dual edges and all incident site pairs share one generator.
 """
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
 
@@ -32,8 +32,35 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
 			raise ValueError("Ungültige CGAL-Grenzgeometrie")
 		lines.append(geometry)
 		pairs.append(frozenset(pair))
-	polygons=list(polygonize(unary_union([window.boundary,*lines])))
+	noded=unary_union([window.boundary,*lines])
+	polygons=list(polygonize(noded))
+	# Split the same noded graph as polygonize into atomic straight edges.
+	atomic=[]
+	def collect(geom):
+		if geom.geom_type=="LineString":
+			coords=list(geom.coords)
+			for a,b in zip(coords,coords[1:]):
+				if a!=b:
+					atomic.append(LineString((a,b)))
+		elif hasattr(geom,"geoms"):
+			for part in geom.geoms:
+				collect(part)
+	collect(noded)
 	tree=STRtree(lines)
+	# Track source pairs on the noded edges. Reject unmatched edges
+	# rather than replacing provenance with nearest-generator guesses.
+	epsilon=min(tolerance,1e-8)
+	edge_pairs=[]
+	for edge in atomic:
+		matches=set()
+		for index in tree.query(edge.buffer(epsilon)):
+			i=int(index)
+			if (edge.distance(lines[i])<=epsilon and
+					all(Point(coord).distance(lines[i])<=epsilon
+						for coord in edge.coords)):
+				matches.add(pairs[i])
+		edge_pairs.append(matches)
+	noded_tree=STRtree(atomic)
 	generators=[]
 	stats={"proven":0,"missing_boundary_labels":0,"conflicting_labels":0,
 		"insufficient_incidence":0}
@@ -48,12 +75,17 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
 			continue
 		covered=[]
 		site_pairs=[]
-		for index in tree.query(boundary,predicate="intersects"):
+		for index in noded_tree.query(boundary):
 			i=int(index)
-			overlap=boundary.intersection(lines[i])
-			if overlap.length>tolerance:
-				covered.append(overlap)
-				site_pairs.append(pairs[i])
+			edge=atomic[i]
+			# Both inputs belong to the same noded arrangement.
+			# Test edge membership, not independently rounded overlap.
+			if edge.interpolate(0.5,normalized=True).distance(boundary)>epsilon:
+				continue
+			if not edge_pairs[i]:
+				continue
+			covered.append(edge)
+			site_pairs.extend(edge_pairs[i])
 		covered_length=(unary_union(covered).length if covered else 0.)
 		if boundary.length-covered_length>tolerance:
 			generators.append(None)
