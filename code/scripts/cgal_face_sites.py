@@ -58,9 +58,11 @@ def classify_polygon_generators(polygons, sites):
 	geoms=[s[0] for s in sites]
 	tree=STRtree(geoms)
 	stats={"unambiguous":0,"ambiguous":0,"missing":0,
-		"ownerless_generator_faces":0}
+		"ownerless_generator_faces":0,
+		"unresolved_examples":[]}
+	MAX_EXAMPLES=24
 	owners=[]
-	for polygon in polygons:
+	for face_index,polygon in enumerate(polygons):
 		# Points on boundaries can be shared by adjacent cells. Querying
 		# covers includes boundaries, so those cells stay ambiguous.
 		matches=tree.query(polygon,predicate="covers")
@@ -78,6 +80,22 @@ def classify_polygon_generators(polygons, sites):
 		else:
 			owners.append(None)
 			stats["ambiguous"]+=1
+		if owners[-1] is None and len(stats["unresolved_examples"])<MAX_EXAMPLES:
+			# Diagnostic samples only. Avoid per-face nearest-neighbour
+			# calls across the full Vienna polygonization.
+			sample=polygon.representative_point()
+			nearest=int(tree.nearest(sample))
+			generator=geoms[nearest]
+			stats["unresolved_examples"].append({
+				"face_index":face_index,
+				"category":"missing" if not owners_found else "ambiguous",
+				"area_m2":polygon.area,
+				"bounds_31256":list(polygon.bounds),
+				"site_count_in_face":len(matches),
+				"site_owner_sets":len(owners_found),
+				"nearest_site_distance_m":sample.distance(generator),
+				"nearest_site_on_boundary":polygon.boundary.distance(generator)<1e-7,
+				"nearest_site_owner_count":len(sites[nearest][1])})
 	return owners,stats
 
 
