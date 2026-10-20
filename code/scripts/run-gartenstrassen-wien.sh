@@ -10,6 +10,7 @@ PMTILES="$REPO/output/cgal_segment_voronoi_sis_wien.pmtiles"
 AUDIT="$REPO/output/cgal_cell_ownership_audit.json"
 AXES="$REPO/cache/wien/linear_use.sqlite"
 SIS="$REPO/cache/sis-wien.sqlite"
+ALLOW_FAILED_QA="${ALLOW_FAILED_QA:-0}"
 
 [[ -x "$PYTHON" ]] || { echo "Python fehlt: $PYTHON" >&2; exit 1; }
 [[ ! -L "$REPO/output" && ! -L "$REPO/cache" ]] || {
@@ -38,23 +39,48 @@ if [[ ! -f "$GEOJSON" ]]; then
 fi
 [[ -s "$GEOJSON" ]] || { echo "CGAL-GeoJSON fehlt/leer" >&2; exit 1; }
 
-# Audit failure is distinct from a crashed audit: only a written report
-# represents a completed QA check. Preview creation remains possible.
-if [[ ! -e "$AUDIT" ]]; then
+# QA is regenerated if input is newer; a stale report must not pass.
+if [[ ! -s "$AUDIT" || "$GEOJSON" -nt "$AUDIT" || "$AXES" -nt "$AUDIT" ]]; then
+	if [[ -e "$AUDIT" || -L "$AUDIT" ]]; then
+		echo "QA-Bericht ist veraltet: archiviere statt alte Resultate zu übernehmen."
+		mv -- "$AUDIT" "$AUDIT.previous.$(date +%s).json"
+	fi
 	echo "Prüfe Zellzuordnung und Geometriegültigkeit ..."
 	if ! (cd "$REPO/code" && "$PYTHON" -m scripts.audit_cgal_cell_ownership \
 		--cache "$AXES" --geojson "$GEOJSON" --out "$AUDIT"); then
-		if [[ -s "$AUDIT" ]]; then
-			echo "QA-Status: Auffälligkeiten im Bericht $AUDIT" >&2
-		else
-			echo "QA-Status: Prüfprozess abgebrochen; kein gültiger QA-Bericht" >&2
-		fi
+		[[ -s "$AUDIT" ]] || {
+			echo "QA abgebrochen, kein Bericht erzeugt." >&2
+			exit 1
+		}
 	fi
 fi
-if [[ -s "$AUDIT" ]]; then
-	"$PYTHON" -c 'import json,sys; r=json.load(open(sys.argv[1])); print("QA-Status:",r.get("qa_status","unbekannt"),"| ungültige Flächen:",r.get("invalid_geometry_count","?"),"| Zuordnungsfehler:",r.get("ownership_failures","?"))' "$AUDIT"
-else
-	echo "QA-Status: nicht abgeschlossen"
+
+# Exit non-zero on invalid, incomplete or outdated reports, unless an
+# intentionally unverified visualization is explicitly requested.
+QA_STATUS="$("$PYTHON" - "$AUDIT" <<'PY'
+import json
+import sys
+from pathlib import Path
+try:
+	r=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+	assert r["qa_status"] in ("passed","failed")
+	assert isinstance(r["ownership_failures"],int)
+	assert isinstance(r["invalid_geometry_count"],int)
+	assert r["failures"]==r["ownership_failures"]+r["invalid_geometry_count"]
+	print(r["qa_status"])
+except (OSError,ValueError,KeyError,AssertionError,TypeError) as exc:
+	print(f"QA-Bericht unbrauchbar: {exc}",file=sys.stderr)
+	sys.exit(2)
+PY
+)" || exit 1
+echo "QA-Status: $QA_STATUS | Bericht: $AUDIT"
+if [[ "$QA_STATUS" != passed ]]; then
+	echo "QA fehlgeschlagen: keine automatische Freigabe der PMTiles." >&2
+	if [[ "$ALLOW_FAILED_QA" != 1 ]]; then
+		echo "Nur für bewusst ungeprüfte Sichtprüfung: ALLOW_FAILED_QA=1" >&2
+		exit 1
+	fi
+	echo "Ungeprüfte Vorschau wird ausdrücklich erlaubt." >&2
 fi
 
 if [[ -e "$PMTILES" || -L "$PMTILES" ]]; then
