@@ -22,7 +22,8 @@ from scripts.cgal_subface_validation import inspect_subfaces
 from scripts.cgal_repair_test_cells import repair_test_cells
 from scripts.cgal_grid_conflict_audit import audit_conflicting_faces
 from scripts.cgal_directed_boundary_audit import directed_face_edges
-from scripts.cgal_pair_constraints import audit_pair_constraints,audit_boundary_sides
+from scripts.cgal_directed_boundary_audit import directed_face_edges,audit_boundary_sides
+from scripts.cgal_pair_constraints import audit_pair_constraints
 
 
 def _site_geometry(site,scale):
