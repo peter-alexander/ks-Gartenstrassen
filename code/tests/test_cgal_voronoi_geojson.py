@@ -1,10 +1,12 @@
 """Regression checks for CGAL dual geometry before running full Vienna."""
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from shapely.geometry import LineString, Polygon, box
 
 from scripts.build_cgal_voronoi_geojson import (
-	_polygon_candidates, _record_line, _export_wgs84_polygon)
+	_polygon_candidates, _record_line, _export_wgs84_polygon, build)
 
 
 class CGALFullViennaTests(unittest.TestCase):
@@ -37,6 +39,27 @@ class CGALFullViennaTests(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError,"ungültig"):
 			_export_wgs84_polygon(geom,lambda x,y:(x,y),
 				lambda x,y:(x,y),edge_id="a")
+
+	def test_diagnostic_does_not_overwrite_existing_report(self):
+		with TemporaryDirectory() as temp:
+			directory=Path(temp)
+			report=directory/"report.json"
+			report.write_text("old",encoding="utf-8")
+			with self.assertRaises(FileExistsError):
+				build(None,None,None,None,directory/"nonexistent",
+					directory/"existing.geojson",
+					diagnostic_report=report)
+			self.assertEqual(report.read_text(encoding="utf-8"),"old")
+
+	def test_diagnostic_mode_allows_existing_geojson(self):
+		with TemporaryDirectory() as temp:
+			directory=Path(temp)
+			geojson=directory/"existing.geojson"
+			geojson.write_text("old",encoding="utf-8")
+			with self.assertRaises(FileNotFoundError):
+				build(None,None,None,None,directory/"nonexistent",
+					geojson,diagnostic_report=directory/"report.json")
+			self.assertEqual(geojson.read_text(encoding="utf-8"),"old")
 
 	def test_invalid_ray_direction_raises(self):
 		with self.assertRaisesRegex(ValueError,"Vektor"):

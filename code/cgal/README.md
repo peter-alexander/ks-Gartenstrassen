@@ -33,6 +33,29 @@ EPSG:4326, Eigentümer `edge_id`, Fläche in m²).
 Eine vorhandene Ausgabe wird nicht überschrieben. Zum erneuten Ausführen
 muss die alte Ausgabe ausdrücklich umbenannt oder entfernt werden.
 
+## Eigenständige Zuordnungsdiagnose ohne SIS-Export
+
+Vor dem nächsten vollständigen Wien-Lauf kann die CGAL-Generatorzuordnung
+isoliert geprüft werden:
+
+```bash
+git pull --ff-only
+bash code/scripts/run-cgal-voronoi-debug-wien.sh \
+	--diagnostic-report "$PWD/output/cgal_face_site_preflight_wien.json"
+```
+
+Der Modus konstruiert und polygonisiert weiterhin das **ganze**
+CGAL-Voronoi-Diagramm; er überspringt anschließend aber den SIS-Verschnitt,
+den WGS84-Export und die PMTiles-Erzeugung. Bereits existierende
+GeoJSON-/PMTiles-Dateien werden **nicht überschrieben**. Auch ein vorhandener
+Diagnosebericht wird nicht überschrieben.
+
+Im neuen Bericht stehen `face_site_diagnostic.unambiguous`,
+`face_site_diagnostic.ambiguous`, `face_site_diagnostic.missing` sowie
+`unresolved_faces`. Dies sind *Vorabwerte der polygonisierten CGAL-Zellen*,
+noch keine Anzahl der SIS-Teilflächen. Die finale Geometrie- und
+Zellzuordnungs-QA wird dadurch nicht ersetzt.
+
 ## Ablauf
 
 1. Verifizierte Wiener GIP-`LINEAR_USE`-Achsen laden, millimetergenau
