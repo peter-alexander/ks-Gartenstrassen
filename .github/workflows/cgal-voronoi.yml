@@ -24,6 +24,7 @@ on:
       - "code/scripts/cgal_endpoint_dual_candidates.py"
       - "code/scripts/cgal_endpoint_neighbor_audit.py"
       - "code/scripts/cgal_directed_side_calibration.py"
+      - "code/scripts/cgal_actual_shared_ray_sides.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
