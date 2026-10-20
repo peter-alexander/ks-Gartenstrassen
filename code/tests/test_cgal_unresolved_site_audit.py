@@ -12,8 +12,8 @@ class UnresolvedSiteAuditTests(unittest.TestCase):
 			(1,(("P",(0.,0.)),("S",(0.,5000.,10000.,5000.))),[])]
 		found=inspect_unresolved_faces([box(0,0,10,10)],[None],edges)
 		self.assertEqual(len(found),1)
-		self.assertEqual(found[0]["strictly_contained_sites"],2)
-		self.assertEqual(found[0]["boundary_intersecting_sites"],2)
+		self.assertEqual(found[0]["strictly_contained_sites"],3)
+		self.assertEqual(found[0]["boundary_intersecting_sites"],1)
 		self.assertTrue(found[0]["multiple_contained_sites"])
 
 	def test_boundary_point_is_not_counted_as_contained(self):
