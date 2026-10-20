@@ -103,13 +103,16 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert len(incidence)==len(edges)
 		face_incidence={}
 		for index,record in enumerate(incidence):
-			fields=record.split(maxsplit=4)
+			fields=record.split(maxsplit=6)
 			assert fields[:2]==["F",str(index)]
-			assert fields[2] in ("0","1") and fields[3] in ("0","1")
-			assert fields[4].startswith("OPP ") and " | NEIGH " in fields[4]
-			face_incidence[index]={"primary_finite":fields[2]=="1",
-				"neighbor_finite":fields[3]=="1",
-				"opposite_sites":fields[4]}
+			assert fields[2] in ("0","1","2") and fields[3] in ("0","1","2")
+			assert fields[4] in ("0","1") and fields[5] in ("0","1")
+			assert fields[6].startswith("OPP ") and " | NEIGH " in fields[6]
+			face_incidence[index]={"local_index":int(fields[2]),
+				"neighbor_index":int(fields[3]),
+				"primary_finite":fields[4]=="1",
+				"neighbor_finite":fields[5]=="1",
+				"opposite_sites":fields[6]}
 		flags=(temp/"skeleton_ids.txt").read_text(encoding="utf-8").splitlines()
 		assert len(flags)==len(edges)
 		excluded_ids=[]
