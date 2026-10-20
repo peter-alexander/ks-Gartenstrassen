@@ -60,7 +60,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		command=[str(Path(binary).resolve()),"--edges",str(temp/"dual.txt"),
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
-			str(temp/"topology.txt"),"--skeleton-edge-ids",
+			str(temp/"topology.txt"),"--face-incidence",
+			str(temp/"incidence.txt"),"--skeleton-edge-ids",
 			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
 			capture_output=True,timeout=90,check=True)
@@ -80,6 +81,17 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if fields[2]=="1":
 				endpoint_ids.append(index)
 		assert native["endpoint_duals"]==len(endpoint_ids)
+		incidence=(temp/"incidence.txt").read_text(encoding="utf-8").splitlines()
+		assert len(incidence)==len(edges)
+		face_incidence={}
+		for index,record in enumerate(incidence):
+			fields=record.split(maxsplit=4)
+			assert fields[:2]==["F",str(index)]
+			assert fields[2] in ("0","1") and fields[3] in ("0","1")
+			assert fields[4].startswith("OPP ") and " | NEIGH " in fields[4]
+			face_incidence[index]={"primary_finite":fields[2]=="1",
+				"neighbor_finite":fields[3]=="1",
+				"opposite_sites":fields[4]}
 		flags=(temp/"skeleton_ids.txt").read_text(encoding="utf-8").splitlines()
 		assert len(flags)==len(edges)
 		excluded_ids=[]
@@ -191,6 +203,9 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				carried_stats["native_source_audit"])
 			for finding in carried_stats["degenerate_ray_sides"]:
 				assert set(finding["native_edge_ids"]).issubset(endpoint_ids)
+				finding["primal_face_incidence"]=[
+					{"edge_id":edge_id,**face_incidence[edge_id]}
+					for edge_id in finding["native_edge_ids"]]
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
