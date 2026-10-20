@@ -22,6 +22,22 @@ class CarriedProvenanceTests(unittest.TestCase):
 		self.assertEqual(len(vertical),2)
 		self.assertTrue(all(frozenset((B,C)) in labels for labels in vertical))
 
+	def test_many_unrelated_nodes_do_not_change_provenance(self):
+		window=box(0,0,100,100)
+		sources=[LineString([(10,10),(90,10)]),
+			LineString([(50,0),(50,100)])]
+		sources.extend(LineString([(x,50),(x,55)])
+			for x in range(2,99,5))
+		pairs=[frozenset((A,B)),frozenset((B,C))]
+		pairs.extend([frozenset((A,C))]*(len(sources)-2))
+		_,edges=carried_provenance(window,sources,pairs)
+		at_horizontal=[labels for edge,labels in edges
+			if edge.length>0 and abs(edge.centroid.y-10)<1e-8
+			and 10<edge.centroid.x<90]
+		self.assertGreaterEqual(len(at_horizontal),2)
+		self.assertTrue(all(frozenset((A,B)) in labels
+			for labels in at_horizontal))
+
 	def test_unlabelled_window_edges_remain_unlabelled(self):
 		_,edges=carried_provenance(box(0,0,2,2),
 			[LineString([(1,0),(1,2)])],[frozenset((A,B))])
