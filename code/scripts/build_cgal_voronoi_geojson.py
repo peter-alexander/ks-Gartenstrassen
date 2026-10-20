@@ -340,12 +340,17 @@ def _export_wgs84_polygon(metric, to_wgs, to_metric, *, edge_id,
 		"method":"make_valid_polygonal_area_verified",
 		"symmetric_difference_m2":symdiff}
 
-def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
+def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
+		diagnostic_report=None):
 	if not math.isfinite(timeout) or timeout<=0:
 		raise ValueError("Timeout muss positiv sein")
 	out=Path(out)
-	if out.exists() or out.is_symlink():
+	if diagnostic_report is None and (out.exists() or out.is_symlink()):
 		raise FileExistsError(out)
+	if diagnostic_report is not None:
+		diagnostic_report=Path(diagnostic_report)
+		if diagnostic_report.exists() or diagnostic_report.is_symlink():
+			raise FileExistsError(diagnostic_report)
 	if not Path(binary).is_file():
 		raise FileNotFoundError(f"CGAL-Binary fehlt: {binary}")
 	aoi=load_aoi(aoi_path)
@@ -355,7 +360,8 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	window=box(*aoi.bounds)
 	print(f"CGAL: ganz Wien, Begrenzungsrechteck {window.bounds}",flush=True)
 	print("CGAL: SIS-Maske und genodete Wiener Achsen einlesen",flush=True)
-	mask,mask_parts=_window_mask(manifest,sis_root,aoi_path,window)
+	if diagnostic_report is None:
+		mask,mask_parts=_window_mask(manifest,sis_root,aoi_path,window)
 	owners,origin=_noded_segments(_axes(cache),
 		progress=lambda message:print(message,flush=True))
 	frame=_frame(aoi,origin)
@@ -394,6 +400,38 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 			candidates,sites,owners,origin,SCALE)
 		print("CGAL-Zellgeneratoren: "
 			+json.dumps(face_stats,ensure_ascii=False),flush=True)
+		if diagnostic_report is not None:
+			# Stop before the expensive SIS overlay and without replacing any
+			# existing GeoJSON or PMTiles. This is an attribution preflight,
+			# not a geometry validity or final ownership QA.
+			report={"schema":"cgal-face-site-preflight-v1",
+				"source_segments":len(owners),
+				"polygonization":topology,
+				"dual_primitives":stats,
+				"graph_sites":site_stats,
+				"face_site_diagnostic":face_stats,
+				"total_faces":len(candidates),
+				"unresolved_faces":face_stats["ambiguous"]+face_stats["missing"],
+				"scope":"CGAL polygon generators before SIS clipping",
+				"not_final_ownership_qa":True}
+			diagnostic_report.parent.mkdir(parents=True,exist_ok=True)
+			with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",
+					dir=diagnostic_report.parent,prefix=".cgal-preflight-",
+					suffix=".json.tmp",delete=False) as target:
+				staged=Path(target.name)
+				try:
+					json.dump(report,target,ensure_ascii=False,indent=2,
+						allow_nan=False)
+					target.write("\\n")
+				except BaseException:
+					staged.unlink(missing_ok=True)
+					raise
+			if diagnostic_report.exists() or diagnostic_report.is_symlink():
+				staged.unlink(missing_ok=True)
+				raise FileExistsError(diagnostic_report)
+			os.replace(staged,diagnostic_report)
+			print(f"CGAL-Zuordnungsdiagnose: {diagnostic_report}",flush=True)
+			return report
 		print(f"CGAL: {len(candidates):,} Teilflächen mit SIS verschneiden",flush=True)
 		groups,balance=_assign(candidates,mask,owners,origin,
 			mask_parts=mask_parts,face_labels=face_labels)
@@ -442,9 +480,11 @@ def main():
 	p.add_argument("--binary",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--timeout",type=float,default=900)
+	p.add_argument("--diagnostic-report",type=Path,
+		help="Nur CGAL-Zellen/Sites diagnostizieren; kein SIS-Verschnitt oder GeoJSON-Export")
 	a=p.parse_args()
 	build(a.cache,a.aoi,a.sis_manifest,a.sis_root,a.binary,a.out,
-		timeout=a.timeout)
+		timeout=a.timeout,diagnostic_report=a.diagnostic_report)
 
 
 if __name__=="__main__":
