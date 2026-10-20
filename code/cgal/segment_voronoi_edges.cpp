@@ -223,7 +223,7 @@ int main(int argc,char** argv) {
 					const auto neighbor=face->neighbor(i);
 					if (diagram.is_infinite(neighbor)) incidence << "INF";
 					else {
-						const int mirror=diagram.mirror_index(face,i);
+						const int mirror=neighbor->index(face);
 						write_site(incidence,neighbor->vertex(mirror)->site());
 					}
 					incidence << "\n";
