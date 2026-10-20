@@ -31,6 +31,7 @@ def _read_sites(lines, owners, origin, scale):
 			p=tuple(round(v) for v in _point(fields[1:]))
 			ids=endpoints.get(p,set())
 			geom=Point(p[0]/scale+ox,p[1]/scale+oy)
+			full_geometry=geom
 		elif fields[0]=="S" and len(fields)==5:
 			a=tuple(round(v) for v in _point(fields[1:3]))
 			b=tuple(round(v) for v in _point(fields[3:5]))
@@ -38,13 +39,14 @@ def _read_sites(lines, owners, origin, scale):
 			owner=segment_owners.get(tuple(sorted((a,b))))
 			if owner is not None:
 				ids.add(owner)
-			geom=LineString(((a[0]/scale+ox,a[1]/scale+oy),
-				(b[0]/scale+ox,b[1]/scale+oy))).interpolate(0.5,normalized=True)
+			full_geometry=LineString(((a[0]/scale+ox,a[1]/scale+oy),
+				(b[0]/scale+ox,b[1]/scale+oy)))
+			geom=full_geometry.interpolate(0.5,normalized=True)
 		else:
 			raise ValueError(f"Site-Zeile {i}: ungültiges Format")
 		# Frame or CGAL-derived generators may have no LINEAR_USE owner.
 		# Keep them as ownerless rather than invent an edge_id.
-		result.append((geom,frozenset(ids)))
+		result.append((geom,frozenset(ids),full_geometry))
 	return result
 
 
@@ -57,6 +59,10 @@ def classify_polygon_generators(polygons, sites):
 		raise ValueError("Keine CGAL-Sites")
 	geoms=[s[0] for s in sites]
 	tree=STRtree(geoms)
+	# Diagnostic only: unlike the sampled segment midpoint, the original
+	# segment geometry can intersect a face away from its midpoint.
+	full_geoms=[s[2] if len(s)>2 else s[0] for s in sites]
+	full_tree=STRtree(full_geoms)
 	stats={"unambiguous":0,"ambiguous":0,"missing":0,
 		"ownerless_generator_faces":0,
 		"unresolved_examples":[]}
@@ -87,6 +93,15 @@ def classify_polygon_generators(polygons, sites):
 			# calls across the full Vienna polygonization.
 			sample=polygon.representative_point()
 			nearest=int(tree.nearest(sample))
+			full_hits=full_tree.query(polygon,predicate="intersects")
+			segment_crossings=0
+			segment_crossing_owners=set()
+			for index in full_hits:
+				index=int(index)
+				part=full_geoms[index]
+				if part.geom_type=="LineString" and polygon.intersection(part).length>1e-7:
+					segment_crossings+=1
+					segment_crossing_owners.update(sites[index][1])
 			generator=geoms[nearest]
 			stats["unresolved_examples"].append({
 				"face_index":face_index,
@@ -97,7 +112,9 @@ def classify_polygon_generators(polygons, sites):
 				"site_owner_sets":len(owners_found),
 				"nearest_site_distance_m":sample.distance(generator),
 				"nearest_site_on_boundary":polygon.boundary.distance(generator)<1e-7,
-				"nearest_site_owner_count":len(sites[nearest][1])})
+				"nearest_site_owner_count":len(sites[nearest][1]),
+				"intersecting_segment_sites":segment_crossings,
+				"intersecting_segment_owner_count":len(segment_crossing_owners)})
 	return owners,stats
 
 

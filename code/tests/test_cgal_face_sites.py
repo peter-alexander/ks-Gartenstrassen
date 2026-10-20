@@ -24,6 +24,18 @@ class FaceSiteTests(unittest.TestCase):
 		self.assertEqual(labels,[None])
 		self.assertEqual(counts["ambiguous"],1)
 
+	def test_segment_intersection_detected_without_midpoint_containment(self):
+		# A long segment crosses the face, but its midpoint is elsewhere.
+		owners={((0,0),(20000,0)):"axis"}
+		sites=_read_sites(["S 0 0 20000 0"],owners,(0,0),1000)
+		labels,stats=classify_polygon_generators(
+			[box(0,-1,4,1)],sites)
+		self.assertEqual(labels,[None])
+		self.assertEqual(stats["missing"],1)
+		sample=stats["unresolved_examples"][0]
+		self.assertEqual(sample["intersecting_segment_sites"],1)
+		self.assertEqual(sample["intersecting_segment_owner_count"],1)
+
 	def test_unmapped_site_is_kept_ownerless(self):
 		owners={((0,0),(10000,0)):"street"}
 		sites=_read_sites(["S 0 0 10000 0",
