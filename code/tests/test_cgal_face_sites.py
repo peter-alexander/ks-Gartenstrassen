@@ -24,6 +24,26 @@ class FaceSiteTests(unittest.TestCase):
 		self.assertEqual(labels,[None])
 		self.assertEqual(counts["ambiguous"],1)
 
+	def test_unmapped_site_is_kept_ownerless(self):
+		owners={((0,0),(10000,0)):"street"}
+		sites=_read_sites(["S 0 0 10000 0",
+			"S 100000 100000 200000 100000",
+			"P 150000 100000"],owners,(0,0),1000)
+		self.assertEqual(sites[0][1],frozenset({"street"}))
+		self.assertEqual(sites[1][1],frozenset())
+		self.assertEqual(sites[2][1],frozenset())
+		labels,stats=classify_polygon_generators(
+			[box(90,95,210,105)],sites)
+		self.assertEqual(labels,[None])
+		self.assertEqual(stats["ownerless_generator_faces"],1)
+
+	def test_ownerless_generator_prevents_false_unique_owner(self):
+		sites=[(Point(1,1),frozenset({"street"})),
+			(Point(2,2),frozenset())]
+		labels,stats=classify_polygon_generators([box(0,0,3,3)],sites)
+		self.assertEqual(labels,[None])
+		self.assertEqual(stats["ownerless_generator_faces"],1)
+
 	def test_missing_generator_is_not_guessed(self):
 		labels,counts=classify_polygon_generators(
 			[box(10,10,11,11)],[(Point(0,0),frozenset({"west"}))])
