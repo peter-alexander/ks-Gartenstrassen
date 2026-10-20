@@ -45,6 +45,31 @@ class CGALSISOverlayTests(unittest.TestCase):
 		self.assertAlmostEqual(grouped["east"].area,100)
 		self.assertAlmostEqual(report["gap_m2"],0)
 
+	def test_explicit_cgal_face_owner_overrides_nearest_heuristic(self):
+		# The generator identity is authoritative even if a sample at
+		# the SIS piece would otherwise select a different axis.
+		polygons=[box(0,0,10,10),box(10,0,20,10)]
+		mask=box(0,0,20,10)
+		owners={
+			((1000,4000),(2000,4000)):"west",
+			((18000,4000),(19000,4000)):"east"}
+		result,stats=_assign(polygons,mask,owners,(0,0),
+			mask_parts=[mask],face_labels=["east","west"],batch_size=1)
+		self.assertAlmostEqual(result["east"].area,100)
+		self.assertAlmostEqual(result["west"].area,100)
+		self.assertEqual(stats["fallback_components"],0)
+		self.assertEqual(stats["direct_site_components"],2)
+
+	def test_unresolved_faces_remain_counted_as_fallback(self):
+		polygons=[box(0,0,10,10)]
+		mask=box(0,0,10,10)
+		owners={((1000,4000),(2000,4000)):"west"}
+		result,stats=_assign(polygons,mask,owners,(0,0),
+			face_labels=[None])
+		self.assertIn("west",result)
+		self.assertEqual(stats["fallback_components"],1)
+		self.assertEqual(stats["direct_site_components"],0)
+
 	def test_reject_invalid_batch_size(self):
 		with self.assertRaises(ValueError):
 			_assign([],box(0,0,1,1),{},(0,0),batch_size=0)
