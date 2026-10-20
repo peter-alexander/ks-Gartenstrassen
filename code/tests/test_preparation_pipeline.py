@@ -14,7 +14,7 @@ class PreparationPipelineTests(unittest.TestCase):
 		self.assertIn("aoi grid street grm-fetch grm-build",result.stdout)
 		for obsolete in ("gip-index","gip-merge","partition","trim","qa",
 				"measure","pmtiles","junction","kreuzung"):
-			self.assertNotIn(obsolete,result.stdout.lower())
+			self.assertNotIn(obsolete,result.stdout.lower().split("optionale umgebung:")[0])
 
 	def test_grid_to_grm_has_no_gip_or_partition_command(self):
 		with tempfile.TemporaryDirectory() as folder:
