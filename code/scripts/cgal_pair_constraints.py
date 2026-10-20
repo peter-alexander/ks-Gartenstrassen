@@ -49,18 +49,21 @@ def audit_pair_constraints(polygons,labels,segments,*,tolerance=1e-8):
 	for component in components:
 		borders=[(i,j,pairs) for (i,j),pairs in constraints.items()
 			if i in component or j in component]
-		domains={i:set.union(*(set(pair) for a,b,pairs in borders
-			if i in (a,b) for pair in pairs)) if any(i in (a,b)
-			for a,b,_ in borders) else set() for i in component}
+		domains={}
+		for node in component:
+			incident=[set(pair) for a,b,pairs in borders
+				if node in (a,b) for pair in pairs]
+			domains[node]=set.intersection(*incident) if incident else set()
 		for i,j,pairs in borders:
-			known=j if i in component else i
+			if i in component and j in component:
+				continue
+			node=i if i in component else j
+			known=j if i==node else i
 			if labels[known] is None:
 				continue
-			allowed=set()
-			for pair in pairs:
-				if labels[known] in pair:
-					allowed.update(pair-{labels[known]})
-			domains[i if i in component else j].intersection_update(allowed)
+			allowed=set.intersection(*(set(pair)-{labels[known]}
+				if labels[known] in pair else set() for pair in pairs))
+			domains[node].intersection_update(allowed)
 		solutions=[]
 		def search(remaining,assigned):
 			if len(solutions)>=2:
@@ -76,7 +79,7 @@ def audit_pair_constraints(polygons,labels,segments,*,tolerance=1e-8):
 						continue
 					other=j if i==node else i
 					other_site=assigned.get(other,labels[other])
-					if other_site is not None and any(
+					if other_site is not None and all(
 							{site,other_site}==pair for pair in pairs):
 						continue
 					if other_site is not None:
