@@ -37,12 +37,9 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 	proven=0
 	ambiguous=0
 	reasons={}
-	if geometry_ok:
-		_,proof_labels,proof_stats=reconstruct_test_cells(
-			face,internal,tolerance=tolerance,carried_provenance=True)
-		# A second polygonization is required for the ownership proof:
-		# confirm exactly the same positive-area faces geometrically.
-		proof_polygons,_,_=reconstruct_test_cells(
+	if geometry_ok and internal:
+		# Independently prove labels and match the very same subface set.
+		proof_polygons,proof_labels,proof_stats=reconstruct_test_cells(
 			face,internal,tolerance=tolerance,carried_provenance=True)
 		match=all(any(p.equals(q) for q in proof_polygons) for p in subfaces)
 		if match and len(proof_polygons)==len(subfaces):
@@ -52,6 +49,8 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 				if isinstance(value,int)}
 		else:
 			geometry_ok=False
+	else:
+		ambiguous=len(subfaces)
 	return {"subfaces":len(subfaces),"area_m2":face.area,
 		"gap_m2":gap,"outside_m2":outside,"overlap_m2":overlap,
 		"geometry_valid":geometry_ok,
