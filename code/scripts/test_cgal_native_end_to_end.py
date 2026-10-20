@@ -19,6 +19,7 @@ from scripts.cgal_labelled_edges import labelled_edges_file
 from scripts.cgal_unresolved_site_audit import inspect_unresolved_faces
 from scripts.cgal_internal_dual_audit import audit_internal_duals
 from scripts.cgal_subface_validation import inspect_subfaces
+from scripts.cgal_repair_test_cells import repair_test_cells
 
 
 def _site_geometry(site,scale):
@@ -103,6 +104,18 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.intersects(_site_geometry(label,1000.))
+		repaired_polygons,repaired_labels,repair_stats=repair_test_cells(
+			window,segments)
+		assert len(repaired_polygons)==len(repaired_labels)
+		assert repair_stats["gap_m2"]<1e-6
+		assert repair_stats["overlap_m2"]<1e-6
+		# Source-site geometry vetoes unsafe oblique replacements.
+		assert repair_stats["repaired_parent_faces"]==0
+		assert repair_stats["still_unresolved"]=={
+			"parallel":0,"junction":3,"crossing":0,"oblique":1}[fixture]
+		for polygon,label in zip(repaired_polygons,repaired_labels):
+			if label is not None:
+				assert polygon.intersects(_site_geometry(label,1000.))
 		assert sum(value for key,value in stats.items()
 			if key!='diagnostic_examples')==len(polygons)
 		# Baseline of real native fixtures, not a blanket quality pass.
@@ -118,7 +131,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert actual==expected[fixture],(fixture,actual,expected[fixture])
 		return {"fixture":fixture,"native_edges":len(edges),"clipped_fragments":len(segments),
 			"cells":len(polygons),**stats,"experimental_noded":new_stats,
-			"experimental_carried":carried_stats}
+			"experimental_carried":carried_stats,
+			"experimental_repair":repair_stats}
 
 
 def main():

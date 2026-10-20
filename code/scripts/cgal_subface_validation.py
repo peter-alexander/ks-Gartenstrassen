@@ -10,7 +10,8 @@ from scripts.cgal_internal_dual_audit import _lines
 from scripts.cgal_topology_proof import reconstruct_test_cells
 
 
-def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
+def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7,
+		return_cells=False):
 	if face.is_empty or not face.is_valid or face.area<=0:
 		raise ValueError("Invalid parent face")
 	internal=[]
@@ -43,6 +44,7 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 	# another polygonization whose face indexing may differ.
 	proven=0
 	ambiguous=0
+	accepted_cells=[]
 	reasons={}
 	comparison={"partition_match":False,"reference_subfaces":None,
 		"only_first_area_m2":None,"only_reference_area_m2":None,
@@ -72,6 +74,8 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 			"only_reference_area_m2":ref_union.difference(first_union).area,
 			"max_best_symmetric_difference_m2":max(differences,default=0.)}
 		if match:
+			accepted_cells=[(p,next(label for q,label in accepted if p.equals(q)))
+				for p in subfaces]
 			proven=sum(label is not None for label in proof_labels)
 			ambiguous=len(proof_labels)-proven
 			reasons={key:value for key,value in proof_stats.items()
@@ -82,7 +86,7 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 		proven=0
 		ambiguous=len(subfaces)
 		reasons={}
-	return {"raw_polygonized_rings":len(rings.geoms),
+	report={"raw_polygonized_rings":len(rings.geoms),
 		"filtered_out_rings":len(rings.geoms)-len(subfaces),
 		"excluded_ring_details":excluded_details,
 		"independent_comparison":comparison,
@@ -93,3 +97,7 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 		"unresolved_reasons":reasons,
 		"cuts":len(cuts.geoms),"dangles":len(dangles.geoms),
 		"invalid_rings":len(invalid.geoms)}
+	if return_cells:
+		# No geometries are released if the full partition failed QA.
+		return (accepted_cells if geometry_ok else []),report
+	return report
