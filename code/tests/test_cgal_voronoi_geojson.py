@@ -1,10 +1,10 @@
 """Regression checks for CGAL dual geometry before running full Vienna."""
 import unittest
 
-from shapely.geometry import LineString, box
+from shapely.geometry import LineString, Polygon, box
 
 from scripts.build_cgal_voronoi_geojson import (
-	_polygon_candidates, _record_line)
+	_polygon_candidates, _record_line, _export_wgs84_polygon)
 
 
 class CGALFullViennaTests(unittest.TestCase):
@@ -24,6 +24,19 @@ class CGALFullViennaTests(unittest.TestCase):
 		self.assertEqual(len(polygons),2)
 		self.assertAlmostEqual(sum(p.area for p in polygons),100.)
 		self.assertLess(stats["gap_m2"],1e-6)
+
+	def test_geojson_export_keeps_valid_polygon(self):
+		geom=box(0,0,10,10)
+		out,repair=_export_wgs84_polygon(geom,lambda x,y:(x,y),
+			lambda x,y:(x,y),edge_id="a")
+		self.assertTrue(out.equals(geom))
+		self.assertIsNone(repair)
+
+	def test_geojson_export_rejects_ambiguous_self_intersection(self):
+		geom=Polygon([(0,0),(10,10),(0,10),(10,0),(0,0)])
+		with self.assertRaisesRegex(ValueError,"ungültig"):
+			_export_wgs84_polygon(geom,lambda x,y:(x,y),
+				lambda x,y:(x,y),edge_id="a")
 
 	def test_invalid_ray_direction_raises(self):
 		with self.assertRaisesRegex(ValueError,"Vektor"):
