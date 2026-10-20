@@ -58,7 +58,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		command=[str(Path(binary).resolve()),"--edges",str(temp/"dual.txt"),
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
-			str(temp/"topology.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
+			str(temp/"topology.txt"),"--skeleton-edge-ids",
+			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
 			capture_output=True,timeout=90,check=True)
 		native=json.loads(result.stdout)
@@ -77,6 +78,14 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			if fields[2]=="1":
 				endpoint_ids.append(index)
 		assert native["endpoint_duals"]==len(endpoint_ids)
+		flags=(temp/"skeleton_ids.txt").read_text(encoding="utf-8").splitlines()
+		assert len(flags)==len(edges)
+		excluded_ids=[]
+		for index,record in enumerate(flags):
+			assert record in (f"K {index} 0",f"K {index} 1")
+			if record.endswith(" 0"):
+				excluded_ids.append(index)
+		assert excluded_ids==endpoint_ids
 		skeleton_lines=[]
 		for record in (temp/"skeleton.txt").read_text(encoding="utf-8").splitlines():
 			fields=record.split()
@@ -96,6 +105,24 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		full_union=unary_union(full_lines)
 		skeleton_union=unary_union(skeleton_lines)
 		skeleton_outside=skeleton_union.difference(full_union).length
+		# The native per-E skeleton eligibility flag is verified against
+		# independently emitted CGAL skeleton geometry (not merely labels).
+		kept_sources=[]
+		for edge_id,pair,fragments in edges:
+			if edge_id in endpoint_ids:
+				continue
+			for kind,values in fragments:
+				coords=[value/1000. for value in values]
+				shape=_record_line(kind,
+					((coords[0],coords[1]),(coords[2],coords[3])),window)
+				if shape is not None and not shape.is_empty:
+					kept_sources.extend(shape.geoms if hasattr(shape,"geoms")
+						else [shape])
+		kept_union=unary_union(kept_sources)
+		skeleton_to_kept=skeleton_union.difference(kept_union).length
+		kept_to_skeleton=kept_union.difference(skeleton_union).length
+		assert skeleton_to_kept<1e-8 and kept_to_skeleton<1e-8, (
+			fixture,skeleton_to_kept,kept_to_skeleton)
 		skeleton_removed=full_union.difference(skeleton_union).length
 		skeleton_faces=list(polygonize(unary_union([window.boundary,*skeleton_lines])))
 		skeleton_covered=unary_union(skeleton_faces)
@@ -216,6 +243,9 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				"skeleton_fragments":len(skeleton_lines),
 				"removed_length_m":skeleton_removed,
 				"extra_length_m":skeleton_outside,
+				"kept_vs_skeleton_extra_m":skeleton_to_kept,
+				"kept_vs_skeleton_missing_m":kept_to_skeleton,
+				"excluded_native_edge_ids":excluded_ids,
 				"skeleton_faces":len(skeleton_faces),
 				"skeleton_gap_m2":skeleton_gap},**stats,"experimental_noded":new_stats,
 			"experimental_carried":carried_stats,

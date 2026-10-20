@@ -77,12 +77,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--edges" && i+1<argc) {
+		if (option=="--skeleton-edge-ids" && i+1<argc) {
+			skeleton_edge_ids_path=argv[++i];
+		} else if (option=="--edges" && i+1<argc) {
 			path=argv[++i];
 		} else if (option=="--sites" && i+1<argc) {
 			site_path=argv[++i];
@@ -172,6 +174,11 @@ int main(int argc,char** argv) {
 		}
 		std::size_t labelled_edges=0;
 		std::size_t endpoint_duals=0;
+		std::ofstream skeleton_edge_ids;
+		if (!skeleton_edge_ids_path.empty()) {
+			skeleton_edge_ids.open(skeleton_edge_ids_path);
+			if (!skeleton_edge_ids) throw std::runtime_error("Cannot create skeleton edge IDs");
+		}
 		if (!labelled_path.empty()) {
 			std::ofstream labelled(labelled_path);
 			if (!labelled) throw std::runtime_error("Cannot create labelled output");
@@ -194,6 +201,9 @@ int main(int argc,char** argv) {
 						(point.point()==segment.source() || point.point()==segment.target());
 				};
 				const bool endpoint_pair=endpoint_of(a,b) || endpoint_of(b,a);
+				if (skeleton_edge_ids.is_open()) {
+					skeleton_edge_ids << "K " << labelled_edges << " " << (endpoint_pair?0:1) << "\n";
+				}
 				if (endpoint_pair) ++endpoint_duals;
 				if (topology.is_open()) {
 					topology << "T " << labelled_edges << " " << (endpoint_pair?1:0)
@@ -210,6 +220,9 @@ int main(int argc,char** argv) {
 				labelled << "\n";
 				diagram.draw_dual_edge(*edge,labelled_recorder);
 				++labelled_edges;
+			}
+			if (skeleton_edge_ids.is_open() && !skeleton_edge_ids.good()) {
+				throw std::runtime_error("Skeleton edge IDs write failed");
 			}
 			if (topology.is_open() && !topology.good()) {
 				throw std::runtime_error("Topology output write failed");
