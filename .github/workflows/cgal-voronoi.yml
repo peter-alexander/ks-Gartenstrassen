@@ -24,6 +24,10 @@ jobs:
         run: |
           cmake -S code/cgal -B build/cgal -DCMAKE_BUILD_TYPE=Release
           cmake --build build/cgal --parallel 2
+      - name: Prepare Python GIS test environment
+        run: |
+          python3 -m venv /tmp/ks-cgal-test-env
+          /tmp/ks-cgal-test-env/bin/python -m pip install -r code/requirements-analysis.txt
       - name: Validate small native dual output
         run: |
           printf '0 0 10000 0\n0 10000 10000 10000\n20000 0 30000 0\n' |
@@ -50,3 +54,6 @@ jobs:
           assert plain==labelled,(plain-labelled,labelled-plain)
           PY
           head -n 5 /tmp/cgal-dual.txt
+      - name: Validate labelled CGAL cells
+        run: |
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m scripts.test_cgal_native_end_to_end --binary build/cgal/cgal_voronoi_edges
