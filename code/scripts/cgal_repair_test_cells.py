@@ -8,6 +8,7 @@ from shapely.ops import unary_union
 
 from scripts.cgal_topology_proof import reconstruct_test_cells
 from scripts.cgal_subface_validation import inspect_subfaces
+from scripts.cgal_unresolved_site_audit import _metric_site
 
 
 def repair_test_cells(window,labelled_segments,*,tolerance=1e-7):
@@ -27,6 +28,8 @@ def repair_test_cells(window,labelled_segments,*,tolerance=1e-7):
 			tolerance=tolerance,return_cells=True)
 		if (report["geometry_valid"] and len(candidates)>1
 				and all(owner is not None for _,owner in candidates)
+				and all(subface.intersects(_metric_site(owner,1000.))
+					for subface,owner in candidates)
 				and report["proven_subfaces"]==len(candidates)):
 			repaired+=1
 			replaced_faces.append({"face_index":face_id,
