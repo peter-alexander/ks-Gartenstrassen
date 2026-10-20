@@ -26,7 +26,7 @@ def _site_geometry(site,scale):
 		(coordinates[2]/scale,coordinates[3]/scale)))
 
 
-def verify_native_fixture(binary, *, fixture='parallel'):
+def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 	# Three parallel, non-intersecting segment generators. Endpoints
 	# introduce point sites that a point-only Delaunay fixture misses.
 	fixtures={
@@ -53,7 +53,8 @@ def verify_native_fixture(binary, *, fixture='parallel'):
 		assert len(edges)>0
 		segments=list(metric_labelled_segments_file(temp/"labelled.txt",window))
 		assert segments,"Native CGAL fixture produced no clipped dual edges"
-		polygons,labels,stats=reconstruct_test_cells(window,segments)
+		polygons,labels,stats=reconstruct_test_cells(window,segments,
+			diagnose=diagnose)
 		assert polygons,"Native CGAL produced no polygon faces"
 		assert len(polygons)==len(labels)
 		assert all(p.is_valid and p.area>0 for p in polygons)
@@ -72,7 +73,8 @@ def verify_native_fixture(binary, *, fixture='parallel'):
 				assert polygon.covers(geometry),"Proven point site outside cell"
 			else:
 				assert polygon.intersects(geometry),"Proven segment site outside cell"
-		assert sum(stats.values())==len(polygons)
+		assert sum(value for key,value in stats.items()
+			if key!='diagnostic_examples')==len(polygons)
 		# Baseline of real native fixtures, not a blanket quality pass.
 		# Open cases remain unresolved rather than receiving guessed sites.
 		expected={
@@ -91,9 +93,12 @@ def verify_native_fixture(binary, *, fixture='parallel'):
 def main():
 	parser=argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--binary",type=Path,required=True)
+	parser.add_argument("--diagnose",action="store_true",
+		help="Include concrete unresolved face and missing-boundary geometry")
 	args=parser.parse_args()
 	for fixture in ("parallel","junction","crossing","oblique"):
-		print(json.dumps(verify_native_fixture(args.binary,fixture=fixture),sort_keys=True))
+		print(json.dumps(verify_native_fixture(args.binary,fixture=fixture,
+			diagnose=args.diagnose),sort_keys=True))
 
 
 if __name__=="__main__":

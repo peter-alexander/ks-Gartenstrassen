@@ -9,7 +9,8 @@ from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
 
 
-def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7):
+def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7,
+		diagnose=False):
 	"""Return (polygons, generator labels, diagnostic counters).
 
 	labelled_segments: sequence of (LineString, (site_a, site_b)).
@@ -36,7 +37,9 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7):
 	generators=[]
 	stats={"proven":0,"missing_boundary_labels":0,"conflicting_labels":0,
 		"insufficient_incidence":0}
-	for polygon in polygons:
+	if diagnose:
+		stats["diagnostic_examples"]=[]
+	for face_index,polygon in enumerate(polygons):
 		# Ignore the artificial window edge, which has no generator pair.
 		boundary=polygon.boundary.difference(window.boundary)
 		if boundary.length<=tolerance:
@@ -55,8 +58,21 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7):
 		if boundary.length-covered_length>tolerance:
 			generators.append(None)
 			stats["missing_boundary_labels"]+=1
+			if diagnose and len(stats["diagnostic_examples"])<32:
+				missing=boundary.difference(unary_union(covered)) if covered else boundary
+				stats["diagnostic_examples"].append({
+					"face_index":face_index,"reason":"missing_boundary_labels",
+					"area_m2":polygon.area,"missing_length_m":missing.length,
+					"boundary_length_m":boundary.length,"missing_wkt":missing.wkt,
+					"face_bounds":list(polygon.bounds),
+					"labelled_pair_count":len(set(site_pairs))})
 			continue
 		if len(set(site_pairs))<2:
+			if diagnose and len(stats["diagnostic_examples"])<32:
+				stats["diagnostic_examples"].append({
+					"face_index":face_index,"reason":"insufficient_incidence",
+					"area_m2":polygon.area,"face_bounds":list(polygon.bounds),
+					"labelled_pair_count":len(set(site_pairs))})
 			# One bisector does not reveal which adjacent cell we occupy.
 			generators.append(None)
 			stats["insufficient_incidence"]+=1
@@ -65,6 +81,12 @@ def reconstruct_test_cells(window, labelled_segments, *, tolerance=1e-7):
 		if len(common)!=1:
 			generators.append(None)
 			stats["conflicting_labels"]+=1
+			if diagnose and len(stats["diagnostic_examples"])<32:
+				stats["diagnostic_examples"].append({
+					"face_index":face_index,"reason":"conflicting_labels",
+					"area_m2":polygon.area,"face_bounds":list(polygon.bounds),
+					"labelled_pair_count":len(set(site_pairs)),
+					"common_site_count":len(common)})
 		else:
 			generators.append(next(iter(common)))
 			stats["proven"]+=1
