@@ -50,6 +50,20 @@ class FaceSiteTests(unittest.TestCase):
 		self.assertEqual(labels,[None])
 		self.assertEqual(counts["missing"],1)
 
+	def test_unresolved_samples_identify_missing_and_ambiguous(self):
+		sites=[(Point(1,1),frozenset({"west"})),
+			(Point(2,2),frozenset({"east"}))]
+		faces=[box(0,0,3,3),box(10,10,12,12)]
+		labels,stats=classify_polygon_generators(faces,sites)
+		self.assertEqual(labels,[None,None])
+		examples=stats["unresolved_examples"]
+		self.assertEqual({x["category"] for x in examples},
+			{"ambiguous","missing"})
+		self.assertEqual([x["face_index"] for x in examples],[0,1])
+		self.assertEqual(examples[0]["site_count_in_face"],2)
+		self.assertEqual(examples[1]["site_count_in_face"],0)
+		self.assertGreater(examples[1]["nearest_site_distance_m"],0)
+
 	def test_distinct_sites_inside_same_polygon_are_ambiguous(self):
 		sites=[(Point(1,1),frozenset({"a"})),
 			(Point(2,2),frozenset({"b"}))]
