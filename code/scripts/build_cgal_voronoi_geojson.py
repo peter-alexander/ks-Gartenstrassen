@@ -16,7 +16,7 @@ from time import perf_counter
 
 from pyproj import Transformer
 import numpy as np
-from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, union_all
+from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, prepare, union_all
 from shapely.geometry import LineString, Polygon, box, mapping
 from shapely.ops import polygonize_full, transform, unary_union
 from shapely.strtree import STRtree
@@ -73,7 +73,7 @@ def _window_mask(manifest_path,sis_root,aoi_path,window):
 	result=union_all(parts)
 	if not result.is_valid:
 		raise ValueError("SIS-Straßenmaske ist ungültig")
-	return result
+	return result,parts
 
 
 def _record_line(kind,coords,window):
@@ -168,7 +168,7 @@ def _polygon_candidates(lines,window):
 		"gap_m2":gap,"overlap_m2":overlap}
 
 
-def _assign(polygons,mask,owners,origin,*,batch_size=512):
+def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512):
 	"""Batch STRtree and GEOS intersection, retaining full area/overlap QA."""
 	if batch_size<1:
 		raise ValueError("batch_size muss >= 1 sein")
@@ -177,8 +177,7 @@ def _assign(polygons,mask,owners,origin,*,batch_size=512):
 	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
 		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
 	tree=STRtree(geoms)
-	mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]
-	mask_tree=STRtree(mask_parts)
+	# Keep the verified SIS tile cores separate for the spatial overlay.\n	# Merging them into city-wide connected components produces extremely\n	# complex geometries: spatial predicates and intersections then take hours.\n	# Tile cores are disjoint in area; the union is still used for QA.\n	if mask_parts is None:\n		mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]\n	mask_parts=[part for part in mask_parts if not part.is_empty and part.area>0]\n	prepare(mask_parts)\n	mask_tree=STRtree(mask_parts)
 	mask_array=np.asarray(mask_parts,dtype=object)
 	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert; "
 		f"vektorisierter Verschnitt in Blöcken zu {batch_size}",flush=True)
@@ -254,7 +253,7 @@ def _assign(polygons,mask,owners,origin,*,batch_size=512):
 	return merged,{"gap_m2":gap,"overlap_m2":overlap,
 		"street_m2":mask.area,"assigned_m2":union.area,
 		"intersections_calculated":intersections_calculated,
-		"batch_size":batch_size}
+		"batch_size":batch_size,\n\t\t"mask_tile_parts":len(mask_parts)}
 
 
 def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
@@ -272,7 +271,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	window=box(*aoi.bounds)
 	print(f"CGAL: ganz Wien, Begrenzungsrechteck {window.bounds}",flush=True)
 	print("CGAL: SIS-Maske und genodete Wiener Achsen einlesen",flush=True)
-	mask=_window_mask(manifest,sis_root,aoi_path,window)
+	mask,mask_parts=_window_mask(manifest,sis_root,aoi_path,window)
 	owners,origin=_noded_segments(_axes(cache),
 		progress=lambda message:print(message,flush=True))
 	frame=_frame(aoi,origin)
@@ -302,7 +301,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 		lines,stats=_read_dual_lines(edges,box(*window.bounds),origin)
 		candidates,topology=_polygon_candidates(lines,box(*window.bounds))
 		print(f"CGAL: {len(candidates):,} Teilflächen mit SIS verschneiden",flush=True)
-		groups,balance=_assign(candidates,mask,owners,origin)
+		groups,balance=_assign(candidates,mask,owners,origin,\n			mask_parts=mask_parts)
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 		features=[]
 		for edge_id,geom in sorted(groups.items()):
