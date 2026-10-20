@@ -77,7 +77,7 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
@@ -88,6 +88,8 @@ int main(int argc,char** argv) {
 			site_path=argv[++i];
 		} else if (option=="--labelled-edges" && i+1<argc) {
 			labelled_path=argv[++i];
+		} else if (option=="--skeleton" && i+1<argc) {
+			skeleton_path=argv[++i];
 		} else if (option=="--edge-topology" && i+1<argc) {
 			topology_path=argv[++i];
 		} else if (option=="--bounds" && i+4<argc) {
@@ -159,6 +161,14 @@ int main(int argc,char** argv) {
 		diagram.draw_dual(recorder);
 		if (!out.good()) {
 			throw std::runtime_error("Edge output write failed");
+		}
+		if (!skeleton_path.empty()) {
+			std::ofstream skeleton(skeleton_path);
+			if (!skeleton) throw std::runtime_error("Cannot create skeleton output");
+			skeleton << std::setprecision(17);
+			Recorder skeleton_recorder{skeleton,xmin,ymin,xmax,ymax};
+			diagram.draw_skeleton(skeleton_recorder);
+			if (!skeleton.good()) throw std::runtime_error("Skeleton output write failed");
 		}
 		std::size_t labelled_edges=0;
 		std::size_t endpoint_duals=0;
