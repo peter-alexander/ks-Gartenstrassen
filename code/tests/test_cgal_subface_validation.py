@@ -17,6 +17,7 @@ class SubfaceValidationTests(unittest.TestCase):
 		data=inspect_subfaces(parent,segments)
 		self.assertEqual(data["subfaces"],2)
 		self.assertTrue(data["geometry_valid"])
+		self.assertTrue(data["independent_comparison"]["partition_match"])
 		self.assertAlmostEqual(data["gap_m2"],0)
 		self.assertAlmostEqual(data["overlap_m2"],0)
 		self.assertEqual(data["proven_subfaces"],0)
