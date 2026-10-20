@@ -49,8 +49,15 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 		"max_best_symmetric_difference_m2":None}
 	if geometry_ok and internal:
 		# Independently prove labels and match the very same subface set.
-		proof_polygons,proof_labels,proof_stats=reconstruct_test_cells(
+		all_proof_polygons,all_proof_labels,proof_stats=reconstruct_test_cells(
 			face,internal,tolerance=tolerance,carried_provenance=True)
+		# The topology proof may polygonize a ring OUTSIDE the parent.
+		# Compare only faces belonging to this parent, preserving labels.
+		accepted=[(p,label) for p,label in zip(
+			all_proof_polygons,all_proof_labels)
+			if p.area>0 and face.covers(p.representative_point())]
+		proof_polygons=[p for p,_ in accepted]
+		proof_labels=[label for _,label in accepted]
 		differences=[min((p.symmetric_difference(q).area
 			for q in proof_polygons),default=p.area) for p in subfaces]
 		match=(len(proof_polygons)==len(subfaces)
@@ -59,6 +66,8 @@ def inspect_subfaces(face,labelled_segments,*,tolerance=1e-7):
 		ref_union=unary_union(proof_polygons)
 		comparison={"partition_match":match,
 			"reference_subfaces":len(proof_polygons),
+			"reference_total_polygons":len(all_proof_polygons),
+			"reference_excluded":len(all_proof_polygons)-len(proof_polygons),
 			"only_first_area_m2":first_union.difference(ref_union).area,
 			"only_reference_area_m2":ref_union.difference(first_union).area,
 			"max_best_symmetric_difference_m2":max(differences,default=0.)}
