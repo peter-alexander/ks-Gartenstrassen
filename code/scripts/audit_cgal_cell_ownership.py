@@ -14,6 +14,7 @@ from shapely.geometry import shape, Point, box
 from shapely.ops import transform
 from shapely.strtree import STRtree
 from shapely.wkb import loads
+from shapely.validation import explain_validity
 
 
 def audit(features, axes, *, tolerance_m=0.01):
@@ -26,15 +27,28 @@ def audit(features, axes, *, tolerance_m=0.01):
 	tree=STRtree(lines)
 	to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
 	details=[]
+	invalid_geometries=[]
 	sampled=0
 	ambiguous=0
 	for index,feature in enumerate(features):
 		owner=str(feature["properties"]["edge_id"])
 		if owner not in axes:
 			raise ValueError(f"Feature {index}: unbekannte edge_id {owner}")
-		geometry=transform(to_metric,shape(feature["geometry"]))
-		if geometry.is_empty or not geometry.is_valid:
-			raise ValueError(f"Feature {index}: ungültige Fläche")
+		source_geometry=shape(feature["geometry"])
+		geometry=transform(to_metric,source_geometry)
+		if (source_geometry.is_empty or not source_geometry.is_valid
+				or geometry.is_empty or not geometry.is_valid):
+			invalid_geometries.append({
+				"feature_index":index,"edge_id":owner,
+				"reason_wgs84":explain_validity(source_geometry),
+				"reason_31256":explain_validity(geometry),
+				"source_valid":source_geometry.is_valid,
+				"metric_valid":geometry.is_valid,
+				"geometry_type":source_geometry.geom_type,
+				"bounds_wgs84":list(source_geometry.bounds) if not source_geometry.is_empty else None,
+				"bounds_31256":list(geometry.bounds) if not geometry.is_empty else None
+			})
+			continue
 		parts=list(geometry.geoms) if geometry.geom_type=="MultiPolygon" else [geometry]
 		for part in parts:
 			if part.geom_type!="Polygon":
@@ -72,7 +86,11 @@ def audit(features, axes, *, tolerance_m=0.01):
 		"features":len(features),
 		"sample_points":sampled,
 		"within_tolerance":sampled-len(details),
-		"failures":len(details),
+		"failures":len(details)+len(invalid_geometries),
+		"ownership_failures":len(details),
+		"invalid_geometry_count":len(invalid_geometries),
+		"invalid_geometries":invalid_geometries,
+		"qa_status":"failed" if details or invalid_geometries else "passed",
 		"details":details,
 		"interpretation":"Stichprobenprüfung, kein vollständiger Voronoi-Beweis",
 	}
@@ -117,7 +135,8 @@ def main():
 	args=parser.parse_args()
 	result=run(args.cache,args.geojson,args.out,tolerance_m=args.tolerance_m)
 	print(f"Zellzuordnung: {result['sample_points']} Proben, "
-		f"{result['failures']} Abweichungen; Bericht: {args.out}")
+		f"{result['ownership_failures']} Zuordnungsabweichungen, "
+		f"{result['invalid_geometry_count']} ungültige Geometrien; Bericht: {args.out}")
 	if result["failures"]:
 		raise SystemExit(1)
 
