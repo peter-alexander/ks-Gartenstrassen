@@ -81,9 +81,11 @@ def _shared_endpoint_affine_distance_dominance(candidate,other,vertices,scale,to
 		x,y=vertex.x*scale,vertex.y*scale
 		ct=(x-a[0])*cdx+(y-a[1])*cdy
 		ot=(x-p[0])*odx+(y-p[1])*ody
-		if ct < -tolerance*scale or ct > cn2+tolerance*scale:
+		ctol=tolerance*scale*(cn2**.5)
+		if ct < -ctol or ct > cn2+ctol:
 			return False
-		if ot < -tolerance*scale or ot > on2+tolerance*scale:
+		otol=tolerance*scale*(on2**.5)
+		if ot < -otol or ot > on2+otol:
 			return False
 		ccross=cdx*(y-a[1])-cdy*(x-a[0])
 		ocross=odx*(y-p[1])-ody*(x-p[0])
