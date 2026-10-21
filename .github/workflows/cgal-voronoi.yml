@@ -25,6 +25,8 @@ on:
       - "code/scripts/cgal_endpoint_opposite_slots.py"
       - "code/scripts/cgal_endpoint_face_circulation.py"
       - "code/scripts/cgal_endpoint_cycle_coverage.py"
+      - "code/scripts/cgal_endpoint_cycle_site_pairs.py"
+      - "code/tests/test_cgal_endpoint_cycle_site_pairs.py"
       - "code/tests/test_cgal_endpoint_cycle_coverage.py"
       - "code/tests/test_cgal_endpoint_face_circulation.py"
       - "code/tests/test_cgal_endpoint_opposite_slots.py"
@@ -89,6 +91,8 @@ on:
       - "code/scripts/cgal_endpoint_opposite_slots.py"
       - "code/scripts/cgal_endpoint_face_circulation.py"
       - "code/scripts/cgal_endpoint_cycle_coverage.py"
+      - "code/scripts/cgal_endpoint_cycle_site_pairs.py"
+      - "code/tests/test_cgal_endpoint_cycle_site_pairs.py"
       - "code/tests/test_cgal_endpoint_cycle_coverage.py"
       - "code/tests/test_cgal_endpoint_face_circulation.py"
       - "code/tests/test_cgal_endpoint_opposite_slots.py"
@@ -183,6 +187,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_opposite_slots.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_face_circulation.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_cycle_coverage.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_cycle_site_pairs.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_shared_face_slots.py' -v
       - name: Validate labelled CGAL cells
         run: |
