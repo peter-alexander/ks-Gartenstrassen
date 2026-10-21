@@ -25,6 +25,7 @@ from scripts.cgal_coincident_ray_distance_witness import audit_coincident_ray_di
 from scripts.cgal_unresolved_area_distance_bounds import audit_unresolved_area_distance_bounds
 from scripts.cgal_unknown_tile_counterexamples import audit_unknown_tile_counterexamples
 from scripts.cgal_endpoint_blocker_dominance import audit_endpoint_blocker_dominance
+from scripts.cgal_segment_blocker_witnesses import audit_segment_blocker_witnesses
 from scripts.cgal_internal_dual_audit import audit_internal_duals
 from scripts.cgal_subface_validation import inspect_subfaces
 from scripts.cgal_repair_test_cells import repair_test_cells
@@ -564,6 +565,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert {row["face_index"] for row in carried_stats["endpoint_blocker_dominance"]}=={1,2,6,7}
 			assert all(not row["ownership_proven"]
 				for row in carried_stats["endpoint_blocker_dominance"])
+			carried_stats["segment_blocker_witnesses"]=audit_segment_blocker_witnesses(
+				carried_polygons,carried_labels,
+				carried_stats["endpoint_dual_experiment"],
+				carried_stats["unresolved_area_distance_bounds"])
+			assert {row["face_index"] for row in carried_stats["segment_blocker_witnesses"]}=={1,2,6,7}
+			assert all(not row["ownership_proven"]
+				for row in carried_stats["segment_blocker_witnesses"])
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
@@ -580,7 +588,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','unresolved_native_sources','unresolved_endpoint_conflicts','unresolved_side_conflict_crosscheck','coincident_ray_distance_witness','unresolved_area_distance_bounds','unknown_tile_counterexamples','endpoint_blocker_dominance','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_primal_star','endpoint_third_edges','primal_face_identity','three_edge_face_adjacency','endpoint_face_chain','endpoint_face_star_incidence','shared_face_slots','endpoint_mirror_chain','endpoint_vertex_slots','endpoint_opposite_slots','endpoint_face_circulation','endpoint_cycle_coverage','endpoint_cycle_site_pairs','cycle_edge_site_match','cycle_dual_incidence','endpoint_dual_side_guard','endpoint_cw_ccw_pairs','endpoint_cw_ccw_cycle_alignment','endpoint_dual_ray_directions','endpoint_dual_primitives','endpoint_zero_third_dual','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','unresolved_native_sources','unresolved_endpoint_conflicts','unresolved_side_conflict_crosscheck','coincident_ray_distance_witness','unresolved_area_distance_bounds','unknown_tile_counterexamples','endpoint_blocker_dominance','segment_blocker_witnesses','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_primal_star','endpoint_third_edges','primal_face_identity','three_edge_face_adjacency','endpoint_face_chain','endpoint_face_star_incidence','shared_face_slots','endpoint_mirror_chain','endpoint_vertex_slots','endpoint_opposite_slots','endpoint_face_circulation','endpoint_cycle_coverage','endpoint_cycle_site_pairs','cycle_edge_site_match','cycle_dual_incidence','endpoint_dual_side_guard','endpoint_cw_ccw_pairs','endpoint_cw_ccw_cycle_alignment','endpoint_dual_ray_directions','endpoint_dual_primitives','endpoint_zero_third_dual','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
