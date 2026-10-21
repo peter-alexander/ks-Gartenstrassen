@@ -4,6 +4,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from shapely.geometry import LineString, Polygon, MultiPolygon, box
+from shapely.ops import transform
+from pyproj import Transformer
+import numpy as np
 
 from scripts.build_cgal_voronoi_geojson import (
 	_polygon_candidates, _record_line, _export_wgs84_polygon, _connected_components)
@@ -39,6 +42,38 @@ class CGALFullViennaTests(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError,"ungültig"):
 			_export_wgs84_polygon(geom,lambda x,y:(x,y),
 				lambda x,y:(x,y),edge_id="a")
+
+	def test_projection_degenerate_tiny_hole_is_repaired_in_metric_crs(self):
+		# This mimics the Vienna failure: a sub-nanometre hole becomes
+		# unrepresentable in WGS84, while the EPSG:31256 roundtrip alone
+		# introduces >0.01 m² of symmetric difference in a 50 m square.
+		x,y=10000.,340000.
+		outer=box(x,y,x+50,y+50)
+		tiny_hole=box(x+25,y+25,x+25+1e-10,y+25+1e-10)
+		metric=Polygon(outer.exterior.coords,[tiny_hole.exterior.coords])
+		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
+		self.assertTrue(metric.is_valid)
+		self.assertFalse(transform(to_wgs,metric).is_valid)
+		result,repair=_export_wgs84_polygon(
+			metric,to_wgs,to_metric,edge_id="example")
+		self.assertTrue(result.is_valid)
+		self.assertEqual(repair["method"],
+			"metric_precision_cleanup_before_wgs84")
+		self.assertLess(repair["symmetric_difference_m2"],0.01)
+		# Deliberately not used as a repair criterion: includes projection drift.
+		self.assertGreater(metric.symmetric_difference(
+			transform(to_metric,result)).area,0.01)
+
+	def test_projection_repair_does_not_discard_material_hole(self):
+		outer=box(0,0,10,10)
+		hole=box(5.1,5.1,5.3,5.3)
+		metric=Polygon(outer.exterior.coords,[hole.exterior.coords])
+		def coarse_projection(x,y):
+			return np.round(x,0),np.round(y,0)
+		with self.assertRaisesRegex(ValueError,"ohne flächentreue"):
+			_export_wgs84_polygon(metric,coarse_projection,
+				lambda x,y:(x,y),edge_id="material-hole")
 
 	def test_disconnected_components_remain_separate(self):
 		parts=_connected_components(MultiPolygon([
