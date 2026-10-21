@@ -42,6 +42,7 @@ from scripts.cgal_signature_coverage import audit_signature_coverage
 from scripts.cgal_endpoint_primal_star import audit_endpoint_primal_star
 from scripts.cgal_endpoint_third_edge import audit_endpoint_third_edges
 from scripts.cgal_primal_face_identity import parse_primal_face_pairs,audit_group_primal_faces
+from scripts.cgal_primal_face_vertices import parse_primal_face_vertices
 from scripts.cgal_three_edge_face_adjacency import audit_three_edge_face_adjacency
 from scripts.cgal_endpoint_face_chain import audit_endpoint_face_chain
 from scripts.cgal_endpoint_face_star_incidence import audit_endpoint_face_star_incidence
@@ -76,7 +77,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
 			str(temp/"topology.txt"),"--face-incidence",
-			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--ray-directions",
+			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--primal-face-vertices",str(temp/"primal_vertices.txt"),"--ray-directions",
 			str(temp/"directions.txt"),"--skeleton-edge-ids",
 			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
@@ -90,6 +91,10 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert len(topology)==len(edges)
 		primal_face_pairs=parse_primal_face_pairs(
 			(temp/"primal_faces.txt").read_text(encoding="utf-8").splitlines(),len(edges))
+		primal_face_vertices=parse_primal_face_vertices(
+			(temp/"primal_vertices.txt").read_text(encoding="utf-8").splitlines(),
+			len(edges),primal_face_pairs)
+		assert len(primal_face_vertices)==len(edges)
 		endpoint_ids=[]
 		for index,record in enumerate(topology):
 			fields=record.split(maxsplit=4)

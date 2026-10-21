@@ -79,12 +79,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path,primal_face_vertices_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--primal-face-pairs" && i+1<argc) {
+		if (option=="--primal-face-vertices" && i+1<argc) {
+			primal_face_vertices_path=argv[++i];
+		} else if (option=="--primal-face-pairs" && i+1<argc) {
 			primal_face_pairs_path=argv[++i];
 		} else if (option=="--ray-directions" && i+1<argc) {
 			ray_directions_path=argv[++i];
@@ -215,6 +217,12 @@ int main(int argc,char** argv) {
 				face_pairs.open(primal_face_pairs_path);
 				if (!face_pairs) throw std::runtime_error("Cannot create primal face pairs output");
 			}
+			std::ofstream face_vertices;
+			if (!primal_face_vertices_path.empty()) {
+				face_vertices.open(primal_face_vertices_path);
+				if (!face_vertices) throw std::runtime_error("Cannot create primal face vertices output");
+				face_vertices << std::setprecision(17);
+			}
 			std::map<const void*,std::size_t> face_ids;
 			const auto face_id=[&face_ids](const auto& handle) {
 				const void* key=std::addressof(*handle);
@@ -231,6 +239,20 @@ int main(int argc,char** argv) {
 				if (face_pairs.is_open()) {
 					face_pairs << "H " << labelled_edges << " " << face_id(face)
 						<< " " << face_id(face->neighbor(i)) << "\n";
+				}
+				if (face_vertices.is_open()) {
+					// Original primal triangle vertex slots, not geometric side ownership.
+					face_vertices << "V " << labelled_edges;
+					for (const auto& current : {face,face->neighbor(i)}) {
+						face_vertices << " | FACE " << face_id(current);
+						for (int vertex_index=0;vertex_index<3;++vertex_index) {
+							face_vertices << " " << vertex_index << ":";
+							if (diagram.is_infinite(current->vertex(vertex_index)))
+								face_vertices << "INF";
+							else write_site(face_vertices,current->vertex(vertex_index)->site());
+						}
+					}
+					face_vertices << "\n";
 				}
 				const auto a=face->vertex(diagram.cw(i))->site();
 				const auto b=face->vertex(diagram.ccw(i))->site();
@@ -290,6 +312,9 @@ int main(int argc,char** argv) {
 			}
 			if (directions.is_open() && !directions.good()) {
 				throw std::runtime_error("Ray direction output write failed");
+			}
+			if (face_vertices.is_open() && !face_vertices.good()) {
+				throw std::runtime_error("Primal face vertices output write failed");
 			}
 			if (face_pairs.is_open() && !face_pairs.good()) {
 				throw std::runtime_error("Primal face pairs output write failed");
