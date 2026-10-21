@@ -288,7 +288,11 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 					carried_stats["endpoint_ray_local_sides"],
 					carried_stats["endpoint_neighbor_audit"]))
 			assert len(carried_stats["group_topological_consistency"])==2
-			assert all(row["status"]=="consistent_but_ownership_unproven"
+			assert all(row["status"]=="regular_neighbors_consistent_endpoint_ambiguous"
+				and row["known_neighbor_constraints"]==4
+				and row["known_neighbor_mismatches"]==0
+				and row["endpoint_edge_fragments"]==6
+				and row["endpoint_candidate_conflicts"]==2
 				and not row["ownership_proven"]
 				for row in carried_stats["group_topological_consistency"])
 			carried_stats["directed_boundary"]=directed_face_edges(

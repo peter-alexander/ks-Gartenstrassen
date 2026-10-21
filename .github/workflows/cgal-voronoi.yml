@@ -5,6 +5,10 @@ on:
     paths:
       - "code/cgal/**"
       - "code/scripts/test_cgal_native_end_to_end.py"
+      - "code/scripts/cgal_coincident_endpoint_group.py"
+      - "code/scripts/cgal_group_topology_consistency.py"
+      - "code/tests/test_cgal_coincident_endpoint_group.py"
+      - "code/tests/test_cgal_group_topology_consistency.py"
       - ".github/workflows/cgal-voronoi.yml"
   pull_request:
     paths:
@@ -29,6 +33,8 @@ on:
       - "code/scripts/cgal_endpoint_ray_local_sides.py"
       - "code/scripts/cgal_coincident_endpoint_group.py"
       - "code/scripts/cgal_group_topology_consistency.py"
+      - "code/tests/test_cgal_coincident_endpoint_group.py"
+      - "code/tests/test_cgal_group_topology_consistency.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
