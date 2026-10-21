@@ -110,6 +110,39 @@ def _shared_endpoint_affine_distance_dominance(candidate,other,vertices,scale,to
 		for ccross,ocross in values)
 
 
+def _parallel_segment_projection_dominance(candidate,other,vertices,scale,tolerance):
+	"""On common interior projection ranges, parallel line distances are affine
+	on each fixed-sign side. Vertex comparison certifies the entire polygon.
+	"""
+	if candidate[0]!="S" or other[0]!="S":
+		return False
+	a,b=candidate[1][:2],candidate[1][2:]
+	p,q=other[1][:2],other[1][2:]
+	dx,dy=b[0]-a[0],b[1]-a[1]
+	ex,ey=q[0]-p[0],q[1]-p[1]
+	d2=dx*dx+dy*dy
+	e2=ex*ex+ey*ey
+	if d2==0 or e2==0 or dx*ey-dy*ex!=0:
+		return False
+	crosses=[]
+	for vertex in vertices:
+		x,y=vertex.x*scale,vertex.y*scale
+		ct=(x-a[0])*dx+(y-a[1])*dy
+		ot=(x-p[0])*ex+(y-p[1])*ey
+		if not (0<=ct<=d2 and 0<=ot<=e2):
+			return False
+		crosses.append((dx*(y-a[1])-dy*(x-a[0]),
+			ex*(y-p[1])-ey*(x-p[0])))
+	for i in (0,1):
+		values=[pair[i] for pair in crosses]
+		if min(values)<0<max(values):
+			return False
+	cnorm=d2**.5
+	onorm=e2**.5
+	return all(abs(cross_a)/cnorm<=abs(cross_b)/onorm+tolerance*scale
+		for cross_a,cross_b in crosses)
+
+
 def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		*,scale=1000.,max_depth=3,tolerance=1e-9,diagnostic_limit=24):
 	if len(polygons)!=len(labels) or not 0<=max_depth<=8 or scale<=0 or tolerance<0 or diagnostic_limit<0:
@@ -140,10 +173,11 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		blockers=[]
 		shared_endpoint_covered_area=0.
 		affine_distance_covered_area=0.
+		parallel_distance_covered_area=0.
 		blocked_area_by_site={}
 		unknown_area_by_margin={"negative_bound":0.,"near_zero_bound":0.,"positive_but_insufficient":0.}
 		def visit(xmin,ymin,xmax,ymax,depth):
-			nonlocal checked,certified_area,unknown_area,deepest,shared_endpoint_covered_area,affine_distance_covered_area
+			nonlocal checked,certified_area,unknown_area,deepest,shared_endpoint_covered_area,affine_distance_covered_area,parallel_distance_covered_area
 			tile=box(xmin,ymin,xmax,ymax)
 			part=polygon.intersection(tile)
 			if part.is_empty or part.area<=0:
@@ -161,15 +195,27 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 				and site not in shared_endpoint_dominated
 				and _shared_endpoint_affine_distance_dominance(
 					key,site,vertices,scale,tolerance)]
+			parallel_dominated=[site for site in sites if site!=key
+				and site not in dominated and site not in shared_endpoint_dominated
+				and site not in affine_dominated
+				and _parallel_segment_projection_dominance(key,site,vertices,scale,tolerance)]
+			# Transitivity: if candidate <= segment everywhere, it also
+			# dominates every point site geometrically contained in that segment.
+			parallel_dominated_points=[site for site in sites if site!=key
+				and any(_point_on_candidate_segment(site,segment)
+					for segment in parallel_dominated)]
 			competitors=[(part.distance(geom)-max_candidate,site)
 				for site,geom in geometries.items() if site!=key and site not in dominated
-				and site not in shared_endpoint_dominated and site not in affine_dominated]
+				and site not in shared_endpoint_dominated and site not in affine_dominated
+				and site not in parallel_dominated and site not in parallel_dominated_points]
 			margin,limiting=min(competitors,key=lambda pair:(pair[0],repr(pair[1]))) if competitors else (float('inf'),None)
 			certified=margin>tolerance
 			if certified and shared_endpoint_dominated:
 				shared_endpoint_covered_area+=part.area
 			if certified and affine_dominated:
 				affine_distance_covered_area+=part.area
+			if certified and parallel_dominated:
+				parallel_distance_covered_area+=part.area
 			if certified:
 				certified_area+=part.area
 			elif depth==max_depth or xmin==xmax or ymin==ymax:
@@ -199,6 +245,7 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 			"non_strict_dominated_site_count":len(dominated),
 			"shared_endpoint_halfplane_covered_area_m2":shared_endpoint_covered_area,
 			"shared_endpoint_affine_covered_area_m2":affine_distance_covered_area,
+			"parallel_segment_covered_area_m2":parallel_distance_covered_area,
 			"non_strict_dominated_sites":[{"kind":s[0],"coordinates":list(s[1])}
 				for s in sorted(dominated,key=repr)],
 			"certified_area_m2":certified_area,"unknown_area_m2":unknown_area,
