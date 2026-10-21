@@ -183,7 +183,7 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512,
 	if batch_size<1:
 		raise ValueError("batch_size muss >= 1 sein")
 	if face_labels is None:
-		face_labels=_face_owners(polygons,owners,origin)
+		raise ValueError("Eindeutige LINEAR_USE-Flächenzuordnung erforderlich")
 	if len(face_labels)!=len(polygons):
 		raise ValueError("Anzahl der Face-Labels stimmt nicht")
 	if any(label not in set(owners.values()) for label in face_labels):
