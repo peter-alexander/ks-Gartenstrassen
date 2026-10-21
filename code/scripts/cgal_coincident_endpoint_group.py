@@ -50,7 +50,7 @@ def audit_coincident_endpoint_group(edge_ids,edges,rays,incidence,
 	def side(segment):
 		a,b=segment[1][:2],segment[1][2:]
 		end=a if a!=p[1] else b
-		return dx*(end[1]-y)-dy*(end[0]-x)
+		return dx*(end[1]-p[1][1])-dy*(end[0]-p[1][0])
 	side1,side2=side(s),side(s2)
 	if abs(side1)<=tolerance or abs(side2)<=tolerance or side1*side2>=0:
 		return {"status":"rejected","reason":"segments_not_opposite_ray_sides"}
