@@ -251,6 +251,18 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				finding["primal_face_incidence"]=[
 					{"edge_id":edge_id,**face_incidence[edge_id]}
 					for edge_id in finding["native_edge_ids"]]
+				finding["orientation_hypothesis"]=[
+					{"edge_id":edge_id,
+						"predicted_first_site_side":(
+							"left" if face_incidence[edge_id]["primary_finite"]
+								and not face_incidence[edge_id]["neighbor_finite"]
+							else "right" if not face_incidence[edge_id]["primary_finite"]
+								and face_incidence[edge_id]["neighbor_finite"]
+							else "unverified"),
+						"proof_status":"hypothesis_only"}
+					for edge_id in finding["native_edge_ids"]]
+				assert all(row["proof_status"]=="hypothesis_only"
+					for row in finding["orientation_hypothesis"])
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
