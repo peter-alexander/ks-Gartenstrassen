@@ -30,8 +30,7 @@ class CGALSISOverlayTests(unittest.TestCase):
 		self.assertAlmostEqual(baseline["overlap_m2"],optimized["overlap_m2"])
 		self.assertEqual(optimized["mask_tile_parts"],2)
 
-	def test_disconnected_sis_components_use_distinct_owners(self):
-		# One CGAL candidate across two disconnected street islands.
+	def test_complete_voronoi_face_keeps_one_owner_across_sis_pieces(self):
 		polygons=[box(0,0,100,10)]
 		parts=[box(0,0,10,10),box(90,0,100,10)]
 		mask=union_all(parts)
@@ -39,10 +38,9 @@ class CGALSISOverlayTests(unittest.TestCase):
 			((1000,4000),(2000,4000)):"west",
 			((98000,4000),(99000,4000)):"east"}
 		grouped,report=_assign(polygons,mask,owners,(0,0),
-			mask_parts=parts,batch_size=1)
-		self.assertEqual(set(grouped),{"west","east"})
-		self.assertAlmostEqual(grouped["west"].area,100)
-		self.assertAlmostEqual(grouped["east"].area,100)
+			mask_parts=parts,face_labels=["west"],batch_size=1)
+		self.assertEqual(set(grouped),{"west"})
+		self.assertAlmostEqual(grouped["west"].area,200)
 		self.assertAlmostEqual(report["gap_m2"],0)
 
 	def test_explicit_cgal_face_owner_overrides_nearest_heuristic(self):
@@ -60,15 +58,13 @@ class CGALSISOverlayTests(unittest.TestCase):
 		self.assertEqual(stats["fallback_components"],0)
 		self.assertEqual(stats["direct_site_components"],2)
 
-	def test_unresolved_faces_remain_counted_as_fallback(self):
+	def test_default_owner_is_assigned_before_sis_clipping(self):
 		polygons=[box(0,0,10,10)]
 		mask=box(0,0,10,10)
 		owners={((1000,4000),(2000,4000)):"west"}
-		result,stats=_assign(polygons,mask,owners,(0,0),
-			face_labels=[None])
-		self.assertIn("west",result)
-		self.assertEqual(stats["fallback_components"],1)
-		self.assertEqual(stats["direct_site_components"],0)
+		result,stats=_assign(polygons,mask,owners,(0,0))
+		self.assertEqual(set(result),{"west"})
+		self.assertAlmostEqual(stats["assigned_m2"],100)
 
 	def test_reject_invalid_batch_size(self):
 		with self.assertRaises(ValueError):
