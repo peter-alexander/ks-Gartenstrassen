@@ -17,6 +17,8 @@ on:
       - "code/scripts/cgal_three_edge_face_adjacency.py"
       - "code/scripts/cgal_endpoint_face_chain.py"
       - "code/scripts/cgal_endpoint_face_star_incidence.py"
+      - "code/scripts/cgal_primal_face_vertices.py"
+      - "code/tests/test_cgal_primal_face_vertices.py"
       - "code/tests/test_cgal_endpoint_face_star_incidence.py"
       - "code/tests/test_cgal_endpoint_face_chain.py"
       - "code/tests/test_cgal_three_edge_face_adjacency.py"
@@ -63,6 +65,8 @@ on:
       - "code/scripts/cgal_three_edge_face_adjacency.py"
       - "code/scripts/cgal_endpoint_face_chain.py"
       - "code/scripts/cgal_endpoint_face_star_incidence.py"
+      - "code/scripts/cgal_primal_face_vertices.py"
+      - "code/tests/test_cgal_primal_face_vertices.py"
       - "code/tests/test_cgal_endpoint_face_star_incidence.py"
       - "code/tests/test_cgal_endpoint_face_chain.py"
       - "code/tests/test_cgal_three_edge_face_adjacency.py"
@@ -139,6 +143,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_three_edge_face_adjacency.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_face_chain.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_face_star_incidence.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_primal_face_vertices.py' -v
       - name: Validate labelled CGAL cells
         run: |
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m scripts.test_cgal_native_end_to_end --binary build/cgal/cgal_voronoi_edges --diagnose
