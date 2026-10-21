@@ -1,5 +1,5 @@
 import unittest
-from scripts.cgal_vertex_star_face_cycle_join import audit_vertex_star_face_cycles
+from scripts.cgal_vertex_star_face_cycle_join import audit_vertex_star_face_cycles,audit_native_cycle_ray_alignment
 
 STAR=[{"point_vertex_id":10,"status":"native_vertex_star_unordered_no_owner",
 	"ownership_proven":False,"unresolved_ray_edge_ids":[18,22],
@@ -27,6 +27,21 @@ class VertexStarFaceCycleTests(unittest.TestCase):
 			{**PAIRS,30:{"face_id":2,"neighbor_face_id":15}})[0]
 		self.assertEqual(row["status"],"blocked_vertex_star_face_cycle_mismatch")
 		self.assertFalse(row["ownership_proven"])
+
+	def test_coincident_rays_link_to_third_edge_without_owner(self):
+		join=audit_vertex_star_face_cycles(STAR,CYCLE,PAIRS)
+		rays={18:[[0,0,0,1]],22:[[0,0,0,2]]}
+		row=audit_native_cycle_ray_alignment(join,rays)[0]
+		self.assertEqual(row["status"],
+			"coincident_native_rays_with_collapsed_third_edge_only")
+		self.assertEqual(row["third_edge_id"],30)
+		self.assertFalse(row["ownership_proven"])
+
+	def test_opposite_rays_are_not_coincident(self):
+		join=audit_vertex_star_face_cycles(STAR,CYCLE,PAIRS)
+		row=audit_native_cycle_ray_alignment(join,
+			{18:[[0,0,0,1]],22:[[0,0,0,-1]]})[0]
+		self.assertEqual(row["status"],"blocked_native_ray_alignment")
 
 	def test_missing_collapsed_third_edge_blocks(self):
 		row=audit_vertex_star_face_cycles(STAR,CYCLE,{18:PAIRS[18],22:PAIRS[22]})[0]
