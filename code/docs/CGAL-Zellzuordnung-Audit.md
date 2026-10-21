@@ -1,19 +1,26 @@
-# Stichprobenprüfung der CGAL/SIS-Zuordnung
+# Original-LINEAR_USE-Schnittzuordnung
 
-Die Prüfroutine vergleicht mehrere Stichproben je exportiertem Polygon
-mit **allen originalen LINEAR_USE-Linien**. Gemessen wird der Abstand
-zur nächstgelegenen Linie der zugewiesenen `edge_id` gegenüber dem
-Abstand zur nächstgelegenen beliebigen Original-Linie.
+Die frühere künstliche Fünf-Punkte-Stichprobe wurde entfernt.
 
-```bash
-cd code
-../.venv/bin/python -m scripts.audit_cgal_cell_ownership \
-	--cache ../cache/wien/linear_use_original.sqlite \
-	--geojson ../output/cgal_original_linear_use_sis_wien.geojson \
-	--out ../output/cgal_original_cell_ownership_audit.json
-```
+Die neue Zuordnung vergleicht **jede originale LINEAR_USE-Quelllinie**
+(`object_id`, `edge_id`, `base_type=1`) mit allen vom vollständigen
+CGAL-Voronoi polygonisierten Flächen. Ein STRtree reduziert die
+Prüfungen auf tatsächlich schneidende Kandidaten.
 
-Die Flächenbilanz und die Gültigkeit der Ausgabegeometrie werden zusätzlich
-im CGAL/SIS-Exporter überprüft. Stichproben allein beweisen keine
-vollständige geometrische Korrektheit. Auffälligkeiten werden gemeldet,
-nicht automatisch korrigiert.
+- `intersects == 0`: Linien ohne Flächentreffer
+- `intersects > 1`: Linien mit mehreren Flächentreffern
+- `intersects == 1`: übertrage ursprüngliche `edge_id` als Vorschlag
+- mehrere verschiedene Vorschläge pro Fläche: Konflikt
+- Flächen ohne eindeutigen Vorschlag: weiterer Diagnoselayer
+
+Alle vier Fallgruppen werden vor dem SIS-Verschnitt in WGS84 als
+GeoJSON ausgegeben. Dazu kommt ein JSON-Zählbericht. Die Ausgabepfade
+beginnen mit `output/cgal_original_line_intersections_sis_wien__`.
+
+**Achtung:** Ein Schnitt über `intersects` enthält auch reine
+Rand-/Endpunktberührungen. Im Mehrfachtreffer-GeoJSON stehen deshalb
+`positive_length_hits` und `boundary_only_hits` getrennt.
+Es wird keine automatische Entscheidung aus diesen Zahlen abgeleitet.
+
+Falls ein ungeklärter Fall existiert, stoppt der vollständige Lauf vor
+dem SIS-Verschnitt. Das verhindert stillschweigend falsche `edge_id`.
