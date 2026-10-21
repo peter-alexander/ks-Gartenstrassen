@@ -1,24 +1,20 @@
-# Wien-Komplettlauf: originale LINEAR_USE-Geometrien und SIS
+# Originale LINEAR_USE-Linien → CGAL-Voronoi → SIS
 
 ```bash
 GIP_NETWORK_SOURCE=/pfad/gip_network_ogd.gpkg bash code/scripts/run-gartenstrassen-wien.sh
 ```
 
-Pipeline: nur LINEAR_USE (`base_type = 1`) aus der Quelldatei laden;
-Original-Linien pro `object_id` unverändert in EPSG:31256 speichern;
-Linien für CGAL segmentieren/noden; Voronoi-Polygone und ihre ursprüngliche
-`edge_id` bestimmen; danach SIS-Straßenraum schneiden und geometrisch
-berührende Teilflächen mit derselben `edge_id` vereinigen. Nicht
-zusammenhängende Flächen erhalten eigenständige GeoJSON-Features.
+Die räumliche Zuordnung basiert jetzt ausschließlich auf
+Original-`LINEAR_USE`-Linien, nicht auf künstlichen Stichproben.
+Jede Linie muss genau eine polygonisierte Voronoi-Fläche schneiden;
+Mehrfach- und Nulltreffer werden in separaten GeoJSON-Dateien gespeichert.
+Widersprüchliche `edge_id`-Vorschläge an einer Fläche und nicht
+eindeutig zugeordnete Flächen haben ebenfalls eigene GeoJSON-Dateien.
 
-Ausgaben:
+Eindeutige Zuordnungen werden erst danach mit SIS geschnitten.
+Berührende Flächen derselben `edge_id` werden vereinigt;
+räumlich getrennte Flächen bleiben getrennt.
 
-- `cache/wien/linear_use_original.sqlite`
-- `output/linear_use_original.geojson`
-- `output/cgal_original_linear_use_sis_wien.geojson`
-- `output/cgal_original_cell_ownership_audit.json`
-- `output/cgal_original_linear_use_sis_wien.pmtiles`
-
-Ein nicht bestandener oder veralteter QA-Bericht blockiert die
-PMTiles-Erstellung, außer bei ausdrücklich gesetztem
-`ALLOW_FAILED_QA=1` (ungeprüfte Sichtprüfung).
+Ergebnisse und Bericht stehen unter `output/cgal_original_line_intersections_sis_wien*`.
+Die Python-Skripte überschreiben bereits vorhandene Ausgaben nicht.
+Nicht bestandene Zuordnung blockiert die Veröffentlichung.
