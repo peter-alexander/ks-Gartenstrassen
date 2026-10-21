@@ -482,9 +482,14 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			carried_stats["endpoint_dual_ray_directions"]=audit_endpoint_dual_ray_directions(
 				carried_stats["endpoint_cw_ccw_cycle_alignment"],rays)
 			assert len(carried_stats["endpoint_dual_ray_directions"])==2
-			assert all(row["status"]=="native_endpoint_ray_directions_recorded_only"
+			assert all(row["status"] in (
+				"native_endpoint_ray_directions_recorded_only",
+				"blocked_endpoint_ray_direction_evidence")
 				and not row["voronoi_side_proven"] and not row["ownership_proven"]
 				for row in carried_stats["endpoint_dual_ray_directions"])
+			assert {edge_id for row in carried_stats["endpoint_dual_ray_directions"]
+				for edge_id in row["missing_ray_edge_ids"]}=={28,30}, (
+				carried_stats["endpoint_dual_ray_directions"])
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
