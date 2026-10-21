@@ -40,6 +40,8 @@ on:
       - "code/scripts/cgal_coincident_ray_distance_witness.py"
       - "code/scripts/cgal_unresolved_area_distance_bounds.py"
       - "code/scripts/cgal_unknown_tile_counterexamples.py"
+      - "code/scripts/cgal_endpoint_blocker_dominance.py"
+      - "code/tests/test_cgal_endpoint_blocker_dominance.py"
       - "code/tests/test_cgal_unknown_tile_counterexamples.py"
       - "code/tests/test_cgal_unresolved_area_distance_bounds.py"
       - "code/tests/test_cgal_coincident_ray_distance_witness.py"
@@ -134,6 +136,8 @@ on:
       - "code/scripts/cgal_coincident_ray_distance_witness.py"
       - "code/scripts/cgal_unresolved_area_distance_bounds.py"
       - "code/scripts/cgal_unknown_tile_counterexamples.py"
+      - "code/scripts/cgal_endpoint_blocker_dominance.py"
+      - "code/tests/test_cgal_endpoint_blocker_dominance.py"
       - "code/tests/test_cgal_unknown_tile_counterexamples.py"
       - "code/tests/test_cgal_unresolved_area_distance_bounds.py"
       - "code/tests/test_cgal_coincident_ray_distance_witness.py"
@@ -258,6 +262,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_coincident_ray_distance_witness.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unresolved_area_distance_bounds.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unknown_tile_counterexamples.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_blocker_dominance.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_shared_face_slots.py' -v
       - name: Validate labelled CGAL cells
         run: |
