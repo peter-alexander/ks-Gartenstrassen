@@ -1,37 +1,24 @@
-# Wissenschaftliche Methodik – Wiener Gartenstraßen
+# Methodik – Wiener Gartenstraßen
 
-## Aktueller methodischer Zwischenstand
+## Quellen und Vorbereitung
 
-Derzeit wird ausschließlich die **quellgebundene Vorbereitung** der Daten
-durchgeführt. Eine neue Methode zur Bildung von Straßenabschnitten wird
-anschließend separat entwickelt.
+- SIS (Stadt Wien): geprüfte Straßenraumflächen je Wiener Rasterkachel
+- GRM2023: Vegetations-/Baumkronenmasken
+- GIP `LINEAR_USE`: ausschließlich `base_type = 1` als originäre
+  Liniengeometrien, mit unveränderter `object_id` und `edge_id`
+- Alle Berechnungen metrisch in EPSG:31256
 
-## Quellen und dauerhafte Aufbereitung
+## Segment-Voronoi und Straßenraum
 
-- **SIS (Stadt Wien):** WFS-Antworten werden unter
-  `raw/sis/wfs-kacheln/` gespeichert. Der deduplizierte Wiener Index liegt
-  in `cache/sis-wien.sqlite`.
-- **SIS-Straßenraum:** Aus den geprüften SIS-Belagsflächen werden
-  rasterweise Straßenraumpolygone unter
-  `cache/wien/strassenraum/` erzeugt.
-- **GRM2023:** WMS-PNGs werden mit Herkunftsmetadaten unter `raw/grm2023/`
-  gespeichert. Daraus abgeleitete Kronenmasken liegen dauerhaft unter
-  `cache/wien/masken/`.
-- **Wien-AOI/Raster:** `cache/wien/aoi.geojson` und
-  `cache/wien/raster.json` bilden den gemeinsamen räumlichen Vertrag.
-- **Berechnung:** metrisch in EPSG:31256.
+1. Original-Linien ohne Mittelachsenbildung einlesen.
+2. Für CGAL in gerade Segmente zerlegen, auf 1 mm quantisieren, kreuzungsgenau noden.
+3. Segment-Voronoi-Grenzen für Wien berechnen und polygonisieren.
+4. Den Voronoi-Flächen vor dem Verschnitt die ursprüngliche `edge_id` zuweisen.
+5. Flächen mit dem SIS-Straßenraum verschneiden.
+6. Je `edge_id` nur berührende Flächen vereinen; getrennte Teilflächen
+   als separate Features ausgeben.
+7. Flächenbilanz, gültige Geometrien und räumliche Zuordnung prüfen.
 
-## Nicht mehr Teil der Methode
-
-Die bisherige Verwendung von GIP-EDGE-, NODE- und TURN_USE-Daten ist
-entfernt. Es gibt damit aktuell:
-
-- keine GIP-basierte Abschnittsbildung,
-- keine Voronoi-Zuordnung zu GIP-Achsen,
-- keine Parallelkantenvereinigung,
-- keine FOW-basierte Abschnittsauswahl,
-- keine Knoten- oder Kreuzungsflächen,
-- keine Querschnitts-Beschneidung,
-- keine GIP-basierte QA oder Messausgabe.
-
-SIS- und GRM-Daten werden nicht verändert, nur dauerhaft vorbereitet.
+Die genaue räumliche Korrektheit approximierter Voronoi-Grenzen ist im
+experimentellen Wiener Lauf noch zu validieren. Es wird keine
+GIP-EDGE-/NODE-/TURN_USE-Abschnittsbildung verwendet.
