@@ -3,10 +3,10 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from shapely.geometry import LineString, Polygon, box
+from shapely.geometry import LineString, Polygon, MultiPolygon, box
 
 from scripts.build_cgal_voronoi_geojson import (
-	_polygon_candidates, _record_line, _export_wgs84_polygon, build)
+	_polygon_candidates, _record_line, _export_wgs84_polygon, _connected_components)
 
 
 class CGALFullViennaTests(unittest.TestCase):
@@ -40,26 +40,23 @@ class CGALFullViennaTests(unittest.TestCase):
 			_export_wgs84_polygon(geom,lambda x,y:(x,y),
 				lambda x,y:(x,y),edge_id="a")
 
-	def test_diagnostic_does_not_overwrite_existing_report(self):
-		with TemporaryDirectory() as temp:
-			directory=Path(temp)
-			report=directory/"report.json"
-			report.write_text("old",encoding="utf-8")
-			with self.assertRaises(FileExistsError):
-				build(None,None,None,None,directory/"nonexistent",
-					directory/"existing.geojson",
-					diagnostic_report=report)
-			self.assertEqual(report.read_text(encoding="utf-8"),"old")
+	def test_disconnected_components_remain_separate(self):
+		parts=_connected_components(MultiPolygon([
+			box(0,0,2,2),box(5,0,7,2)]))
+		self.assertEqual(len(parts),2)
+		self.assertAlmostEqual(sum(p.area for p in parts),8)
 
-	def test_diagnostic_mode_allows_existing_geojson(self):
-		with TemporaryDirectory() as temp:
-			directory=Path(temp)
-			geojson=directory/"existing.geojson"
-			geojson.write_text("old",encoding="utf-8")
-			with self.assertRaises(FileNotFoundError):
-				build(None,None,None,None,directory/"nonexistent",
-					geojson,diagnostic_report=directory/"report.json")
-			self.assertEqual(geojson.read_text(encoding="utf-8"),"old")
+	def test_polygons_touching_only_at_vertex_are_one_group(self):
+		parts=_connected_components(MultiPolygon([
+			box(0,0,2,2),box(2,2,4,4)]))
+		self.assertEqual(len(parts),1)
+		self.assertAlmostEqual(parts[0].area,8)
+
+	def test_transitive_touching_connects_a_chain(self):
+		parts=_connected_components(MultiPolygon([
+			box(0,0,2,2),box(2,2,4,4),box(4,4,6,6)]))
+		self.assertEqual(len(parts),1)
+		self.assertAlmostEqual(parts[0].area,12)
 
 	def test_invalid_ray_direction_raises(self):
 		with self.assertRaisesRegex(ValueError,"Vektor"):

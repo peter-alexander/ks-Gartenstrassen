@@ -1,12 +1,5 @@
-// CGAL segment-site Voronoi boundary export for debug polygonization.
-// stdin: x1 y1 x2 y2 in integer millimetres, one site per row.
-// --bounds xmin ymin xmax ymax: clip candidate output to this integer-mm window.
-// --edges PATH: write S (segment), R (ray), L (line) records.
-// --sites PATH: export CGAL graph sites (point and segment generators).
-// --labelled-edges PATH: E records with both generating sites, followed by
-// the corresponding S/R/L dual primitives (including parabola fragments).
-// Parabolic boundaries are linearized by CGAL's Parabola_segment_2::draw.
-// Never treat this approximation as a verified exact polygon partition.
+// CGAL dual boundaries from original LINEAR_USE segments (integer millimetres).
+// stdin: x1 y1 x2 y2 per segment; output S / R / L Voronoi primitives.
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Segment_Delaunay_graph_2.h>
 #include <CGAL/Segment_Delaunay_graph_filtered_traits_2.h>
@@ -17,8 +10,6 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <map>
-#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -26,21 +17,6 @@ using Kernel = CGAL::Simple_cartesian<double>;
 using Traits = CGAL::Segment_Delaunay_graph_filtered_traits_2<Kernel>;
 using Diagram = CGAL::Segment_Delaunay_graph_2<Traits>;
 using Point = Kernel::Point_2;
-
-template <typename Site>
-void write_site(std::ostream& out,const Site& site) {
-	if (site.is_point()) {
-		const auto p=site.point();
-		out << "P " << p.x() << " " << p.y();
-	} else if (site.is_segment()) {
-		const auto a=site.source(),b=site.target();
-		out << "S " << a.x() << " " << a.y() << " "
-			<< b.x() << " " << b.y();
-	} else {
-		throw std::runtime_error("Unknown generating site");
-	}
-}
-
 
 struct Recorder {
 	std::ostream& output;
@@ -79,35 +55,13 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path,primal_face_vertices_path,primal_face_neighbors_path,primal_edge_generators_path;
+	std::string path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--primal-edge-generators" && i+1<argc) {
-			primal_edge_generators_path=argv[++i];
-		} else if (option=="--primal-face-neighbors" && i+1<argc) {
-			primal_face_neighbors_path=argv[++i];
-		} else if (option=="--primal-face-vertices" && i+1<argc) {
-			primal_face_vertices_path=argv[++i];
-		} else if (option=="--primal-face-pairs" && i+1<argc) {
-			primal_face_pairs_path=argv[++i];
-		} else if (option=="--ray-directions" && i+1<argc) {
-			ray_directions_path=argv[++i];
-		} else if (option=="--face-incidence" && i+1<argc) {
-			face_incidence_path=argv[++i];
-		} else if (option=="--skeleton-edge-ids" && i+1<argc) {
-			skeleton_edge_ids_path=argv[++i];
-		} else if (option=="--edges" && i+1<argc) {
+		if (option=="--edges" && i+1<argc) {
 			path=argv[++i];
-		} else if (option=="--sites" && i+1<argc) {
-			site_path=argv[++i];
-		} else if (option=="--labelled-edges" && i+1<argc) {
-			labelled_path=argv[++i];
-		} else if (option=="--skeleton" && i+1<argc) {
-			skeleton_path=argv[++i];
-		} else if (option=="--edge-topology" && i+1<argc) {
-			topology_path=argv[++i];
 		} else if (option=="--bounds" && i+4<argc) {
 			xmin=std::stod(argv[++i]);
 			ymin=std::stod(argv[++i]);
@@ -120,7 +74,7 @@ int main(int argc,char** argv) {
 		}
 	}
 	if (path.empty() || !has_bounds || !(xmin<xmax && ymin<ymax)) {
-		std::cerr << "Usage: --edges FILE [--sites FILE] [--labelled-edges FILE] --bounds XMIN YMIN XMAX YMAX (mm)\n";
+		std::cerr << "Usage: --edges PATH --bounds XMIN YMIN XMAX YMAX (mm)\n";
 		return 2;
 	}
 	try {
@@ -128,272 +82,28 @@ int main(int argc,char** argv) {
 		std::int64_t x1,y1,x2,y2;
 		std::size_t n=0;
 		while (std::cin >> x1 >> y1 >> x2 >> y2) {
-			if (x1==x2 && y1==y2) {
+			if (x1==x2 && y1==y2)
 				throw std::runtime_error("Degenerate input site");
-			}
 			diagram.insert(Point(double(x1),double(y1)),
 				Point(double(x2),double(y2)));
 			++n;
 		}
-		if (!std::cin.eof() || n==0) {
+		if (!std::cin.eof() || n==0)
 			throw std::runtime_error("Invalid or empty site stream");
-		}
-		if (!diagram.is_valid(false,1)) {
+		if (!diagram.is_valid(false,1))
 			throw std::runtime_error("CGAL segment Delaunay graph invalid");
-		}
-		// A graph vertex stores the actual CGAL generating site, unlike
-		// draw_dual() which exports only anonymous boundaries. This is an
-		// independent diagnostic dataset; polygon ownership needs a
-		// subsequent explicit face-to-site association.
-		std::size_t point_sites=0,segment_sites=0;
-		if (!site_path.empty()) {
-			std::ofstream sites(site_path);
-			if (!sites) throw std::runtime_error("Cannot create sites output");
-			sites << std::setprecision(17);
-			for (auto vertex=diagram.finite_vertices_begin();
-					vertex!=diagram.finite_vertices_end();++vertex) {
-				const auto site=vertex->site();
-				if (site.is_point()) {
-					const auto p=site.point();
-					sites << "P " << p.x() << " " << p.y() << "\n";
-					++point_sites;
-				} else if (site.is_segment()) {
-					const auto a=site.source(), b=site.target();
-					sites << "S " << a.x() << " " << a.y() << " "
-						<< b.x() << " " << b.y() << "\n";
-					++segment_sites;
-				} else {
-					throw std::runtime_error("Unknown graph site type");
-				}
-			}
-			if (!sites.good()) throw std::runtime_error("Sites output write failed");
-		}
 		std::ofstream out(path);
-		if (!out) {
+		if (!out)
 			throw std::runtime_error("Cannot create edge output");
-		}
 		out << std::setprecision(17);
 		Recorder recorder{out,xmin,ymin,xmax,ymax};
 		diagram.draw_dual(recorder);
-		if (!out.good()) {
+		if (!out.good())
 			throw std::runtime_error("Edge output write failed");
-		}
-		if (!skeleton_path.empty()) {
-			std::ofstream skeleton(skeleton_path);
-			if (!skeleton) throw std::runtime_error("Cannot create skeleton output");
-			skeleton << std::setprecision(17);
-			Recorder skeleton_recorder{skeleton,xmin,ymin,xmax,ymax};
-			diagram.draw_skeleton(skeleton_recorder);
-			if (!skeleton.good()) throw std::runtime_error("Skeleton output write failed");
-		}
-		std::size_t labelled_edges=0;
-		std::size_t endpoint_duals=0;
-		std::ofstream skeleton_edge_ids;
-		if (!skeleton_edge_ids_path.empty()) {
-			skeleton_edge_ids.open(skeleton_edge_ids_path);
-			if (!skeleton_edge_ids) throw std::runtime_error("Cannot create skeleton edge IDs");
-		}
-		if (!labelled_path.empty()) {
-			std::ofstream labelled(labelled_path);
-			if (!labelled) throw std::runtime_error("Cannot create labelled output");
-			labelled << std::setprecision(17);
-			Recorder labelled_recorder{labelled,xmin,ymin,xmax,ymax};
-			std::ofstream directions;
-			if (!ray_directions_path.empty()) {
-				directions.open(ray_directions_path);
-				if (!directions) throw std::runtime_error("Cannot create ray directions output");
-				directions << std::setprecision(17);
-			}
-			std::ofstream incidence;
-			if (!face_incidence_path.empty()) {
-				incidence.open(face_incidence_path);
-				if (!incidence) throw std::runtime_error("Cannot create face incidence output");
-				incidence << std::setprecision(17);
-			}
-			std::ofstream topology;
-			if (!topology_path.empty()) {
-				topology.open(topology_path);
-				if (!topology) throw std::runtime_error("Cannot create topology output");
-				topology << std::setprecision(17);
-			}
-			std::ofstream face_pairs;
-			if (!primal_face_pairs_path.empty()) {
-				face_pairs.open(primal_face_pairs_path);
-				if (!face_pairs) throw std::runtime_error("Cannot create primal face pairs output");
-			}
-			std::ofstream face_vertices;
-			if (!primal_face_vertices_path.empty()) {
-				face_vertices.open(primal_face_vertices_path);
-				if (!face_vertices) throw std::runtime_error("Cannot create primal face vertices output");
-				face_vertices << std::setprecision(17);
-			}
-			std::ofstream face_neighbors;
-			if (!primal_face_neighbors_path.empty()) {
-				face_neighbors.open(primal_face_neighbors_path);
-				if (!face_neighbors) throw std::runtime_error("Cannot create primal face neighbors output");
-			}
-			std::ofstream primal_generators;
-			std::map<const void*,std::size_t> generator_ids;
-			if (!primal_edge_generators_path.empty()) {
-				primal_generators.open(primal_edge_generators_path);
-				if (!primal_generators)
-					throw std::runtime_error("Cannot create primal edge generators");
-				primal_generators << std::setprecision(17);
-				for (auto vertex=diagram.finite_vertices_begin();
-						vertex!=diagram.finite_vertices_end();++vertex) {
-					const std::size_t id=generator_ids.size();
-					generator_ids.emplace(std::addressof(*vertex),id);
-					primal_generators << "V " << id << " ";
-					write_site(primal_generators,vertex->site());
-					primal_generators << "\n";
-				}
-			}
-			std::map<const void*,std::size_t> face_ids;
-			const auto face_id=[&face_ids](const auto& handle) {
-				const void* key=std::addressof(*handle);
-				const auto found=face_ids.find(key);
-				if (found!=face_ids.end()) return found->second;
-				const std::size_t id=face_ids.size();
-				face_ids.emplace(key,id);
-				return id;
-			};
-			for (auto edge=diagram.finite_edges_begin();
-					edge!=diagram.finite_edges_end();++edge) {
-				const auto face=edge->first;
-				const int i=edge->second;
-				if (face_pairs.is_open()) {
-					face_pairs << "H " << labelled_edges << " " << face_id(face)
-						<< " " << face_id(face->neighbor(i)) << "\n";
-				}
-				if (face_vertices.is_open()) {
-					// Original primal triangle vertex slots, not geometric side ownership.
-					face_vertices << "V " << labelled_edges;
-					for (const auto& current : {face,face->neighbor(i)}) {
-						face_vertices << " | FACE " << face_id(current);
-						for (int vertex_index=0;vertex_index<3;++vertex_index) {
-							face_vertices << " " << vertex_index << ":";
-							if (diagram.is_infinite(current->vertex(vertex_index)))
-								face_vertices << "INF";
-							else write_site(face_vertices,current->vertex(vertex_index)->site());
-						}
-					}
-					face_vertices << "\n";
-				}
-				if (face_neighbors.is_open()) {
-					face_neighbors << "N " << labelled_edges;
-					for (const auto& current : {face,face->neighbor(i)}) {
-						face_neighbors << " | FACE " << face_id(current);
-						for (int slot=0;slot<3;++slot)
-							face_neighbors << " " << slot << ":" << face_id(current->neighbor(slot));
-					}
-					face_neighbors << "\n";
-				}
-				if (primal_generators.is_open()) {
-					const auto av=face->vertex(diagram.cw(i));
-					const auto bv=face->vertex(diagram.ccw(i));
-					const auto ai=generator_ids.find(std::addressof(*av));
-					const auto bi=generator_ids.find(std::addressof(*bv));
-					if (ai==generator_ids.end() || bi==generator_ids.end())
-						throw std::runtime_error("Missing native generator vertex ID");
-					primal_generators << "G " << labelled_edges << " "
-						<< ai->second << " " << bi->second << "\n";
-				}
-				const auto a=face->vertex(diagram.cw(i))->site();
-				const auto b=face->vertex(diagram.ccw(i))->site();
-				const auto endpoint_of=[](const auto& point,const auto& segment) {
-					return point.is_point() && segment.is_segment() &&
-						(point.point()==segment.source() || point.point()==segment.target());
-				};
-				const bool endpoint_pair=endpoint_of(a,b) || endpoint_of(b,a);
-				if (incidence.is_open()) {
-					// Face and neighbor are primal Delaunay triangular faces.
-					// Their opposite sites are distinct from the two edge sites;
-					// they are not asserted to be left/right Voronoi owners.
-					incidence << "F " << labelled_edges << " " << i << " " << face->neighbor(i)->index(face) << " "
-						<< (diagram.is_infinite(face)?0:1) << " "
-						<< (diagram.is_infinite(face->neighbor(i))?0:1)
-						<< " OPP ";
-					if (diagram.is_infinite(face)) incidence << "INF";
-					else write_site(incidence,face->vertex(i)->site());
-					incidence << " | NEIGH ";
-					const auto neighbor=face->neighbor(i);
-					if (diagram.is_infinite(neighbor)) incidence << "INF";
-					else {
-						const int mirror=neighbor->index(face);
-						write_site(incidence,neighbor->vertex(mirror)->site());
-					}
-					incidence << "\n";
-				}
-				if (skeleton_edge_ids.is_open()) {
-					skeleton_edge_ids << "K " << labelled_edges << " " << (endpoint_pair?0:1) << "\n";
-				}
-				if (endpoint_pair) ++endpoint_duals;
-				if (topology.is_open()) {
-					topology << "T " << labelled_edges << " " << (endpoint_pair?1:0)
-						<< " CW ";
-					write_site(topology,a);
-					topology << " | CCW ";
-					write_site(topology,b);
-					topology << "\n";
-				}
-				labelled << "E " << labelled_edges << " ";
-				write_site(labelled,a);
-				labelled << " | ";
-				write_site(labelled,b);
-				labelled << "\n";
-				if (directions.is_open()) {
-					// The Recorder records the precise primitive generated for
-					// this E ID; R's source and second point define its direction.
-					directions << "E " << labelled_edges << "\n";
-					Recorder ray_recorder{directions,xmin,ymin,xmax,ymax};
-					diagram.draw_dual_edge(*edge,ray_recorder);
-				}
-				diagram.draw_dual_edge(*edge,labelled_recorder);
-				++labelled_edges;
-			}
-			if (primal_generators.is_open() && !primal_generators.good()) {
-				throw std::runtime_error("Primal edge generators output write failed");
-			}
-			if (skeleton_edge_ids.is_open() && !skeleton_edge_ids.good()) {
-				throw std::runtime_error("Skeleton edge IDs write failed");
-			}
-			if (directions.is_open() && !directions.good()) {
-				throw std::runtime_error("Ray direction output write failed");
-			}
-			if (face_neighbors.is_open() && !face_neighbors.good()) {
-				throw std::runtime_error("Primal face neighbors output write failed");
-			}
-			if (face_vertices.is_open() && !face_vertices.good()) {
-				throw std::runtime_error("Primal face vertices output write failed");
-			}
-			if (face_pairs.is_open() && !face_pairs.good()) {
-				throw std::runtime_error("Primal face pairs output write failed");
-			}
-			if (incidence.is_open() && !incidence.good()) {
-				throw std::runtime_error("Face incidence output write failed");
-			}
-			if (topology.is_open() && !topology.good()) {
-				throw std::runtime_error("Topology output write failed");
-			}
-			if (!labelled.good()) {
-				throw std::runtime_error("Labelled edge output write failed");
-			}
-			// Exact same primitive counts are expected in both exports.
-			if (labelled_recorder.segments!=recorder.segments ||
-					labelled_recorder.rays!=recorder.rays ||
-					labelled_recorder.lines!=recorder.lines) {
-				throw std::runtime_error("Labelled/unlabelled dual mismatch");
-			}
-		}
-
 		std::cout << "{\"status\":\"ok\",\"input_segments\":" << n
 			<< ",\"segments\":" << recorder.segments
 			<< ",\"rays\":" << recorder.rays
 			<< ",\"lines\":" << recorder.lines
-			<< ",\"labelled_edges\":" << labelled_edges
-			<< ",\"endpoint_duals\":" << endpoint_duals
-			<< ",\"point_sites\":" << point_sites
-			<< ",\"segment_sites\":" << segment_sites
 			<< "}" << std::endl;
 		return 0;
 	} catch (const std::exception& e) {

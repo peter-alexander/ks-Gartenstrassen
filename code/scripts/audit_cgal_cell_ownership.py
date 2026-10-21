@@ -22,8 +22,19 @@ def audit(features, axes, *, tolerance_m=0.01):
 		raise ValueError("Ungültige Toleranz")
 	ids=sorted(axes)
 	if not ids:
-		raise ValueError("Keine Mittelachsen")
-	lines=[axes[key] for key in ids]
+		raise ValueError("Keine originalen LINEAR_USE-Linien")
+	lines=[]
+	line_ids=[]
+	own_geometries={}
+	for edge_id in ids:
+		source=axes[edge_id]
+		parts=source if isinstance(source,(tuple,list)) else [source]
+		if not parts:
+			raise ValueError(f"{edge_id}: keine Originalsegmente")
+		own_geometries[edge_id]=parts
+		for part in parts:
+			lines.append(part)
+			line_ids.append(edge_id)
 	tree=STRtree(lines)
 	to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
 	details=[]
@@ -66,19 +77,19 @@ def audit(features, axes, *, tolerance_m=0.01):
 				sampled+=1
 				matched=int(tree.nearest(point))
 				best_distance=point.distance(lines[matched])
-				own_distance=point.distance(axes[owner])
+				own_distance=min(point.distance(g) for g in own_geometries[owner])
 				# A point on an actual Voronoi boundary can have multiple
 				# equally near axes. Only report material distance differences.
 				difference=own_distance-best_distance
 				if difference>tolerance_m:
 					details.append({
 						"feature_index":index,"edge_id":owner,
-						"nearest_edge_id":ids[matched],
+						"nearest_edge_id":line_ids[matched],
 						"assigned_distance_m":own_distance,
 						"nearest_distance_m":best_distance,
 						"distance_difference_m":difference,
 						"point_31256":[point.x,point.y]})
-				elif abs(difference)<=tolerance_m:
+				elif line_ids[matched]!=owner and abs(difference)<=tolerance_m:
 					ambiguous+=1
 	return {
 		"method":"five-samples-per-polygon-part-v1",
@@ -86,6 +97,7 @@ def audit(features, axes, *, tolerance_m=0.01):
 		"features":len(features),
 		"sample_points":sampled,
 		"within_tolerance":sampled-len(details),
+		"possible_tie_samples":ambiguous,
 		"failures":len(details)+len(invalid_geometries),
 		"ownership_failures":len(details),
 		"invalid_geometry_count":len(invalid_geometries),
@@ -101,8 +113,13 @@ def run(cache,geojson,out,*,tolerance_m=0.01):
 	if out.exists() or out.is_symlink():
 		raise FileExistsError(out)
 	with sqlite3.connect(f"file:{Path(cache).resolve()}?mode=ro",uri=True) as db:
-		axes={str(key):loads(blob) for key,blob in db.execute(
-			"SELECT edge_id,wkb FROM edge_axes")}
+		schema=db.execute("SELECT value FROM metadata WHERE key='schema'").fetchone()
+		if schema is None or json.loads(schema[0])!="linear-use-original-segments-v1":
+			raise ValueError("Nur Original-LINEAR_USE-Cache ist zulässig")
+		axes={}
+		for edge_id,blob in db.execute(
+				"SELECT edge_id,wkb FROM linear_use_segments"):
+			axes.setdefault(str(edge_id),[]).append(loads(blob))
 	with Path(geojson).open(encoding="utf-8") as source:
 		collection=json.load(source)
 	if collection.get("type")!="FeatureCollection":

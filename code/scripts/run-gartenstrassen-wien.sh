@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Existing Vienna caches -> LINEAR_USE -> CGAL/SIS GeoJSON -> PMTiles preview.
+# Original LINEAR_USE -> CGAL/SIS GeoJSON -> PMTiles preview.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 REPO="$PWD"
 PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
-GEOJSON="$REPO/output/cgal_segment_voronoi_sis_wien.geojson"
-PMTILES="$REPO/output/cgal_segment_voronoi_sis_wien.pmtiles"
-AUDIT="$REPO/output/cgal_cell_ownership_audit.json"
-AXES="$REPO/cache/wien/linear_use.sqlite"
+GEOJSON="$REPO/output/cgal_original_linear_use_sis_wien.geojson"
+PMTILES="$REPO/output/cgal_original_linear_use_sis_wien.pmtiles"
+AUDIT="$REPO/output/cgal_original_cell_ownership_audit.json"
+AXES="$REPO/cache/wien/linear_use_original.sqlite"
 SIS="$REPO/cache/sis-wien.sqlite"
 ALLOW_FAILED_QA="${ALLOW_FAILED_QA:-0}"
 
@@ -27,8 +27,8 @@ if [[ ! -f "$REPO/cache/wien/raster.json" || ! -f "$SIS" ||
 fi
 
 if [[ ! -f "$AXES" ]]; then
-	if [[ -e "$REPO/output/linear_use_mittelachsen.geojson" ]]; then
-		echo "LINEAR_USE-GeoJSON vorhanden, SQLite fehlt: inkonsistenter Cache" >&2
+	if [[ -e "$REPO/output/linear_use_original.geojson" ]]; then
+		echo "Original-GeoJSON vorhanden, SQLite fehlt: inkonsistenter Cache" >&2
 		exit 1
 	fi
 	bash "$REPO/code/scripts/run-linear-use-wien.sh"
@@ -94,7 +94,7 @@ command -v tippecanoe >/dev/null || {
 }
 # tippecanoe can write PMTiles directly. Write to a staging file to avoid
 # presenting partial archives as completed previews.
-STAGE="$REPO/output/.cgal_segment_voronoi_sis_wien.$$.pmtiles"
+STAGE="$REPO/output/.cgal_original_linear_use_sis_wien.$.pmtiles"
 trap 'rm -f -- "$STAGE"' EXIT
 tippecanoe -o "$STAGE" -l gartenstrassen -Z 8 -z 15 \
 	--no-feature-limit --no-tile-size-limit \

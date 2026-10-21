@@ -1,4 +1,4 @@
-"""Synthetic GeoPackage tests for LINEAR_USE base_type=1 mean-axis import."""
+"""Original LINEAR_USE: source geometries must reach CGAL unchanged."""
 import json
 import sqlite3
 import struct
@@ -7,19 +7,18 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from pyproj import Transformer
-from shapely.geometry import LineString, box, mapping, shape
+from shapely.geometry import LineString, box, mapping
 from shapely.ops import transform
 from shapely.wkb import dumps, loads
 
-from scripts.build_linear_use_axes import build
-from scripts.wienwide_grid import checksum
+from scripts.build_linear_use_original import build
 
 
 def gpkg_blob(geometry,srs_id=4326):
 	return b"GP"+bytes((0,1))+struct.pack("<i",srs_id)+dumps(geometry)
 
 
-class LinearUseImportTests(unittest.TestCase):
+class LinearUseOriginalImportTests(unittest.TestCase):
 	def setUp(self):
 		self.tmp=TemporaryDirectory()
 		self.addCleanup(self.tmp.cleanup)
@@ -27,7 +26,7 @@ class LinearUseImportTests(unittest.TestCase):
 		self.source=self.root/"gip_network_ogd.gpkg"
 		self.aoi=self.root/"wien.geojson"
 		self.cache=self.root/"linear_use.sqlite"
-		self.geojson=self.root/"linear_use_mittelachsen.geojson"
+		self.geojson=self.root/"linear_use_original.geojson"
 		to_metric=Transformer.from_crs("EPSG:4326","EPSG:31256",
 			always_xy=True).transform
 		to_wgs=Transformer.from_crs("EPSG:31256","EPSG:4326",
@@ -97,60 +96,29 @@ class LinearUseImportTests(unittest.TestCase):
 			add(5,"lu-outside","edge-outside",
 				LineString([(x+10000,y),(x+10100,y)]))
 
-	def test_import_filters_base_type_and_aoi_groups_by_edge_id(self):
-		report=build(self.source,self.aoi,self.cache,self.geojson,
-			sample_spacing_m=25)
-		self.assertEqual(report["linear_use_rows_base_type_1"],4)
-		self.assertEqual(report["linear_use_rows_in_aoi"],3)
-		self.assertEqual(report["edge_axes"],2)
-		self.assertEqual(report["multi_line_edge_ids"],1)
-		self.assertEqual(report["max_linear_use_per_edge"],2)
+	def test_original_lines_not_averaged(self):
+		report=build(self.source,self.aoi,self.cache,self.geojson)
+		self.assertEqual(report["original_lines"],3)
+		self.assertEqual(report["edge_ids"],2)
 		self.assertEqual(report["spatial_prefilter"],"gpkg_rtree")
-		self.assertTrue(self.cache.is_file())
-		self.assertTrue(self.geojson.is_file())
 		with sqlite3.connect(self.cache) as db:
-			meta={k:json.loads(v) for k,v in
+			metadata={k:json.loads(v) for k,v in
 				db.execute("SELECT key,value FROM metadata")}
-			self.assertEqual(meta["schema"],"linear-use-edge-mean-axis-v1")
-			self.assertEqual(meta["base_type"],1)
-			self.assertEqual(meta["target_crs"],"EPSG:31256")
-			self.assertEqual(db.execute(
-				"SELECT COUNT(*) FROM linear_use_members").fetchone()[0],3)
-			self.assertEqual(db.execute(
-				"SELECT COUNT(*) FROM edge_axes").fetchone()[0],2)
-			count,ids,wkb=db.execute("""SELECT linear_use_count,
-				linear_use_object_ids,wkb FROM edge_axes
-				WHERE edge_id='edge-a'""").fetchone()
-			self.assertEqual(count,2)
-			self.assertEqual(json.loads(ids),["lu-a1","lu-a2"])
-			axis=loads(wkb)
-			self.assertAlmostEqual(axis.coords[0][1],
-				self.metric_origin[1]+5,delta=.05)
-			self.assertAlmostEqual(axis.coords[-1][1],
-				self.metric_origin[1]+5,delta=.05)
-			self.assertEqual(db.execute("PRAGMA quick_check").fetchone()[0],"ok")
+			self.assertEqual(metadata["schema"],"linear-use-original-segments-v1")
+			self.assertEqual(metadata["base_type"],1)
+			rows=db.execute("SELECT object_id,edge_id,wkb FROM linear_use_segments ORDER BY object_id").fetchall()
+		self.assertEqual([row[0] for row in rows],["lu-a1","lu-a2","lu-b1"])
+		self.assertEqual([row[1] for row in rows],["edge-a","edge-a","edge-b"])
+		y=[loads(row[2]).coords[0][1] for row in rows]
+		self.assertAlmostEqual(y[0],self.metric_origin[1],delta=.05)
+		self.assertAlmostEqual(y[1],self.metric_origin[1]+10,delta=.05)
+		self.assertAlmostEqual(y[2],self.metric_origin[1]+30,delta=.05)
 		doc=json.loads(self.geojson.read_text(encoding="utf-8"))
-		self.assertEqual(doc["type"],"FeatureCollection")
-		self.assertEqual(len(doc["features"]),2)
-		features={f["properties"]["edge_id"]:f for f in doc["features"]}
-		self.assertEqual(features["edge-a"]["properties"]["linear_use_count"],2)
-		self.assertEqual(features["edge-a"]["properties"][
-			"linear_use_object_ids"],["lu-a1","lu-a2"])
-		self.assertEqual(features["edge-b"]["properties"]["linear_use_count"],1)
-		self.assertEqual(features["edge-a"]["geometry"]["type"],"LineString")
+		self.assertEqual(len(doc["features"]),3)
+		self.assertEqual([f["properties"]["object_id"] for f in doc["features"]],
+			["lu-a1","lu-a2","lu-b1"])
 
-	def test_invalid_mean_axis_fails_without_debug_output(self):
-		from unittest.mock import patch
-		with patch("scripts.build_linear_use_axes.build_mean_axis",
-				side_effect=ValueError("synthetisch selbstschneidend")):
-			with self.assertRaisesRegex(ValueError,
-					"edge_id-Gruppen.*edge-a"):
-				build(self.source,self.aoi,self.cache,self.geojson)
-		self.assertFalse(self.cache.exists())
-		self.assertFalse(self.geojson.exists())
-		self.assertFalse((self.root/"linear_use_mittelachsen_probleme.geojson").exists())
-
-	def test_source_is_read_only_and_existing_outputs_are_not_overwritten(self):
+	def test_source_is_read_only_and_outputs_not_overwritten(self):
 		before=self.source.read_bytes()
 		build(self.source,self.aoi,self.cache,self.geojson)
 		self.assertEqual(self.source.read_bytes(),before)
@@ -161,11 +129,10 @@ class LinearUseImportTests(unittest.TestCase):
 	def test_missing_edge_id_fails_without_partial_outputs(self):
 		with sqlite3.connect(self.source) as db:
 			db.execute("UPDATE LINEAR_USE SET edge_id='' WHERE object_id='lu-b1'")
-		with self.assertRaisesRegex(ValueError,"edge_id fehlt"):
+		with self.assertRaisesRegex(ValueError,"edge_id"):
 			build(self.source,self.aoi,self.cache,self.geojson)
 		self.assertFalse(self.cache.exists())
 		self.assertFalse(self.geojson.exists())
-		self.assertFalse(self.cache.with_name(self.cache.name+".tmp").exists())
 
 
 if __name__=="__main__":
