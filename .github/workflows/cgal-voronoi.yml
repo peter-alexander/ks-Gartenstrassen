@@ -28,6 +28,8 @@ on:
       - "code/scripts/cgal_endpoint_cycle_site_pairs.py"
       - "code/scripts/cgal_cycle_edge_site_match.py"
       - "code/scripts/cgal_cycle_dual_incidence.py"
+      - "code/scripts/cgal_endpoint_dual_side_guard.py"
+      - "code/tests/test_cgal_endpoint_dual_side_guard.py"
       - "code/tests/test_cgal_cycle_dual_incidence.py"
       - "code/tests/test_cgal_cycle_edge_site_match.py"
       - "code/tests/test_cgal_endpoint_cycle_site_pairs.py"
@@ -98,6 +100,8 @@ on:
       - "code/scripts/cgal_endpoint_cycle_site_pairs.py"
       - "code/scripts/cgal_cycle_edge_site_match.py"
       - "code/scripts/cgal_cycle_dual_incidence.py"
+      - "code/scripts/cgal_endpoint_dual_side_guard.py"
+      - "code/tests/test_cgal_endpoint_dual_side_guard.py"
       - "code/tests/test_cgal_cycle_dual_incidence.py"
       - "code/tests/test_cgal_cycle_edge_site_match.py"
       - "code/tests/test_cgal_endpoint_cycle_site_pairs.py"
@@ -198,6 +202,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_cycle_site_pairs.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_cycle_edge_site_match.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_cycle_dual_incidence.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_dual_side_guard.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_shared_face_slots.py' -v
       - name: Validate labelled CGAL cells
         run: |
