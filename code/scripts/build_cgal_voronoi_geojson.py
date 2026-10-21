@@ -15,7 +15,7 @@ import tempfile
 
 from pyproj import Transformer
 import numpy as np
-from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, prepare, union_all, make_valid
+from shapely import intersection as vector_intersection, area as vector_area, is_empty as vector_is_empty, prepare, union_all, set_precision
 from shapely.geometry import LineString, Polygon, MultiPolygon, box, mapping
 from shapely.ops import polygonize_full, transform, unary_union
 from shapely.strtree import STRtree
@@ -284,33 +284,44 @@ def _polygonal(geometry):
 
 def _export_wgs84_polygon(metric, to_wgs, to_metric, *, edge_id,
 		tolerance_m2=0.01):
-	"""Repair only degenerate projection rings proven to preserve footprint."""
+	"""Remove projection-degenerate details only after metric footprint QA.
+
+	Do not compare the original metric polygon against a WGS84 roundtrip:
+	EPSG:31256 -> EPSG:4326 -> EPSG:31256 introduces projection
+	roundtrip displacement even if NO geometry was removed.
+	"""
+	if metric.is_empty or not metric.is_valid:
+		raise ValueError(f"{edge_id}: metrische Ausgangsfläche ungültig")
 	wgs=transform(to_wgs,metric)
 	if wgs.is_valid and not wgs.is_empty:
-		return wgs, None
+		return wgs,None
 	reason=explain_validity(wgs)
 	if not reason.startswith("Too few points in geometry component"):
 		raise ValueError(f"{edge_id}: GeoJSON-Transformation ungültig: {reason}")
-	candidate=make_valid(wgs)
-	parts=_polygonal(candidate)
-	if not parts:
-		raise ValueError(f"{edge_id}: Transformation ohne polygonale Fläche: {reason}")
-	repaired=union_all(parts)
-	if not repaired.is_valid or repaired.is_empty:
-		raise ValueError(f"{edge_id}: make_valid lieferte ungültige Fläche")
-	roundtrip=transform(to_metric,repaired)
-	if not roundtrip.is_valid:
-		raise ValueError(f"{edge_id}: reparierte Fläche nach Rückprojektion ungültig")
-	try:
-		symdiff=metric.symmetric_difference(roundtrip).area
-	except Exception as exc:
-		raise ValueError(f"{edge_id}: Flächentreue nicht nachweisbar: {exc}") from exc
-	if symdiff>tolerance_m2:
-		raise ValueError(f"{edge_id}: make_valid verändert Fläche um "
-			f"{symdiff:.9f} m² (zulässig {tolerance_m2:.9f} m²)")
-	return repaired, {"edge_id":edge_id,"reason":reason,
-		"method":"make_valid_polygonal_area_verified",
-		"symmetric_difference_m2":symdiff}
+
+	# Collapse only unrepresentable sub-millimetre details in the original
+	# metric CRS. A changed topology is accepted solely when the absolute
+	# *metric* symmetric-difference area stays within the original tolerance.
+	for precision_m in (1e-7,1e-6,1e-5,1e-4,1e-3):
+		candidate=set_precision(metric,precision_m,mode="valid_output")
+		if candidate.is_empty or not candidate.is_valid or (
+				not isinstance(candidate,(Polygon,MultiPolygon))):
+			continue
+		try:
+			change_m2=metric.symmetric_difference(candidate).area
+		except Exception as exc:
+			raise ValueError(
+				f"{edge_id}: metrische Flächentreue nicht nachweisbar: {exc}") from exc
+		if not math.isfinite(change_m2) or change_m2>tolerance_m2:
+			continue
+		reprojected=transform(to_wgs,candidate)
+		if reprojected.is_valid and not reprojected.is_empty:
+			return reprojected,{"edge_id":edge_id,"reason":reason,
+				"method":"metric_precision_cleanup_before_wgs84",
+				"precision_m":precision_m,
+				"symmetric_difference_m2":change_m2}
+	raise ValueError(f"{edge_id}: WGS84-Degeneration ohne flächentreue "
+		f"metrische Bereinigung (maximal {tolerance_m2:.6f} m²); {reason}")
 
 def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	if not math.isfinite(timeout) or timeout<=0:
