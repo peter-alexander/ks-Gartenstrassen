@@ -1,24 +1,29 @@
 # Methodik – Wiener Gartenstraßen
 
-## Quellen und Vorbereitung
+## Quellen
 
-- SIS (Stadt Wien): geprüfte Straßenraumflächen je Wiener Rasterkachel
-- GRM2023: Vegetations-/Baumkronenmasken
-- GIP `LINEAR_USE`: ausschließlich `base_type = 1` als originäre
-  Liniengeometrien, mit unveränderter `object_id` und `edge_id`
-- Alle Berechnungen metrisch in EPSG:31256
+- Wiener SIS-Straßenraumflächen
+- GRM2023-Vegetation
+- GIP `LINEAR_USE`, ausschließlich `base_type=1`
+- EPSG:31256 als metrisches Berechnungssystem
 
-## Segment-Voronoi und Straßenraum
+## Voronoi und Straßenzuordnung
 
-1. Original-Linien ohne Mittelachsenbildung einlesen.
-2. Für CGAL in gerade Segmente zerlegen, auf 1 mm quantisieren, kreuzungsgenau noden.
-3. Segment-Voronoi-Grenzen für Wien berechnen und polygonisieren.
-4. Den Voronoi-Flächen vor dem Verschnitt die ursprüngliche `edge_id` zuweisen.
-5. Flächen mit dem SIS-Straßenraum verschneiden.
-6. Je `edge_id` nur berührende Flächen vereinen; getrennte Teilflächen
-   als separate Features ausgeben.
-7. Flächenbilanz, gültige Geometrien und räumliche Zuordnung prüfen.
+1. Original-Linien (`object_id`, `edge_id`) ohne Mitteln einlesen.
+2. Für CGAL segmentieren und an echten Kreuzungen noden.
+3. Wienweit Voronoi-Grenzen berechnen und polygonisieren.
+4. Original-Linien direkt mit den vollständigen Voronoi-Flächen schneiden.
+   Nur eine Linie mit **genau einem** Polygon-Treffer darf ihre `edge_id`
+   diesem Polygon vorschlagen.
+5. Nulltreffer, Mehrfachtreffer, widersprüchliche `edge_id` einer Fläche
+   und alle unzugeordneten Flächen als eigene Diagnoselayer ausgeben.
+6. Bei uneindeutiger Zuordnung vor SIS stoppen, andernfalls mit dem
+   SIS-Straßenraum verschneiden.
+7. Nur berührende Flächen derselben `edge_id` vereinigen;
+   getrennte Teilflächen bleiben eigene Features.
+8. Gültigkeit und Flächenbilanz prüfen.
 
-Die genaue räumliche Korrektheit approximierter Voronoi-Grenzen ist im
-experimentellen Wiener Lauf noch zu validieren. Es wird keine
-GIP-EDGE-/NODE-/TURN_USE-Abschnittsbildung verwendet.
+Das strikte `intersects` berücksichtigt auch eine bloße
+Randberührung. Diese Fälle werden nicht automatisch korrigiert.
+Die Rekonstruktion und Parabelapproximation der CGAL-Grenzen
+bleibt bis zur Prüfung auf echten Daten experimentell.
