@@ -36,6 +36,8 @@ on:
       - "code/scripts/cgal_endpoint_zero_third_dual.py"
       - "code/scripts/cgal_unresolved_native_source_census.py"
       - "code/scripts/cgal_unresolved_endpoint_conflicts.py"
+      - "code/scripts/cgal_unresolved_side_conflict_crosscheck.py"
+      - "code/tests/test_cgal_unresolved_side_conflict_crosscheck.py"
       - "code/tests/test_cgal_unresolved_endpoint_conflicts.py"
       - "code/tests/test_cgal_unresolved_native_source_census.py"
       - "code/tests/test_cgal_endpoint_zero_third_dual.py"
@@ -122,6 +124,8 @@ on:
       - "code/scripts/cgal_endpoint_zero_third_dual.py"
       - "code/scripts/cgal_unresolved_native_source_census.py"
       - "code/scripts/cgal_unresolved_endpoint_conflicts.py"
+      - "code/scripts/cgal_unresolved_side_conflict_crosscheck.py"
+      - "code/tests/test_cgal_unresolved_side_conflict_crosscheck.py"
       - "code/tests/test_cgal_unresolved_endpoint_conflicts.py"
       - "code/tests/test_cgal_unresolved_native_source_census.py"
       - "code/tests/test_cgal_endpoint_zero_third_dual.py"
@@ -238,6 +242,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_zero_third_dual.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unresolved_native_source_census.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unresolved_endpoint_conflicts.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unresolved_side_conflict_crosscheck.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_shared_face_slots.py' -v
       - name: Validate labelled CGAL cells
         run: |
