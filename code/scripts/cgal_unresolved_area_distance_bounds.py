@@ -56,6 +56,60 @@ def _shared_endpoint_behind_halfplane(candidate,other,vertices,scale):
 		for vertex in vertices)
 
 
+def _shared_endpoint_affine_distance_dominance(candidate,other,vertices,scale,tolerance):
+	"""Certify distance(candidate)<=distance(other) where both closest points
+	are interior projections and signed line distances stay in one branch.
+	In that region the distance difference is affine, so vertex checks suffice.
+	"""
+	if candidate[0]!="S" or other[0]!="S":
+		return False
+	a,b=candidate[1][:2],candidate[1][2:]
+	p,q=other[1][:2],other[1][2:]
+	shared=set((a,b)) & set((p,q))
+	if len(shared)!=1:
+		return False
+	cdx,cdy=b[0]-a[0],b[1]-a[1]
+	odx,ody=q[0]-p[0],q[1]-p[1]
+	cn2=cdx*cdx+cdy*cdy
+	on2=odx*odx+ody*ody
+	if cn2==0 or on2==0:
+		return False
+	csign=None
+	osign=None
+	values=[]
+	for vertex in vertices:
+		x,y=vertex.x*scale,vertex.y*scale
+		ct=(x-a[0])*cdx+(y-a[1])*cdy
+		ot=(x-p[0])*odx+(y-p[1])*ody
+		ctol=tolerance*scale*(cn2**.5)
+		if ct < -ctol or ct > cn2+ctol:
+			return False
+		otol=tolerance*scale*(on2**.5)
+		if ot < -otol or ot > on2+otol:
+			return False
+		ccross=cdx*(y-a[1])-cdy*(x-a[0])
+		ocross=odx*(y-p[1])-ody*(x-p[0])
+		cs=0 if abs(ccross)<=tolerance*scale*max(abs(cdx),abs(cdy),1) else (1 if ccross>0 else -1)
+		os=0 if abs(ocross)<=tolerance*scale*max(abs(odx),abs(ody),1) else (1 if ocross>0 else -1)
+		if cs:
+			if csign is None:
+				csign=cs
+			elif csign!=cs:
+				return False
+		if os:
+			if osign is None:
+				osign=os
+			elif osign!=os:
+				return False
+		values.append((ccross,ocross))
+	if csign is None or osign is None:
+		return False
+	cnorm=cn2**.5
+	onorm=on2**.5
+	return all(csign*ccross/cnorm <= osign*ocross/onorm+tolerance*scale
+		for ccross,ocross in values)
+
+
 def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		*,scale=1000.,max_depth=3,tolerance=1e-9,diagnostic_limit=24):
 	if len(polygons)!=len(labels) or not 0<=max_depth<=8 or scale<=0 or tolerance<0 or diagnostic_limit<0:
@@ -85,10 +139,11 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		deepest=0
 		blockers=[]
 		shared_endpoint_covered_area=0.
+		affine_distance_covered_area=0.
 		blocked_area_by_site={}
 		unknown_area_by_margin={"negative_bound":0.,"near_zero_bound":0.,"positive_but_insufficient":0.}
 		def visit(xmin,ymin,xmax,ymax,depth):
-			nonlocal checked,certified_area,unknown_area,deepest,shared_endpoint_covered_area
+			nonlocal checked,certified_area,unknown_area,deepest,shared_endpoint_covered_area,affine_distance_covered_area
 			tile=box(xmin,ymin,xmax,ymax)
 			part=polygon.intersection(tile)
 			if part.is_empty or part.area<=0:
@@ -102,13 +157,19 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 			max_candidate=max(point.distance(candidate) for point in vertices)
 			shared_endpoint_dominated=[site for site in sites if site!=key
 				and _shared_endpoint_behind_halfplane(key,site,vertices,scale)]
+			affine_dominated=[site for site in sites if site!=key and site not in dominated
+				and site not in shared_endpoint_dominated
+				and _shared_endpoint_affine_distance_dominance(
+					key,site,vertices,scale,tolerance)]
 			competitors=[(part.distance(geom)-max_candidate,site)
 				for site,geom in geometries.items() if site!=key and site not in dominated
-				and not _shared_endpoint_behind_halfplane(key,site,vertices,scale)]
+				and site not in shared_endpoint_dominated and site not in affine_dominated]
 			margin,limiting=min(competitors,key=lambda pair:(pair[0],repr(pair[1]))) if competitors else (float('inf'),None)
 			certified=margin>tolerance
 			if certified and shared_endpoint_dominated:
 				shared_endpoint_covered_area+=part.area
+			if certified and affine_dominated:
+				affine_distance_covered_area+=part.area
 			if certified:
 				certified_area+=part.area
 			elif depth==max_depth or xmin==xmax or ymin==ymax:
@@ -137,6 +198,7 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 			"tiles_checked":checked,"max_depth_reached":deepest,
 			"non_strict_dominated_site_count":len(dominated),
 			"shared_endpoint_halfplane_covered_area_m2":shared_endpoint_covered_area,
+			"shared_endpoint_affine_covered_area_m2":affine_distance_covered_area,
 			"non_strict_dominated_sites":[{"kind":s[0],"coordinates":list(s[1])}
 				for s in sorted(dominated,key=repr)],
 			"certified_area_m2":certified_area,"unknown_area_m2":unknown_area,
