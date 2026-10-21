@@ -1,89 +1,33 @@
-# CGAL-Segment-Voronoi: SIS-Debugflächen
+# CGAL Segment-Voronoi – originale LINEAR_USE-Geometrien
 
-Die Voronoi-Verarbeitung verwendet ausschließlich **CGAL**.
-Alle alten Boost-/Punkt-Voronoi-Benchmarks und Diagnoseprogramme sind entfernt.
-Die bewährte Noding-Vorbereitung bleibt erhalten.
-
-## Installation in WSL/Ubuntu
+Installation (WSL/Ubuntu):
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake libcgal-dev libgmp-dev libmpfr-dev
 ```
 
-## Debugflächen für ganz Wien berechnen
+Vollständige Pipeline:
 
 ```bash
-git pull --ff-only
+GIP_NETWORK_SOURCE=/pfad/gip_network_ogd.gpkg bash code/scripts/run-gartenstrassen-wien.sh
+```
+
+Nur CGAL/SIS-GeoJSON:
+
+```bash
 bash code/scripts/run-cgal-voronoi-debug-wien.sh
 ```
 
-Der Lauf konstruiert das vollständige Wiener Segment-Voronoi-Diagramm,
-polygonisiert den **gesamten Wiener Begrenzungsbereich** und schneidet
-die Flächen mit der realen Wien-AOI und SIS-Straßenmaske.
+Vorher müssen die SIS-Daten und der originale LINEAR_USE-Cache vorhanden sein.
+Ergebnis: `output/cgal_original_linear_use_sis_wien.geojson`.
 
-Es gibt keinen automatischen 500-m-Testausschnitt und keine BBOX-Option.
-Die Verarbeitung kann wegen der vielen Grenzstücke, Polygonisierung und
-SIS-Flächen erhebliche RAM-Ressourcen benötigen. Statusmeldungen zeigen
-Kacheleinlesung, Grenzstückimport, Noding und Flächenzuweisung.
+Der C++-Exporter liest noded Original-Segmente in ganzzahligen
+Millimetern von stdin. `--edges` liefert die Segment-, Strahl- und
+Geradenstücke der Dualgrenzen; `--bounds` begrenzt den Zielbereich.
+Die GIS-Verarbeitung weist den polygonisierten Flächen `edge_id` aus
+den Originalsegmenten zu, schneidet SIS und fasst anschließend je
+`edge_id` nur räumlich berührende Flächen zusammen.
 
-Ausgabe: `output/cgal_segment_voronoi_sis_wien.geojson` (GeoJSON
-EPSG:4326, Eigentümer `edge_id`, Fläche in m²).
-
-Eine vorhandene Ausgabe wird nicht überschrieben. Zum erneuten Ausführen
-muss die alte Ausgabe ausdrücklich umbenannt oder entfernt werden.
-
-## Eigenständige Zuordnungsdiagnose ohne SIS-Export
-
-Vor dem nächsten vollständigen Wien-Lauf kann die CGAL-Generatorzuordnung
-isoliert geprüft werden:
-
-```bash
-git pull --ff-only
-bash code/scripts/run-cgal-voronoi-debug-wien.sh \
-	--diagnostic-report "$PWD/output/cgal_face_site_preflight_wien.json"
-```
-
-Der Modus konstruiert und polygonisiert weiterhin das **ganze**
-CGAL-Voronoi-Diagramm; er überspringt anschließend aber den SIS-Verschnitt,
-den WGS84-Export und die PMTiles-Erzeugung. Bereits existierende
-GeoJSON-/PMTiles-Dateien werden **nicht überschrieben**. Auch ein vorhandener
-Diagnosebericht wird nicht überschrieben.
-
-Im neuen Bericht stehen `face_site_diagnostic.unambiguous`,
-`face_site_diagnostic.ambiguous`, `face_site_diagnostic.missing` sowie
-`unresolved_faces`. Dies sind *Vorabwerte der polygonisierten CGAL-Zellen*,
-noch keine Anzahl der SIS-Teilflächen. Die finale Geometrie- und
-Zellzuordnungs-QA wird dadurch nicht ersetzt.
-
-## Ablauf
-
-1. Verifizierte Wiener GIP-`LINEAR_USE`-Achsen laden, millimetergenau
-   quantisieren und mit GEOS noding durchführen.
-2. **Alle** genodeten Wiener Segmente und einen entfernten Rahmen an CGAL
-   übergeben. CGAL konstruiert einen echten Segment-Delaunay-Graphen.
-3. Duale Voronoi-Kanten extrahieren. Gerade Kanten, Strahlen und Linien
-   werden unterschieden; CGAL linearisiert Parabelstücke für die
-   Debugdarstellung.
-4. Kanten an der Wiener AOI-Umgrenzung begrenzen, GIS-Polygonisierung,
-   Flächen anhand des nächsten GIP-Segments einem `edge_id` zuordnen.
-5. Mit der auf Herkunft und AOI geprüften SIS-Straßenmaske verschneiden.
-6. Flächendeckung/Überlappung prüfen, erst danach GeoJSON atomar schreiben.
-
-Die Voronoi-Konstruktion selbst ist **nicht** kachelweise vereinfacht.
-Es wird **kein** punktbasiertes Voronoi der gesampelten Straßenachsen erzeugt.
-
-## Noch nicht für produktive Flächenfreigabe
-
-- Die Kurvenlinearisierung der CGAL-Ausgabe ist noch nicht unabhängig auf
-  kontrollierte maximale Abweichung geprüft. Es ist eine Debug-Geometrie.
-- Das vorläufige Zuweisen polygonisierter Teilflächen über einen
-  Repräsentationspunkt muss mit Voronoi-Site-Identitäten und
-  Mehrfachproben verifiziert werden.
-- Der gesamte Stadtexport ist wegen der Geometriegröße erst nach
-  erfolgreicher Fensterprüfung vorgesehen.
-- Die CGAL-Segment-Delaunay-Komponente steht unter GPL-3.0-or-later
-  bzw. kommerziellen Lizenzbedingungen; Verteilung/Produktiveinsatz
-  benötigt eine gesonderte Lizenzprüfung.
-
-**Keine automatische Rückkehr zu Boost und keine stillen Fallbacks.**
+Die Linearisierung parabolischer CGAL-Grenzen ist eine Approximation.
+GeoJSON dient bis zur Validierung als experimenteller Debug-Export.
