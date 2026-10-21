@@ -26,11 +26,11 @@ def audit_cycle_dual_incidence(stars,cycle_sites,face_pairs,incidence,endpoint_i
 			for link in links:
 				ids=link.get("face_ids",[])
 				site=link.get("shared_other_site")
-				if len(ids)!=2 or ids[0]==ids[1] or not isinstance(site,list):
+				if len(ids)!=2 or ids[0]==ids[1] or not isinstance(site,(list,tuple)):
 					valid=False
 					break
 				matches=by_faces.get(frozenset(ids),[])
-				if site==["INF"]:
+				if tuple(site)==("INF",):
 					# Unrepresented infinity-facing adjacency must never
 					# be silently conflated with an exported finite E.
 					if matches:
