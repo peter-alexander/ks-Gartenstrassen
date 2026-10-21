@@ -27,6 +27,7 @@ on:
       - "code/scripts/cgal_actual_shared_ray_sides.py"
       - "code/scripts/cgal_primal_side_hypothesis.py"
       - "code/scripts/cgal_endpoint_ray_local_sides.py"
+      - "code/scripts/cgal_coincident_endpoint_group.py"
       - ".github/workflows/cgal-voronoi.yml"
   workflow_dispatch:
 
@@ -77,6 +78,9 @@ jobs:
           assert plain==labelled,(plain-labelled,labelled-plain)
           PY
           head -n 5 /tmp/cgal-dual.txt
+      - name: Validate coincident endpoint counterexamples
+        run: |
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_coincident_endpoint_group.py' -v
       - name: Validate labelled CGAL cells
         run: |
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m scripts.test_cgal_native_end_to_end --binary build/cgal/cgal_voronoi_edges --diagnose
