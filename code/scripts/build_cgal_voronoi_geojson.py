@@ -12,7 +12,6 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
-from time import perf_counter
 
 from pyproj import Transformer
 import numpy as np
@@ -313,8 +312,7 @@ def _export_wgs84_polygon(metric, to_wgs, to_metric, *, edge_id,
 		"method":"make_valid_polygonal_area_verified",
 		"symmetric_difference_m2":symdiff}
 
-def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
-		diagnostic_report=None):
+def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	if not math.isfinite(timeout) or timeout<=0:
 		raise ValueError("Timeout muss positiv sein")
 	out=Path(out)
@@ -390,11 +388,9 @@ def main():
 	p.add_argument("--binary",type=Path,required=True)
 	p.add_argument("--out",type=Path,required=True)
 	p.add_argument("--timeout",type=float,default=900)
-	p.add_argument("--diagnostic-report",type=Path,
-		help="Nur CGAL-Zellen/Sites diagnostizieren; kein SIS-Verschnitt oder GeoJSON-Export")
 	a=p.parse_args()
 	build(a.cache,a.aoi,a.sis_manifest,a.sis_root,a.binary,a.out,
-		timeout=a.timeout,diagnostic_report=a.diagnostic_report)
+		timeout=a.timeout)
 
 
 if __name__=="__main__":
