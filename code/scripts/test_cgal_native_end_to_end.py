@@ -43,6 +43,7 @@ from scripts.cgal_endpoint_primal_star import audit_endpoint_primal_star
 from scripts.cgal_endpoint_third_edge import audit_endpoint_third_edges
 from scripts.cgal_primal_face_identity import parse_primal_face_pairs,audit_group_primal_faces
 from scripts.cgal_primal_face_vertices import parse_primal_face_vertices
+from scripts.cgal_primal_face_neighbors import parse_primal_face_neighbors
 from scripts.cgal_shared_face_slots import audit_shared_face_slots
 from scripts.cgal_three_edge_face_adjacency import audit_three_edge_face_adjacency
 from scripts.cgal_endpoint_face_chain import audit_endpoint_face_chain
@@ -78,7 +79,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
 			str(temp/"topology.txt"),"--face-incidence",
-			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--primal-face-vertices",str(temp/"primal_vertices.txt"),"--ray-directions",
+			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--primal-face-vertices",str(temp/"primal_vertices.txt"),"--primal-face-neighbors",str(temp/"primal_neighbors.txt"),"--ray-directions",
 			str(temp/"directions.txt"),"--skeleton-edge-ids",
 			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
@@ -96,6 +97,11 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			(temp/"primal_vertices.txt").read_text(encoding="utf-8").splitlines(),
 			len(edges),primal_face_pairs)
 		assert len(primal_face_vertices)==len(edges)
+		primal_face_neighbors=parse_primal_face_neighbors(
+			(temp/"primal_neighbors.txt").read_text(encoding="utf-8").splitlines(),
+			len(edges),primal_face_pairs)
+		assert not primal_face_neighbors["cyclic_order_proven"]
+		assert not primal_face_neighbors["ownership_proven"]
 		endpoint_ids=[]
 		for index,record in enumerate(topology):
 			fields=record.split(maxsplit=4)
