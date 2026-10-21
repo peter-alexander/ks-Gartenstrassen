@@ -11,7 +11,7 @@ SIS_MANIFEST="$REPO/cache/wien/raster.json"
 SIS_ROOT="$REPO/cache/wien/strassenraum"
 BUILD="$REPO/build/cgal"
 BIN="$BUILD/cgal_voronoi_edges"
-OUT="$REPO/output/cgal_segment_voronoi_sis_wien.geojson"
+OUT="$REPO/output/cgal_original_linear_use_sis_wien.geojson"
 
 [[ -x "$PYTHON" ]] || { echo "Python-Venv fehlt: $PYTHON" >&2; exit 1; }
 [[ -f "$CACHE" && -f "$AOI" && -f "$SIS_MANIFEST" && -d "$SIS_ROOT" ]] || {
