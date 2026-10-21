@@ -6,6 +6,18 @@ site and one other original vertex site. No Voronoi owner is assigned.
 from scripts.cgal_endpoint_vertex_slots import _site_slots
 
 
+def _site_key(site):
+	parts=site.split()
+	if parts==["INF"]:
+		return ("INF",)
+	if len(parts) not in (3,5) or parts[0] not in ("P","S") or (parts[0]=="P")!=(len(parts)==3):
+		raise ValueError("Malformed native vertex site")
+	values=tuple(float(x) for x in parts[1:])
+	if not all(__import__("math").isfinite(x) for x in values):
+		raise ValueError("Nonfinite native vertex site")
+	return (parts[0],*values)
+
+
 def audit_endpoint_cycle_site_pairs(stars,cycles,face_pairs,face_vertices):
 	reports=[]
 	for star,cycle in zip(stars,cycles):
@@ -34,7 +46,7 @@ def audit_endpoint_cycle_site_pairs(stars,cycles,face_pairs,face_vertices):
 					break
 				for fid,raw in zip(ids,vertices["raw_slots"]):
 					try:
-						three=_site_slots(raw)
+						three=[_site_key(site) for site in _site_slots(raw)]
 					except (ValueError,TypeError):
 						valid=False
 						break
@@ -47,7 +59,7 @@ def audit_endpoint_cycle_site_pairs(stars,cycles,face_pairs,face_vertices):
 			valid=valid and set(path)==set(sites)
 		links=[]
 		if valid:
-			central="P "+" ".join(str(x) for x in coords)
+			central=("P",*(float(x) for x in coords))
 			for a,b in zip(path,path[1:]+path[:1]):
 				common=set(sites[a]).intersection(sites[b])
 				if central not in common or len(common)!=2:
