@@ -8,6 +8,8 @@ on:
       - "code/scripts/cgal_coincident_endpoint_group.py"
       - "code/scripts/cgal_group_topology_consistency.py"
       - "code/scripts/cgal_group_primal_indices.py"
+      - "code/scripts/cgal_primal_index_calibration.py"
+      - "code/tests/test_cgal_primal_index_calibration.py"
       - "code/tests/test_cgal_group_primal_indices.py"
       - "code/tests/test_cgal_coincident_endpoint_group.py"
       - "code/tests/test_cgal_group_topology_consistency.py"
@@ -36,6 +38,8 @@ on:
       - "code/scripts/cgal_coincident_endpoint_group.py"
       - "code/scripts/cgal_group_topology_consistency.py"
       - "code/scripts/cgal_group_primal_indices.py"
+      - "code/scripts/cgal_primal_index_calibration.py"
+      - "code/tests/test_cgal_primal_index_calibration.py"
       - "code/tests/test_cgal_group_primal_indices.py"
       - "code/tests/test_cgal_coincident_endpoint_group.py"
       - "code/tests/test_cgal_group_topology_consistency.py"
@@ -94,6 +98,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_coincident_endpoint_group.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_group_topology_consistency.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_group_primal_indices.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_primal_index_calibration.py' -v
       - name: Validate labelled CGAL cells
         run: |
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m scripts.test_cgal_native_end_to_end --binary build/cgal/cgal_voronoi_edges --diagnose
