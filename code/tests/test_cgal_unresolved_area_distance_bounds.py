@@ -57,6 +57,31 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertAlmostEqual(sum(x["area_m2"] for x in
 			row["unknown_area_by_limiting_site"]),row["unknown_area_m2"])
 
+	def test_segment_endpoint_points_do_not_block_distance_bound(self):
+		segment=("S",(0,0,0,10000))
+		endpoint=("P",(0,0))
+		other=("P",(100000,100000))
+		candidate=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		row=audit_unresolved_area_distance_bounds([box(-1,1,1,9)],[None],
+			[(1,(segment,endpoint),[]),(2,(segment,other),[])],
+			candidate,max_depth=0)[0]
+		self.assertEqual(row["status"],"full_area_distance_bound_verified_only")
+		self.assertEqual(row["generator_count"],3)
+		self.assertEqual(row["non_strict_dominated_sites"],
+			[{"kind":"P","coordinates":[0,0]}])
+		self.assertFalse(row["ownership_proven"])
+
+	def test_noncollinear_point_is_not_dominated(self):
+		segment=("S",(0,0,0,10000))
+		point=("P",(1000,0))
+		candidate=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		row=audit_unresolved_area_distance_bounds([box(-1,1,1,9)],[None],
+			[(1,(segment,point),[])],candidate,max_depth=0)[0]
+		self.assertEqual(row["non_strict_dominated_site_count"],0)
+		self.assertFalse(row["ownership_proven"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
