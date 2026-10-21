@@ -23,20 +23,26 @@ from shapely.wkb import loads
 from shapely.validation import explain_validity
 
 from scripts.cgal_segment_input import SCALE, _noded_segments
+from scripts.cgal_original_line_assignment import assign_by_intersections, write_diagnostics
 from scripts.wienwide_grid import checksum, load_aoi, read_manifest
 from scripts.wienwide_street import load_street_tile
 
 
-def _source_lines(cache):
-	"""Read every original LINEAR_USE row; never construct a mean axis."""
+def _source_records(cache):
+	"""Keep original LINEAR_USE object_id, edge_id and metric geometry."""
 	with sqlite3.connect(f"file:{Path(cache).resolve()}?mode=ro",uri=True) as db:
-		schema=db.execute("SELECT value FROM metadata WHERE key='schema'").fetchone()
+		schema=db.execute(
+			"SELECT value FROM metadata WHERE key='schema'").fetchone()
 		if schema is None or json.loads(schema[0])!="linear-use-original-segments-v1":
-			raise ValueError("Original-LINEAR_USE-Cache erforderlich; alte Mittelachsen sind unzulässig")
-		rows=db.execute("SELECT edge_id,wkb FROM linear_use_segments ORDER BY edge_id,object_id").fetchall()
+			raise ValueError("Original-LINEAR_USE-Cache erforderlich")
+		rows=db.execute(
+			"SELECT object_id,edge_id,wkb FROM linear_use_segments "
+			"ORDER BY edge_id,object_id").fetchall()
 	if not rows:
 		raise ValueError("Keine LINEAR_USE-Originalgeometrien")
-	return [(edge_id,loads(blob)) for edge_id,blob in rows]
+	return [(str(object_id),str(edge_id),loads(blob))
+		for object_id,edge_id,blob in rows]
+
 
 def _frame(aoi,origin):
 	x0,y0=origin
@@ -169,27 +175,6 @@ def _polygon_candidates(lines,window):
 	return candidates,{"candidates":len(candidates),
 		"dangles":len(dangles.geoms),"cuts":len(cuts.geoms),
 		"gap_m2":gap,"overlap_m2":overlap}
-
-
-def _face_owners(polygons,owners,origin):
-	"""Assign one original edge_id to each complete Voronoi polygon.
-
-	Use original, noded LINEAR_USE segments, never averaged street axes.
-	This precedes any SIS clipping, so a face never changes ownership
-	depending on which street-mask fragment it intersects.
-	"""
-	ox,oy=origin
-	keys=sorted(owners)
-	if not keys:
-		raise ValueError("Keine CGAL-Eingabesegmente")
-	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
-		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
-	tree=STRtree(geoms)
-	labels=[]
-	for polygon in polygons:
-		nearest=int(tree.nearest(polygon.representative_point()))
-		labels.append(owners[keys[nearest]])
-	return labels
 
 
 def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512,
@@ -334,7 +319,9 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 	aoi=load_aoi(aoi_path)
 	window=box(*aoi.bounds)
 	mask,mask_parts=_window_mask(manifest,sis_root,aoi_path,window)
-	owners,origin=_noded_segments(_source_lines(cache),
+	records=_source_records(cache)
+	owners,origin=_noded_segments([(edge_id,line)
+		for _object_id,edge_id,line in records],
 		progress=lambda message:print(message,flush=True))
 	frame=_frame(aoi,origin)
 	ox,oy=origin
@@ -357,8 +344,26 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 			raise RuntimeError("CGAL lieferte keine Dualgrenzen-Datei")
 		lines,stats=_read_dual_lines(edges,window,origin)
 		candidates,topology=_polygon_candidates(lines,window)
-		# Assign the original edge_id to the complete Voronoi face first.
-		face_labels=_face_owners(candidates,owners,origin)
+		# Match original source lines against FULL Voronoi candidates,
+		# before clipping to SIS; do not invent a representative point.
+		attribution=assign_by_intersections(candidates,records)
+		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		diagnostics=write_diagnostics(
+			out,candidates,records,attribution,to_wgs)
+		report=attribution["report"]
+		print("LINEAR_USE-Flächenschnitt: "
+			f"{report['lines_exactly_one_polygon']:,} eindeutige Linien, "
+			f"{report['lines_multiple_polygons']:,} Mehrfachtreffer, "
+			f"{report['lines_no_polygon']:,} ohne Fläche, "
+			f"{report['polygons_conflicting_edge_ids']:,} edge_id-Konflikte, "
+			f"{report['polygons_without_unambiguous_edge_id']:,} "
+			"unzugeordnete Flächen",flush=True)
+		if (attribution["multiple"] or attribution["missing"] or
+				attribution["conflicts"] or attribution["unassigned"]):
+			raise ValueError("LINEAR_USE-Flächenzuordnung ist nicht eindeutig. "
+				"Vier GeoJSON-Diagnoselayer und Bericht gespeichert unter "
+				f"{diagnostics['report']}. Kein SIS-Export freigegeben.")
+		face_labels=attribution["labels"]
 		groups,balance=_assign(candidates,mask,owners,origin,
 			mask_parts=mask_parts,face_labels=face_labels)
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -377,7 +382,7 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900):
 						"curve_linearization":"cgal_draw"},
 					"geometry":mapping(converted)})
 		collection={"type":"FeatureCollection","features":features,
-			"metadata":{"schema":"cgal-original-linear-use-sis-v2",
+			"metadata":{"schema":"cgal-original-line-intersections-sis-v1",
 				"crs":"EPSG:4326","bbox_31256":list(window.bounds),
 				"source_segments":len(owners),"dual_primitives":stats,
 				"polygonization":topology,"balance":balance,
