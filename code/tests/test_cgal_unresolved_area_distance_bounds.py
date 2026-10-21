@@ -103,6 +103,20 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertEqual(result["shared_endpoint_halfplane_covered_area_m2"],0)
 		self.assertFalse(result["ownership_proven"])
 
+	def test_unknown_margin_buckets_conserve_area(self):
+		row=audit_unresolved_area_distance_bounds([box(0,-1,100,1)],[None],
+			EDGES,CAND,max_depth=2)[0]
+		self.assertAlmostEqual(sum(row["unknown_area_by_margin_m2"].values()),
+			row["unknown_area_m2"])
+		self.assertGreater(row["unknown_area_by_margin_m2"]["negative_bound"],0)
+		self.assertFalse(row["ownership_proven"])
+
+	def test_all_certified_have_empty_margin_buckets(self):
+		row=audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[None],
+			EDGES,CAND,max_depth=0)[0]
+		self.assertEqual(sum(row["unknown_area_by_margin_m2"].values()),0)
+		self.assertFalse(row["ownership_proven"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
