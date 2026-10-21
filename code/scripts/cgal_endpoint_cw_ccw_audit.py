@@ -37,7 +37,7 @@ def audit_endpoint_cw_ccw_pairs(stars,cycle_duals,topology_lines,edges):
 				except (ValueError,TypeError):
 					valid=False
 					break
-				if len(set(sites))!=2 or set(sites)!=set(by_edge[eid]):
+				if len(set(sites))!=2 or set(sites)!={(kind,*coords) for kind,coords in by_edge[eid]}:
 					valid=False
 					break
 				observed.append({"edge_id":eid,"cw_site":list(sites[0]),
