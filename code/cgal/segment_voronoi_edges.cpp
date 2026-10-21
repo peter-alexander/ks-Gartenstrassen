@@ -79,12 +79,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path,primal_face_vertices_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path,primal_face_vertices_path,primal_face_neighbors_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--primal-face-vertices" && i+1<argc) {
+		if (option=="--primal-face-neighbors" && i+1<argc) {
+			primal_face_neighbors_path=argv[++i];
+		} else if (option=="--primal-face-vertices" && i+1<argc) {
 			primal_face_vertices_path=argv[++i];
 		} else if (option=="--primal-face-pairs" && i+1<argc) {
 			primal_face_pairs_path=argv[++i];
@@ -223,6 +225,11 @@ int main(int argc,char** argv) {
 				if (!face_vertices) throw std::runtime_error("Cannot create primal face vertices output");
 				face_vertices << std::setprecision(17);
 			}
+			std::ofstream face_neighbors;
+			if (!primal_face_neighbors_path.empty()) {
+				face_neighbors.open(primal_face_neighbors_path);
+				if (!face_neighbors) throw std::runtime_error("Cannot create primal face neighbors output");
+			}
 			std::map<const void*,std::size_t> face_ids;
 			const auto face_id=[&face_ids](const auto& handle) {
 				const void* key=std::addressof(*handle);
@@ -253,6 +260,15 @@ int main(int argc,char** argv) {
 						}
 					}
 					face_vertices << "\n";
+				}
+				if (face_neighbors.is_open()) {
+					face_neighbors << "N " << labelled_edges;
+					for (const auto& current : {face,face->neighbor(i)}) {
+						face_neighbors << " | FACE " << face_id(current);
+						for (int slot=0;slot<3;++slot)
+							face_neighbors << " " << slot << ":" << face_id(current->neighbor(slot));
+					}
+					face_neighbors << "\n";
 				}
 				const auto a=face->vertex(diagram.cw(i))->site();
 				const auto b=face->vertex(diagram.ccw(i))->site();
@@ -312,6 +328,9 @@ int main(int argc,char** argv) {
 			}
 			if (directions.is_open() && !directions.good()) {
 				throw std::runtime_error("Ray direction output write failed");
+			}
+			if (face_neighbors.is_open() && !face_neighbors.good()) {
+				throw std::runtime_error("Primal face neighbors output write failed");
 			}
 			if (face_vertices.is_open() && !face_vertices.good()) {
 				throw std::runtime_error("Primal face vertices output write failed");
