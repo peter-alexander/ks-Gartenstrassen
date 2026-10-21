@@ -51,6 +51,8 @@ class SavedCGALSummaryTests(unittest.TestCase):
 					"lines_multiple_polygons":1}))
 			(base.with_name("diag__linien_mehrere_flaechen.geojson")).write_text(
 				'{"type":"FeatureCollection","features":[]}\n')
+			(base.with_name("diag__flaechen_ohne_eindeutige_edge_id.geojson")).write_text(
+				'{"type":"FeatureCollection","features":[]}\n')
 			with self.assertRaisesRegex(ValueError,"Mehrfachtreffer"):
 				summarize(base)
 
