@@ -45,6 +45,8 @@ on:
       - "code/scripts/cgal_unresolved_side_conflict_crosscheck.py"
       - "code/scripts/cgal_coincident_ray_distance_witness.py"
       - "code/scripts/cgal_unresolved_area_distance_bounds.py"
+      - "code/scripts/cgal_certified_native_generator_identity.py"
+      - "code/tests/test_cgal_certified_native_generator_identity.py"
       - "code/scripts/cgal_unknown_tile_counterexamples.py"
       - "code/scripts/cgal_endpoint_blocker_dominance.py"
       - "code/scripts/cgal_segment_blocker_witnesses.py"
@@ -150,6 +152,8 @@ on:
       - "code/scripts/cgal_unresolved_side_conflict_crosscheck.py"
       - "code/scripts/cgal_coincident_ray_distance_witness.py"
       - "code/scripts/cgal_unresolved_area_distance_bounds.py"
+      - "code/scripts/cgal_certified_native_generator_identity.py"
+      - "code/tests/test_cgal_certified_native_generator_identity.py"
       - "code/scripts/cgal_unknown_tile_counterexamples.py"
       - "code/scripts/cgal_endpoint_blocker_dominance.py"
       - "code/scripts/cgal_segment_blocker_witnesses.py"
@@ -282,6 +286,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unresolved_side_conflict_crosscheck.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_coincident_ray_distance_witness.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unresolved_area_distance_bounds.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_certified_native_generator_identity.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_distance_dominance_adversarial.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_unknown_tile_counterexamples.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_blocker_dominance.py' -v
