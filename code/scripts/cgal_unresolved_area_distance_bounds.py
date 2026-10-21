@@ -22,6 +22,19 @@ def _vertices(geometry):
 			yield from _vertices(child)
 
 
+def _point_on_candidate_segment(site,candidate):
+	if candidate[0]!="S" or site[0]!="P":
+		return False
+	x,y=site[1]
+	x0,y0,x1,y1=candidate[1]
+	dx,dy=x1-x0,y1-y0
+	if dx==dy==0:
+		return False
+	cross=(x-x0)*dy-(y-y0)*dx
+	dot=(x-x0)*dx+(y-y0)*dy
+	return cross==0 and 0<=dot<=dx*dx+dy*dy
+
+
 def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		*,scale=1000.,max_depth=3,tolerance=1e-9,diagnostic_limit=24):
 	if len(polygons)!=len(labels) or not 0<=max_depth<=8 or scale<=0 or tolerance<0 or diagnostic_limit<0:
@@ -43,6 +56,8 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 			raise ValueError("Candidate site absent from native generator set")
 		polygon=polygons[index]
 		candidate=geometries[key]
+		dominated={site for site in sites if site!=key
+			and _point_on_candidate_segment(site,key)}
 		checked=0
 		certified_area=0.
 		unknown_area=0.
@@ -63,7 +78,7 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 				return
 			max_candidate=max(point.distance(candidate) for point in vertices)
 			competitors=[(part.distance(geom)-max_candidate,site)
-				for site,geom in geometries.items() if site!=key]
+				for site,geom in geometries.items() if site!=key and site not in dominated]
 			margin,limiting=min(competitors,key=lambda pair:(pair[0],repr(pair[1]))) if competitors else (float('inf'),None)
 			certified=margin>tolerance
 			if certified:
@@ -89,6 +104,9 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		full=(unknown_area<=tolerance and abs(certified_area-area)<=tolerance)
 		rows.append({"face_index":index,"generator_count":len(sites),
 			"tiles_checked":checked,"max_depth_reached":deepest,
+			"non_strict_dominated_site_count":len(dominated),
+			"non_strict_dominated_sites":[{"kind":s[0],"coordinates":list(s[1])}
+				for s in sorted(dominated,key=repr)],
 			"certified_area_m2":certified_area,"unknown_area_m2":unknown_area,
 			"unknown_tile_examples":blockers,
 			"unknown_area_by_limiting_site":[{"site":{"kind":site[0],"coordinates":list(site[1])},
