@@ -78,7 +78,9 @@ def audit(features, axes, *, tolerance_m=0.01):
 						"nearest_distance_m":best_distance,
 						"distance_difference_m":difference,
 						"point_31256":[point.x,point.y]})
-				elif abs(difference)<=tolerance_m:
+				elif ids[matched]!=owner and abs(difference)<=tolerance_m:
+					# A distinct nearest owner within tolerance is a possible tie.
+					# Correctly matched points are not ambiguous by default.
 					ambiguous+=1
 	return {
 		"method":"five-samples-per-polygon-part-v1",
@@ -86,6 +88,7 @@ def audit(features, axes, *, tolerance_m=0.01):
 		"features":len(features),
 		"sample_points":sampled,
 		"within_tolerance":sampled-len(details),
+		"possible_tie_samples":ambiguous,
 		"failures":len(details)+len(invalid_geometries),
 		"ownership_failures":len(details),
 		"invalid_geometry_count":len(invalid_geometries),
