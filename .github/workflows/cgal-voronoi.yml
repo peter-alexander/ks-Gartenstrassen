@@ -11,6 +11,8 @@ on:
       - "code/scripts/cgal_primal_index_calibration.py"
       - "code/scripts/cgal_signature_coverage.py"
       - "code/scripts/cgal_targeted_signature_probes.py"
+      - "code/scripts/cgal_endpoint_primal_star.py"
+      - "code/tests/test_cgal_endpoint_primal_star.py"
       - "code/tests/test_cgal_targeted_signature_probes.py"
       - "code/tests/test_cgal_signature_coverage.py"
       - "code/tests/test_cgal_primal_index_calibration.py"
@@ -45,6 +47,8 @@ on:
       - "code/scripts/cgal_primal_index_calibration.py"
       - "code/scripts/cgal_signature_coverage.py"
       - "code/scripts/cgal_targeted_signature_probes.py"
+      - "code/scripts/cgal_endpoint_primal_star.py"
+      - "code/tests/test_cgal_endpoint_primal_star.py"
       - "code/tests/test_cgal_targeted_signature_probes.py"
       - "code/tests/test_cgal_signature_coverage.py"
       - "code/tests/test_cgal_primal_index_calibration.py"
@@ -109,6 +113,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_primal_index_calibration.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_signature_coverage.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_targeted_signature_probes.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_primal_star.py' -v
       - name: Validate labelled CGAL cells
         run: |
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m scripts.test_cgal_native_end_to_end --binary build/cgal/cgal_voronoi_edges --diagnose
