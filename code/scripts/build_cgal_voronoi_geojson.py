@@ -1,4 +1,4 @@
-"""CGAL true segment-site Voronoi debug polygons intersected with verified SIS.
+"""CGAL segment Voronoi from original LINEAR_USE features clipped to SIS.
 
 CGAL constructs the graph from ALL Wiener segments and exports Voronoi
 boundaries for the full Vienna extent. No tile-local approximation.
@@ -24,19 +24,20 @@ from shapely.wkb import loads
 from shapely.validation import explain_validity
 
 from scripts.cgal_segment_input import SCALE, _noded_segments
-from scripts.cgal_site_audit import inspect_sites_file
-from scripts.cgal_face_sites import classify_polygon_generators_file
 from scripts.wienwide_grid import checksum, load_aoi, read_manifest
 from scripts.wienwide_street import load_street_tile
 
 
-def _axes(cache):
+def _source_lines(cache):
+	"""Read every original LINEAR_USE row; never construct a mean axis."""
 	with sqlite3.connect(f"file:{Path(cache).resolve()}?mode=ro",uri=True) as db:
-		rows=db.execute("SELECT edge_id,wkb FROM edge_axes ORDER BY edge_id").fetchall()
+		schema=db.execute("SELECT value FROM metadata WHERE key='schema'").fetchone()
+		if schema is None or json.loads(schema[0])!="linear-use-original-segments-v1":
+			raise ValueError("Original-LINEAR_USE-Cache erforderlich; alte Mittelachsen sind unzulässig")
+		rows=db.execute("SELECT edge_id,wkb FROM linear_use_segments ORDER BY edge_id,object_id").fetchall()
 	if not rows:
-		raise ValueError("Keine LINEAR_USE-Achsen")
+		raise ValueError("Keine LINEAR_USE-Originalgeometrien")
 	return [(edge_id,loads(blob)) for edge_id,blob in rows]
-
 
 def _frame(aoi,origin):
 	x0,y0=origin
@@ -171,111 +172,58 @@ def _polygon_candidates(lines,window):
 		"gap_m2":gap,"overlap_m2":overlap}
 
 
-def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512,
-		face_labels=None):
-	"""Batch STRtree and GEOS intersection, retaining full area/overlap QA."""
-	if batch_size<1:
-		raise ValueError("batch_size muss >= 1 sein")
-	if face_labels is not None and len(face_labels)!=len(polygons):
-		raise ValueError("Anzahl der CGAL-Face-Labels stimmt nicht")
-	if face_labels is not None and any(
-		label is not None and label not in set(owners.values())
-		for label in face_labels):
-		raise ValueError("Unbekannte CGAL-Face-edge_id")
+def _face_owners(polygons,owners,origin):
+	"""Assign one original edge_id to each complete Voronoi polygon.
+
+	Use original, noded LINEAR_USE segments, never averaged street axes.
+	This precedes any SIS clipping, so a face never changes ownership
+	depending on which street-mask fragment it intersects.
+	"""
 	ox,oy=origin
 	keys=sorted(owners)
+	if not keys:
+		raise ValueError("Keine CGAL-Eingabesegmente")
 	geoms=[LineString(((a[0]/SCALE+ox,a[1]/SCALE+oy),
 		(b[0]/SCALE+ox,b[1]/SCALE+oy))) for a,b in keys]
 	tree=STRtree(geoms)
-	# Keep the verified SIS tile cores separate for the spatial overlay.
-	# Merging them into city-wide connected components produces extremely
-	# complex geometries: spatial predicates and intersections then take hours.
-	# Tile cores are disjoint in area; the union is still used for QA.
+	labels=[]
+	for polygon in polygons:
+		nearest=int(tree.nearest(polygon.representative_point()))
+		labels.append(owners[keys[nearest]])
+	return labels
+
+
+def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512,
+		face_labels=None):
+	"""Clip already-labelled complete faces to SIS in vectorized batches."""
+	if batch_size<1:
+		raise ValueError("batch_size muss >= 1 sein")
+	if face_labels is None:
+		face_labels=_face_owners(polygons,owners,origin)
+	if len(face_labels)!=len(polygons):
+		raise ValueError("Anzahl der Face-Labels stimmt nicht")
+	if any(label not in set(owners.values()) for label in face_labels):
+		raise ValueError("Unbekannte LINEAR_USE-edge_id")
 	if mask_parts is None:
 		mask_parts=list(mask.geoms) if hasattr(mask,"geoms") else [mask]
 	mask_parts=[part for part in mask_parts if not part.is_empty and part.area>0]
 	prepare(mask_parts)
 	mask_tree=STRtree(mask_parts)
 	mask_array=np.asarray(mask_parts,dtype=object)
-	print(f"CGAL: {len(mask_parts):,} SIS-Teilflächen räumlich indiziert; "
-		f"vektorisierter Verschnitt in Blöcken zu {batch_size}",flush=True)
 	grouped={}
-	started=perf_counter()
-	query_seconds=0.
-	intersection_seconds=0.
-	attribution_seconds=0.
-	candidates_checked=0
 	intersections_calculated=0
-	assigned_polygons=0
-	direct_components=0
-	fallback_components=0
-	total=len(polygons)
-	for offset in range(0,total,batch_size):
-		# Both STRtree.query and shapely.intersection are vectorized C/GEOS
-		# calls. At most one batch of temporary intersections stays in RAM.
+	for offset in range(0,len(polygons),batch_size):
 		batch=np.asarray(polygons[offset:offset+batch_size],dtype=object)
-		t0=perf_counter()
 		matches=mask_tree.query(batch,predicate="intersects")
-		query_seconds+=perf_counter()-t0
-		if matches.shape[1]:
-			poly_indices=matches[0]
-			mask_indices=matches[1]
-			candidates_checked+=len(poly_indices)
-			t0=perf_counter()
-			parts=vector_intersection(batch[poly_indices],
-				mask_array[mask_indices])
-			intersections_calculated+=len(poly_indices)
-			nonempty=(~vector_is_empty(parts)) & (vector_area(parts)>0)
-			parts=parts[nonempty]
-			surviving_indices=poly_indices[nonempty]
-			intersection_seconds+=perf_counter()-t0
-			if len(parts):
-				# Attribute each *SIS-clipped polygon component*, not the
-				# uncut CGAL polygon. A CGAL polygon can intersect multiple
-				# disconnected SIS pieces near entirely different sites.
-				# This is still a nearest-site approximation, not a CGAL
-				# face/site identity export. The independent QA remains needed.
-				t0=perf_counter()
-				component_geometries=[]
-				component_labels=[]
-				for part,poly_index in zip(parts,surviving_indices):
-					components=_polygonal(part)
-					component_geometries.extend(components)
-					label=(face_labels[offset+int(poly_index)]
-						if face_labels is not None else None)
-					component_labels.extend([label]*len(components))
-				fallback_indices=[i for i,label in enumerate(component_labels)
-					if label is None]
-				fallback_owners={}
-				if fallback_indices:
-					representatives=np.asarray(
-						[component_geometries[i].representative_point()
-							for i in fallback_indices],dtype=object)
-					nearest=tree.nearest(representatives)
-					fallback_owners={i:owners[keys[int(j)]]
-						for i,j in zip(fallback_indices,nearest)}
-				for j,part in enumerate(component_geometries):
-					owner=component_labels[j]
-					if owner is None:
-						owner=fallback_owners[j]
-						fallback_components+=1
-					else:
-						direct_components+=1
-					grouped.setdefault(owner,[]).append(part)
-				assigned_polygons+=len(np.unique(surviving_indices))
-				attribution_seconds+=perf_counter()-t0
-		completed=min(offset+batch_size,total)
-		if completed%10240<batch_size or completed==total:
-			elapsed=perf_counter()-started
-			print(f"CGAL: SIS-Verschnitt {completed:,}/{total:,} "
-				f"({100*completed/total:.1f} %), {elapsed:.1f} s; "
-				f"Kandidaten {candidates_checked:,}, Schnitte "
-				f"{intersections_calculated:,}, zugeordnete Flächen "
-				f"{assigned_polygons:,}; Index {query_seconds:.1f} s, "
-				f"Schnitt {intersection_seconds:.1f} s, "
-				f"Achse {attribution_seconds:.1f} s",flush=True)
-	print(f"CGAL: SIS-Verschnitt fertig nach {perf_counter()-started:.1f} s; "
-		f"{intersections_calculated:,} Schnittoperationen",flush=True)
+		if not matches.shape[1]:
+			continue
+		poly_indices,mask_indices=matches
+		parts=vector_intersection(batch[poly_indices],mask_array[mask_indices])
+		intersections_calculated+=len(parts)
+		nonempty=(~vector_is_empty(parts)) & (vector_area(parts)>0)
+		for poly_index,part in zip(poly_indices[nonempty],parts[nonempty]):
+			owner=face_labels[offset+int(poly_index)]
+			grouped.setdefault(owner,[]).extend(_polygonal(part))
 	if not grouped:
 		raise ValueError("Keine CGAL-Zellfläche schneidet die SIS-Straßenmaske")
 	merged={owner:union_all(parts) for owner,parts in grouped.items()}
@@ -292,12 +240,37 @@ def _assign(polygons,mask,owners,origin,*,mask_parts=None,batch_size=512,
 	return merged,{"gap_m2":gap,"overlap_m2":overlap,
 		"street_m2":mask.area,"assigned_m2":union.area,
 		"intersections_calculated":intersections_calculated,
-		"batch_size":batch_size,
-		"mask_tile_parts":len(mask_parts),
-		"direct_site_components":direct_components,
-		"fallback_components":fallback_components}
+		"batch_size":batch_size,"mask_tile_parts":len(mask_parts)}
 
 
+def _connected_components(geometry):
+	"""Dissolve touching polygons; disconnected parts remain separate features.
+
+	Boundary contact, including a single shared vertex, counts as touching.
+	A group touching only at points may remain a MultiPolygon geometry.
+	"""
+	pieces=_polygonal(geometry)
+	if len(pieces)<2:
+		return pieces
+	tree=STRtree(pieces)
+	parent=list(range(len(pieces)))
+	def find(i):
+		while parent[i]!=i:
+			parent[i]=parent[parent[i]]
+			i=parent[i]
+		return i
+	for i,part in enumerate(pieces):
+		for j in tree.query(part,predicate="intersects"):
+			j=int(j)
+			if j<=i:
+				continue
+			a,b=find(i),find(j)
+			if a!=b:
+				parent[b]=a
+	groups={}
+	for i,part in enumerate(pieces):
+		groups.setdefault(find(i),[]).append(part)
+	return [union_all(group) for group in groups.values()]
 
 def _polygonal(geometry):
 	"""Collect polygonal make_valid parts without fabricating buffered area."""
@@ -345,41 +318,25 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
 	if not math.isfinite(timeout) or timeout<=0:
 		raise ValueError("Timeout muss positiv sein")
 	out=Path(out)
-	if diagnostic_report is None and (out.exists() or out.is_symlink()):
+	if out.exists() or out.is_symlink():
 		raise FileExistsError(out)
-	if diagnostic_report is not None:
-		diagnostic_report=Path(diagnostic_report)
-		if diagnostic_report.exists() or diagnostic_report.is_symlink():
-			raise FileExistsError(diagnostic_report)
 	if not Path(binary).is_file():
 		raise FileNotFoundError(f"CGAL-Binary fehlt: {binary}")
 	aoi=load_aoi(aoi_path)
-	# The Voronoi is constructed and polygonized for all Vienna.
-	# Its bounding rectangle closes open dual edges; the final
-	# geometries are clipped to the actual AOI and SIS street mask.
 	window=box(*aoi.bounds)
-	print(f"CGAL: ganz Wien, Begrenzungsrechteck {window.bounds}",flush=True)
-	print("CGAL: SIS-Maske und genodete Wiener Achsen einlesen",flush=True)
-	if diagnostic_report is None:
-		mask,mask_parts=_window_mask(manifest,sis_root,aoi_path,window)
-	owners,origin=_noded_segments(_axes(cache),
+	mask,mask_parts=_window_mask(manifest,sis_root,aoi_path,window)
+	owners,origin=_noded_segments(_source_lines(cache),
 		progress=lambda message:print(message,flush=True))
 	frame=_frame(aoi,origin)
 	ox,oy=origin
 	bounds=[round((v-(ox if i%2==0 else oy))*SCALE)
 		for i,v in enumerate(window.bounds)]
-	# Bounding box (not AOI outline) is sufficient for the native exporter;
-	# the mask remains the exact AOI/SIS intersection.
 	payload="".join(_payload(owners,frame))
 	out.parent.mkdir(parents=True,exist_ok=True)
 	with tempfile.TemporaryDirectory(prefix="cgal-voronoi-",dir=out.parent) as temp:
 		edges=Path(temp)/"dual.txt"
-		sites=Path(temp)/"sites.txt"
 		command=[str(Path(binary).resolve()),"--edges",str(edges),
-			"--sites",str(sites),
 			"--bounds",*(str(v) for v in bounds)]
-		print(f"CGAL: {len(owners):,} Segmente konstruieren; Dualgrenzen exportieren",
-			flush=True)
 		try:
 			proc=subprocess.run(command,input=payload,text=True,
 				capture_output=True,timeout=timeout,check=False)
@@ -389,51 +346,10 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
 			raise RuntimeError(f"CGAL-Dualexport fehlgeschlagen: {proc.stderr[-2000:]}")
 		if not edges.is_file():
 			raise RuntimeError("CGAL lieferte keine Dualgrenzen-Datei")
-		if not sites.is_file():
-			raise RuntimeError("CGAL lieferte keine Site-Datei")
-		site_stats=inspect_sites_file(sites,owners)
-		print("CGAL-Sites: "+json.dumps(site_stats,ensure_ascii=False),flush=True)
-		print("CGAL: Grenzen beschneiden und polygonisieren",flush=True)
-		lines,stats=_read_dual_lines(edges,box(*window.bounds),origin)
-		candidates,topology=_polygon_candidates(lines,box(*window.bounds))
-		face_labels,face_stats=classify_polygon_generators_file(
-			candidates,sites,owners,origin,SCALE,
-			window_bounds=window.bounds)
-		print("CGAL-Zellgeneratoren: "
-			+json.dumps(face_stats,ensure_ascii=False),flush=True)
-		if diagnostic_report is not None:
-			# Stop before the expensive SIS overlay and without replacing any
-			# existing GeoJSON or PMTiles. This is an attribution preflight,
-			# not a geometry validity or final ownership QA.
-			report={"schema":"cgal-face-site-preflight-v1",
-				"source_segments":len(owners),
-				"polygonization":topology,
-				"dual_primitives":stats,
-				"graph_sites":site_stats,
-				"face_site_diagnostic":face_stats,
-				"total_faces":len(candidates),
-				"unresolved_faces":face_stats["ambiguous"]+face_stats["missing"],
-				"scope":"CGAL polygon generators before SIS clipping",
-				"not_final_ownership_qa":True}
-			diagnostic_report.parent.mkdir(parents=True,exist_ok=True)
-			with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",
-					dir=diagnostic_report.parent,prefix=".cgal-preflight-",
-					suffix=".json.tmp",delete=False) as target:
-				staged=Path(target.name)
-				try:
-					json.dump(report,target,ensure_ascii=False,indent=2,
-						allow_nan=False)
-					target.write("\n")
-				except BaseException:
-					staged.unlink(missing_ok=True)
-					raise
-			if diagnostic_report.exists() or diagnostic_report.is_symlink():
-				staged.unlink(missing_ok=True)
-				raise FileExistsError(diagnostic_report)
-			os.replace(staged,diagnostic_report)
-			print(f"CGAL-Zuordnungsdiagnose: {diagnostic_report}",flush=True)
-			return report
-		print(f"CGAL: {len(candidates):,} Teilflächen mit SIS verschneiden",flush=True)
+		lines,stats=_read_dual_lines(edges,window,origin)
+		candidates,topology=_polygon_candidates(lines,window)
+		# Assign the original edge_id to the complete Voronoi face first.
+		face_labels=_face_owners(candidates,owners,origin)
 		groups,balance=_assign(candidates,mask,owners,origin,
 			mask_parts=mask_parts,face_labels=face_labels)
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -441,36 +357,29 @@ def build(cache,aoi_path,manifest,sis_root,binary,out,*,timeout=900,
 		features=[]
 		repairs=[]
 		for edge_id,geom in sorted(groups.items()):
-			converted,repair=_export_wgs84_polygon(geom,to_wgs,to_metric,
-				edge_id=edge_id)
-			if repair is not None:
-				repairs.append(repair)
-			features.append({"type":"Feature",
-				"properties":{"edge_id":edge_id,"area_m2":geom.area,
-					"method":"cgal_segment_voronoi",
-					"debug":True,"curve_linearization":"cgal_draw"},
-				"geometry":mapping(converted)})
-		print(f"GeoJSON-Export: {len(repairs)} flächentreu reparierte "
-			"degenerierte Ringe",flush=True)
-		collection={"type":"FeatureCollection",
-			"features":features,
-			"metadata":{"schema":"cgal-segment-voronoi-sis-debug-v1",
+			for connected in _connected_components(geom):
+				converted,repair=_export_wgs84_polygon(connected,
+					to_wgs,to_metric,edge_id=edge_id)
+				if repair is not None:
+					repairs.append(repair)
+				features.append({"type":"Feature",
+					"properties":{"edge_id":edge_id,"area_m2":connected.area,
+						"method":"cgal_segment_voronoi","debug":True,
+						"curve_linearization":"cgal_draw"},
+					"geometry":mapping(converted)})
+		collection={"type":"FeatureCollection","features":features,
+			"metadata":{"schema":"cgal-original-linear-use-sis-v2",
 				"crs":"EPSG:4326","bbox_31256":list(window.bounds),
 				"source_segments":len(owners),"dual_primitives":stats,
-				"graph_sites":site_stats,
-				"face_site_diagnostic":face_stats,
 				"polygonization":topology,"balance":balance,
 				"export_geometry_repairs":repairs,
-				"experimental":True,
-				"note":"CGAL-curve tessellation and cell ownership require "
-					"independent geometric acceptance tests."}}
+				"experimental":True}}
 		stage=Path(temp)/"result.geojson"
 		stage.write_text(json.dumps(collection,ensure_ascii=False,
 			separators=(",",":"),allow_nan=False)+"\n",encoding="utf-8")
 		os.replace(stage,out)
-	print(f"CGAL-Debug: {len(features)} Straßenachsen; {out}",flush=True)
+	print(f"CGAL/SIS: {len(features)} räumlich zusammenhängende Teilflächen; {out}",flush=True)
 	return len(features)
-
 
 def main():
 	p=argparse.ArgumentParser(description=__doc__)
