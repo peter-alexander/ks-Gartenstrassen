@@ -20,6 +20,8 @@ on:
       - "code/scripts/cgal_primal_face_vertices.py"
       - "code/scripts/cgal_primal_face_neighbors.py"
       - "code/scripts/cgal_primal_mirror_slots.py"
+      - "code/scripts/cgal_endpoint_mirror_chain.py"
+      - "code/tests/test_cgal_endpoint_mirror_chain.py"
       - "code/tests/test_cgal_primal_mirror_slots.py"
       - "code/tests/test_cgal_primal_face_neighbors.py"
       - "code/scripts/cgal_shared_face_slots.py"
@@ -74,6 +76,8 @@ on:
       - "code/scripts/cgal_primal_face_vertices.py"
       - "code/scripts/cgal_primal_face_neighbors.py"
       - "code/scripts/cgal_primal_mirror_slots.py"
+      - "code/scripts/cgal_endpoint_mirror_chain.py"
+      - "code/tests/test_cgal_endpoint_mirror_chain.py"
       - "code/tests/test_cgal_primal_mirror_slots.py"
       - "code/tests/test_cgal_primal_face_neighbors.py"
       - "code/scripts/cgal_shared_face_slots.py"
@@ -158,6 +162,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_primal_face_vertices.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_primal_face_neighbors.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_primal_mirror_slots.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_mirror_chain.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_shared_face_slots.py' -v
       - name: Validate labelled CGAL cells
         run: |
