@@ -28,6 +28,12 @@ class CycleSitePairTests(unittest.TestCase):
 		self.assertEqual(len(result["adjacent_face_sites"]),4)
 		self.assertFalse(result["ownership_proven"])
 
+	def test_numeric_coordinate_format_does_not_change_site_identity(self):
+		formatted={fid:[site.replace("P 0 0","P 0.0 0.00")
+			for site in sites] for fid,sites in SITES.items()}
+		result=audit_endpoint_cycle_site_pairs([STAR],[CYCLE],PAIRS,vertices(sites=formatted))[0]
+		self.assertEqual(result["status"],"native_cycle_shared_sites_verified_only")
+
 	def test_nonmatching_vertex_site_blocks(self):
 		bad=dict(SITES)
 		bad[3]=["P 0 0","S 9 9 8 8","S 0 0 0 -1"]
