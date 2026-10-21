@@ -31,6 +31,8 @@ on:
       - "code/scripts/cgal_endpoint_dual_side_guard.py"
       - "code/scripts/cgal_endpoint_cw_ccw_audit.py"
       - "code/scripts/cgal_endpoint_cw_ccw_cycle_alignment.py"
+      - "code/scripts/cgal_endpoint_dual_ray_direction.py"
+      - "code/tests/test_cgal_endpoint_dual_ray_direction.py"
       - "code/tests/test_cgal_endpoint_cw_ccw_cycle_alignment.py"
       - "code/tests/test_cgal_endpoint_cw_ccw_audit.py"
       - "code/tests/test_cgal_endpoint_dual_side_guard.py"
@@ -107,6 +109,8 @@ on:
       - "code/scripts/cgal_endpoint_dual_side_guard.py"
       - "code/scripts/cgal_endpoint_cw_ccw_audit.py"
       - "code/scripts/cgal_endpoint_cw_ccw_cycle_alignment.py"
+      - "code/scripts/cgal_endpoint_dual_ray_direction.py"
+      - "code/tests/test_cgal_endpoint_dual_ray_direction.py"
       - "code/tests/test_cgal_endpoint_cw_ccw_cycle_alignment.py"
       - "code/tests/test_cgal_endpoint_cw_ccw_audit.py"
       - "code/tests/test_cgal_endpoint_dual_side_guard.py"
@@ -213,6 +217,7 @@ jobs:
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_dual_side_guard.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_cw_ccw_audit.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_cw_ccw_cycle_alignment.py' -v
+          PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_endpoint_dual_ray_direction.py' -v
           PYTHONPATH=code /tmp/ks-cgal-test-env/bin/python -m unittest discover -s code/tests -p 'test_cgal_shared_face_slots.py' -v
       - name: Validate labelled CGAL cells
         run: |
