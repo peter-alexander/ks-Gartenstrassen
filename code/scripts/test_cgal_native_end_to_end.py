@@ -46,6 +46,7 @@ from scripts.cgal_primal_face_vertices import parse_primal_face_vertices
 from scripts.cgal_primal_face_neighbors import parse_primal_face_neighbors
 from scripts.cgal_primal_mirror_slots import audit_primal_mirror_slots
 from scripts.cgal_endpoint_mirror_chain import audit_endpoint_mirror_chain
+from scripts.cgal_endpoint_vertex_slots import audit_endpoint_vertex_slots
 from scripts.cgal_shared_face_slots import audit_shared_face_slots
 from scripts.cgal_three_edge_face_adjacency import audit_three_edge_face_adjacency
 from scripts.cgal_endpoint_face_chain import audit_endpoint_face_chain
@@ -391,6 +392,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert all(row["status"]=="mirror_chain_consistent_no_rotation_proof"
 				and not row["cyclic_order_proven"] and not row["ownership_proven"]
 				for row in carried_stats["endpoint_mirror_chain"])
+			carried_stats["endpoint_vertex_slots"]=audit_endpoint_vertex_slots(
+				carried_stats["endpoint_primal_star"],
+				primal_face_pairs,primal_face_vertices)
+			assert len(carried_stats["endpoint_vertex_slots"])==2
+			assert all(row["status"]=="native_point_vertex_slots_observed_only"
+				and not row["cyclic_order_proven"] and not row["ownership_proven"]
+				for row in carried_stats["endpoint_vertex_slots"])
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
@@ -407,7 +415,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_primal_star','endpoint_third_edges','primal_face_identity','three_edge_face_adjacency','endpoint_face_chain','endpoint_face_star_incidence','shared_face_slots','endpoint_mirror_chain','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_primal_star','endpoint_third_edges','primal_face_identity','three_edge_face_adjacency','endpoint_face_chain','endpoint_face_star_incidence','shared_face_slots','endpoint_mirror_chain','endpoint_vertex_slots','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
