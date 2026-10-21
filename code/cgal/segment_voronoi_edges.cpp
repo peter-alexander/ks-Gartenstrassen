@@ -79,12 +79,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path,primal_face_vertices_path,primal_face_neighbors_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path,primal_face_vertices_path,primal_face_neighbors_path,primal_edge_generators_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--primal-face-neighbors" && i+1<argc) {
+		if (option=="--primal-edge-generators" && i+1<argc) {
+			primal_edge_generators_path=argv[++i];
+		} else if (option=="--primal-face-neighbors" && i+1<argc) {
 			primal_face_neighbors_path=argv[++i];
 		} else if (option=="--primal-face-vertices" && i+1<argc) {
 			primal_face_vertices_path=argv[++i];
@@ -230,6 +232,22 @@ int main(int argc,char** argv) {
 				face_neighbors.open(primal_face_neighbors_path);
 				if (!face_neighbors) throw std::runtime_error("Cannot create primal face neighbors output");
 			}
+			std::ofstream primal_generators;
+			std::map<const void*,std::size_t> generator_ids;
+			if (!primal_edge_generators_path.empty()) {
+				primal_generators.open(primal_edge_generators_path);
+				if (!primal_generators)
+					throw std::runtime_error("Cannot create primal edge generators");
+				primal_generators << std::setprecision(17);
+				for (auto vertex=diagram.finite_vertices_begin();
+						vertex!=diagram.finite_vertices_end();++vertex) {
+					const std::size_t id=generator_ids.size();
+					generator_ids.emplace(std::addressof(*vertex),id);
+					primal_generators << "V " << id << " ";
+					write_site(primal_generators,vertex->site());
+					primal_generators << "\n";
+				}
+			}
 			std::map<const void*,std::size_t> face_ids;
 			const auto face_id=[&face_ids](const auto& handle) {
 				const void* key=std::addressof(*handle);
@@ -269,6 +287,16 @@ int main(int argc,char** argv) {
 							face_neighbors << " " << slot << ":" << face_id(current->neighbor(slot));
 					}
 					face_neighbors << "\n";
+				}
+				if (primal_generators.is_open()) {
+					const auto av=face->vertex(diagram.cw(i));
+					const auto bv=face->vertex(diagram.ccw(i));
+					const auto ai=generator_ids.find(std::addressof(*av));
+					const auto bi=generator_ids.find(std::addressof(*bv));
+					if (ai==generator_ids.end() || bi==generator_ids.end())
+						throw std::runtime_error("Missing native generator vertex ID");
+					primal_generators << "G " << labelled_edges << " "
+						<< ai->second << " " << bi->second << "\n";
 				}
 				const auto a=face->vertex(diagram.cw(i))->site();
 				const auto b=face->vertex(diagram.ccw(i))->site();
@@ -322,6 +350,9 @@ int main(int argc,char** argv) {
 				}
 				diagram.draw_dual_edge(*edge,labelled_recorder);
 				++labelled_edges;
+			}
+			if (primal_generators.is_open() && !primal_generators.good()) {
+				throw std::runtime_error("Primal edge generators output write failed");
 			}
 			if (skeleton_edge_ids.is_open() && !skeleton_edge_ids.good()) {
 				throw std::runtime_error("Skeleton edge IDs write failed");

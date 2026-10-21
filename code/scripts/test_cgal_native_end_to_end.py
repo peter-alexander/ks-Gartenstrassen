@@ -52,6 +52,7 @@ from scripts.cgal_endpoint_third_edge import audit_endpoint_third_edges
 from scripts.cgal_primal_face_identity import parse_primal_face_pairs,audit_group_primal_faces
 from scripts.cgal_primal_face_vertices import parse_primal_face_vertices
 from scripts.cgal_primal_face_neighbors import parse_primal_face_neighbors
+from scripts.cgal_native_generator_vertex_ids import parse_native_generator_ids,audit_native_generator_id_pairs
 from scripts.cgal_primal_mirror_slots import audit_primal_mirror_slots
 from scripts.cgal_endpoint_mirror_chain import audit_endpoint_mirror_chain
 from scripts.cgal_endpoint_vertex_slots import audit_endpoint_vertex_slots
@@ -102,7 +103,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
 			str(temp/"topology.txt"),"--face-incidence",
-			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--primal-face-vertices",str(temp/"primal_vertices.txt"),"--primal-face-neighbors",str(temp/"primal_neighbors.txt"),"--ray-directions",
+			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--primal-face-vertices",str(temp/"primal_vertices.txt"),"--primal-face-neighbors",str(temp/"primal_neighbors.txt"),"--primal-edge-generators",str(temp/"primal_generators.txt"),"--ray-directions",
 			str(temp/"directions.txt"),"--skeleton-edge-ids",
 			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
@@ -112,6 +113,11 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			raise AssertionError(native)
 		edges=list(labelled_edges_file(temp/"labelled.txt"))
 		assert native["labelled_edges"]==len(edges)
+		vertices,edge_ids=parse_native_generator_ids(
+			(temp/"primal_generators.txt").read_text(encoding="utf-8"))
+		generator_id_report=audit_native_generator_id_pairs(vertices,edge_ids,edges)
+		assert len(generator_id_report)==len(edges)
+		assert all(not row["ownership_proven"] for row in generator_id_report)
 		topology=(temp/"topology.txt").read_text(encoding="utf-8").splitlines()
 		assert len(topology)==len(edges)
 		primal_face_pairs=parse_primal_face_pairs(
