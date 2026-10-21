@@ -230,7 +230,7 @@ int main(int argc,char** argv) {
 				const int i=edge->second;
 				if (face_pairs.is_open()) {
 					face_pairs << "H " << labelled_edges << " " << face_id(face)
-						<< " " << face_id(face->neighbor(i)) << "\\n";
+						<< " " << face_id(face->neighbor(i)) << "\n";
 				}
 				const auto a=face->vertex(diagram.cw(i))->site();
 				const auto b=face->vertex(diagram.ccw(i))->site();
