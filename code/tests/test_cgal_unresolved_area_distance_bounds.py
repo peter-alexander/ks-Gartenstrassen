@@ -29,7 +29,7 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		# Triangle lies near the candidate, while its bbox contains a far corner.
 		poly=Polygon([(0,0),(2,0),(0,2)])
 		row=audit_unresolved_area_distance_bounds([poly],[None],
-			[(0,(C,("P",(5000,5000))),[])],
+			[(0,(C,("P",(1500,1500))),[])],
 			CAND,max_depth=0)[0]
 		self.assertEqual(row["status"],"partial_area_distance_bound_unknown")
 		# A competitor at (10,10) is far from the clipped triangle.
