@@ -3,6 +3,7 @@
 Every adjacent pair of Delaunay triangles must share precisely the point
 site and one other original vertex site. No Voronoi owner is assigned.
 """
+import math
 from scripts.cgal_endpoint_vertex_slots import _site_slots
 
 
@@ -13,7 +14,7 @@ def _site_key(site):
 	if len(parts) not in (3,5) or parts[0] not in ("P","S") or (parts[0]=="P")!=(len(parts)==3):
 		raise ValueError("Malformed native vertex site")
 	values=tuple(float(x) for x in parts[1:])
-	if not all(__import__("math").isfinite(x) for x in values):
+	if not all(math.isfinite(x) for x in values):
 		raise ValueError("Nonfinite native vertex site")
 	return (parts[0],*values)
 
