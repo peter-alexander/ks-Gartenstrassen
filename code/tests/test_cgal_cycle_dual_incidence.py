@@ -24,6 +24,13 @@ class NativeCycleDualIncidenceTests(unittest.TestCase):
 		self.assertFalse(row["ownership_proven"])
 		self.assertFalse(row["voronoi_side_proven"])
 
+	def test_original_immutable_infinity_site(self):
+		cycle={**CYCLE,"adjacent_face_sites":[
+			{**link,"shared_other_site":tuple(link["shared_other_site"])}
+			for link in CYCLE["adjacent_face_sites"]]}
+		row=audit_cycle_dual_incidence([STAR],[cycle],PAIRS,INC,{25,26})[0]
+		self.assertEqual(row["status"],"native_cycle_dual_incidence_only")
+
 	def test_ambiguous_face_pair_blocks(self):
 		pairs={**PAIRS,99:PAIRS[25]}
 		self.assertEqual(audit_cycle_dual_incidence([STAR],[CYCLE],pairs,INC,{25,26})[0]["status"],
