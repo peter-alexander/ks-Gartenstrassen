@@ -38,6 +38,7 @@ from scripts.cgal_coincident_endpoint_group import audit_coincident_endpoint_gro
 from scripts.cgal_group_topology_consistency import audit_group_topological_consistency
 from scripts.cgal_group_primal_indices import audit_group_primal_indices
 from scripts.cgal_primal_index_calibration import audit_primal_index_calibration
+from scripts.cgal_signature_coverage import audit_signature_coverage
 
 
 def _site_geometry(site,scale):
@@ -387,10 +388,15 @@ def main():
 	parser.add_argument("--diagnose",action="store_true",
 		help="Include concrete unresolved face and missing-boundary geometry")
 	args=parser.parse_args()
+	results=[]
 	for fixture in ("parallel","junction","crossing","oblique",
 			"fan","grid","near_parallel"):
-		print(json.dumps(verify_native_fixture(args.binary,fixture=fixture,
-			diagnose=args.diagnose),sort_keys=True))
+		result=verify_native_fixture(args.binary,fixture=fixture,
+			diagnose=args.diagnose)
+		results.append(result)
+		print(json.dumps(result,sort_keys=True))
+	print(json.dumps({"signature_coverage":audit_signature_coverage(results)},
+		sort_keys=True))
 
 
 if __name__=="__main__":
