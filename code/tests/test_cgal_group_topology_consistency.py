@@ -38,6 +38,18 @@ class GroupTopologyConsistencyTests(unittest.TestCase):
 		result=audit_group_topological_consistency([GROUP],[LOCAL],NEIGHBORS[:1])
 		self.assertEqual(result[0]["status"],"blocked_missing_neighbor_audit")
 
+	def test_no_known_neighbor_constraints_is_not_consistency(self):
+		neighbors=[{**row,"known_neighbor_constraints":0} for row in NEIGHBORS]
+		result=audit_group_topological_consistency([GROUP],[LOCAL],neighbors)
+		self.assertEqual(result[0]["status"],"blocked_no_known_neighbor_constraints")
+		self.assertFalse(result[0]["ownership_proven"])
+
+	def test_same_face_on_both_sides_is_rejected(self):
+		local={**LOCAL,"right_face":LOCAL["left_face"]}
+		result=audit_group_topological_consistency([GROUP],[local],NEIGHBORS)
+		self.assertEqual(result[0]["status"],"blocked_non_distinct_faces")
+		self.assertFalse(result[0]["ownership_proven"])
+
 	def test_duplicate_group_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_group_topological_consistency([GROUP,GROUP],[LOCAL],NEIGHBORS)
