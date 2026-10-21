@@ -39,6 +39,24 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertEqual(row["status"],"full_area_distance_bound_verified_only")
 		self.assertFalse(row["ownership_proven"])
 
+	def test_unknown_tile_reports_limiting_native_site(self):
+		row=audit_unresolved_area_distance_bounds([box(0,-1,100,1)],[None],
+			EDGES,CAND,max_depth=1)[0]
+		self.assertGreater(row["unknown_area_m2"],0)
+		self.assertTrue(row["unknown_tile_examples"])
+		self.assertEqual(row["unknown_tile_examples"][0]["limiting_site"],
+			{"kind":"P","coordinates":[100000,0]})
+		self.assertAlmostEqual(sum(x["area_m2"] for x in
+			row["unknown_area_by_limiting_site"]),row["unknown_area_m2"])
+		self.assertFalse(row["ownership_proven"])
+
+	def test_limited_samples_keep_full_area_aggregation(self):
+		row=audit_unresolved_area_distance_bounds([box(0,-1,100,1)],[None],
+			EDGES,CAND,max_depth=2,diagnostic_limit=1)[0]
+		self.assertEqual(len(row["unknown_tile_examples"]),1)
+		self.assertAlmostEqual(sum(x["area_m2"] for x in
+			row["unknown_area_by_limiting_site"]),row["unknown_area_m2"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
