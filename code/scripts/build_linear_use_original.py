@@ -15,7 +15,7 @@ from shapely.geometry import mapping
 from shapely.ops import transform
 from shapely.wkb import dumps
 
-from scripts.build_linear_use_axes import (
+from scripts.linear_use_source import (
 	_readonly, _gpkg_wkb, _require_columns, _source_geometry_info, _source_rows)
 from scripts.wienwide_grid import checksum, load_aoi
 
