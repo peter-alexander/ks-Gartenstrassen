@@ -17,6 +17,15 @@ class VertexStarFaceCycleTests(unittest.TestCase):
 		self.assertEqual(row["status"],"complete_native_vertex_star_face_cycle_only")
 		self.assertEqual(len(row["incident_edge_face_pairs"]),3)
 		self.assertTrue(row["cyclic_order_proven"])
+		self.assertEqual(row["third_edge_id"],30)
+		self.assertEqual(set(row["incident_edge_ids_in_cycle_order"]),{18,22,30})
+		self.assertFalse(row["geometric_ray_order_proven"])
+		self.assertFalse(row["ownership_proven"])
+
+	def test_nonconnecting_third_edge_blocks(self):
+		row=audit_vertex_star_face_cycles(STAR,CYCLE,
+			{**PAIRS,30:{"face_id":2,"neighbor_face_id":15}})[0]
+		self.assertEqual(row["status"],"blocked_vertex_star_face_cycle_mismatch")
 		self.assertFalse(row["ownership_proven"])
 
 	def test_missing_collapsed_third_edge_blocks(self):
