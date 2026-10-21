@@ -57,3 +57,32 @@ def audit_vertex_star_face_cycles(stars,cycles,face_pairs):
 				else "blocked_vertex_star_face_cycle_mismatch",
 			"cyclic_order_proven":bool(valid),"ownership_proven":False})
 	return results
+
+
+def audit_native_cycle_ray_alignment(joins,rays,*,tolerance=1e-9):
+	"""Check native coincident rays without assigning geometric sides."""
+	results=[]
+	for row in joins:
+		ids=row["incident_edge_ids_in_cycle_order"]
+		ray_ids=sorted(e for e in ids if e!=row["third_edge_id"])
+		valid=(row["status"]=="complete_native_vertex_star_face_cycle_only"
+			and row["ownership_proven"] is False and len(ray_ids)==2)
+		records=[rays.get(e,[]) for e in ray_ids]
+		if valid:
+			valid=all(len(records[i])==1 and len(records[i][0])==4 for i in range(2))
+		if valid:
+			a,d=records[0][0],records[1][0]
+			u=(a[2]-a[0],a[3]-a[1])
+			v=(d[2]-d[0],d[3]-d[1])
+			cross=u[0]*v[1]-u[1]*v[0]
+			dot=u[0]*v[0]+u[1]*v[1]
+			parallel=abs(cross)<=tolerance and dot>tolerance
+			collinear=abs((d[0]-a[0])*u[1]-(d[1]-a[1])*u[0])<=tolerance
+			valid=parallel and collinear
+		results.append({"point_vertex_id":row["point_vertex_id"],
+			"coincident_ray_edge_ids":ray_ids if valid else [],
+			"third_edge_id":row["third_edge_id"] if valid else None,
+			"status":"coincident_native_rays_with_collapsed_third_edge_only" if valid
+				else "blocked_native_ray_alignment",
+			"geometric_ray_order_proven":False,"ownership_proven":False})
+	return results
