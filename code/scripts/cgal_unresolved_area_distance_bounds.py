@@ -20,6 +20,8 @@ def _vertices(geometry):
 	elif hasattr(geometry,"geoms"):
 		for child in geometry.geoms:
 			yield from _vertices(child)
+
+
 def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		*,scale=1000.,max_depth=3,tolerance=1e-9,diagnostic_limit=24):
 	if len(polygons)!=len(labels) or not 0<=max_depth<=8 or scale<=0 or tolerance<0 or diagnostic_limit<0:
@@ -41,7 +43,6 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 			raise ValueError("Candidate site absent from native generator set")
 		polygon=polygons[index]
 		candidate=geometries[key]
-		others=[geom for other,geom in geometries.items() if other!=key]
 		checked=0
 		certified_area=0.
 		unknown_area=0.
