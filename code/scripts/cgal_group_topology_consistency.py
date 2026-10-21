@@ -54,8 +54,12 @@ def audit_group_topological_consistency(groups,local_sides,neighbor_rows):
 			pair=[neighbors.get(left_face),neighbors.get(right_face)]
 			known=sum(r["known_neighbor_constraints"] for r in pair if r)
 			conflicts=sum(r["known_neighbor_mismatches"] for r in pair if r)
-			if any(r is None for r in pair):
+			if left_face==right_face:
+				status="blocked_non_distinct_faces"
+			elif any(r is None for r in pair):
 				status="blocked_missing_neighbor_audit"
+			elif known==0:
+				status="blocked_no_known_neighbor_constraints"
 			elif not sides_match:
 				status="blocked_group_side_candidate_mismatch"
 			elif conflicts:
