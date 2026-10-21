@@ -449,7 +449,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert len(carried_stats["cycle_dual_incidence"])==2
 			assert all(row["status"]=="native_cycle_dual_incidence_only"
 				and not row["voronoi_side_proven"] and not row["ownership_proven"]
-				for row in carried_stats["cycle_dual_incidence"], {"report":carried_stats["cycle_dual_incidence"],
+				for row in carried_stats["cycle_dual_incidence"]), {
+				"report":carried_stats["cycle_dual_incidence"],
 				"cycle_sites":carried_stats["endpoint_cycle_site_pairs"],
 				"primal_pairs":primal_face_pairs,
 				"star":carried_stats["endpoint_primal_star"]}
