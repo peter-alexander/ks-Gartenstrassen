@@ -117,6 +117,27 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertEqual(sum(row["unknown_area_by_margin_m2"].values()),0)
 		self.assertFalse(row["ownership_proven"])
 
+	def test_shared_endpoint_affine_region_certifies_inside_angle_bisector(self):
+		candidate=("S",(0,0,0,10000))
+		competitor=("S",(0,10000,10000,10000))
+		rows=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		row=audit_unresolved_area_distance_bounds([box(1,1,2,2)],[None],
+			[(0,(candidate,competitor),[])],rows,max_depth=0)[0]
+		self.assertEqual(row["status"],"full_area_distance_bound_verified_only")
+		self.assertAlmostEqual(row["shared_endpoint_affine_covered_area_m2"],1)
+		self.assertFalse(row["ownership_proven"])
+
+	def test_shared_endpoint_affine_region_rejects_other_side_of_bisector(self):
+		candidate=("S",(0,0,0,10000))
+		competitor=("S",(0,10000,10000,10000))
+		rows=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		row=audit_unresolved_area_distance_bounds([box(8,8,9,9)],[None],
+			[(0,(candidate,competitor),[])],rows,max_depth=0)[0]
+		self.assertEqual(row["shared_endpoint_affine_covered_area_m2"],0)
+		self.assertFalse(row["ownership_proven"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
