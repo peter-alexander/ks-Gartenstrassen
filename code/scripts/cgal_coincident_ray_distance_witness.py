@@ -31,7 +31,6 @@ def audit_coincident_ray_distance_witness(polygons,sides,rays,*,scale=1000.,offs
 					and (q[2]-q[0])*dx+(q[3]-q[1])*dy>0 for q in [r[1][0]])
 		if valid:
 			shared=polygons[left_id].boundary.intersection(polygons[right_id].boundary)
-			from shapely.geometry import LineString
 			forward=LineString([(x,y),(x+dx/n*1e6,y+dy/n*1e6)])
 			matching=shared.intersection(forward)
 			parts=[matching] if matching.geom_type=="LineString" else list(getattr(matching,"geoms",()))
@@ -58,7 +57,7 @@ def audit_coincident_ray_distance_witness(polygons,sides,rays,*,scale=1000.,offs
 				r_a,r_b=rp.distance(ga),rp.distance(gb)
 				witnesses.append({"offset_m":off,"left_minus_right_candidate_m":l_a-l_b,
 					"right_minus_left_candidate_m":r_b-r_a,
-					"left_candidate_closer":l_a+l_b*0<l_b-tolerance,
+					"left_candidate_closer":l_a<l_b-tolerance,
 					"right_candidate_closer":r_b<r_a-tolerance})
 			valid=bool(witnesses)
 		report.append({"face_indices":[left_id,right_id],
