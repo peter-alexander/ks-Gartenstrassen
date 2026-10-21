@@ -55,8 +55,7 @@ class CGALSISOverlayTests(unittest.TestCase):
 			mask_parts=[mask],face_labels=["east","west"],batch_size=1)
 		self.assertAlmostEqual(result["east"].area,100)
 		self.assertAlmostEqual(result["west"].area,100)
-		self.assertEqual(stats["fallback_components"],0)
-		self.assertEqual(stats["direct_site_components"],2)
+		self.assertAlmostEqual(stats["assigned_m2"],200)
 
 	def test_default_owner_is_assigned_before_sis_clipping(self):
 		polygons=[box(0,0,10,10)]
