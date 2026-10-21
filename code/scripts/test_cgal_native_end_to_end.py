@@ -41,6 +41,7 @@ from scripts.cgal_primal_index_calibration import audit_primal_index_calibration
 from scripts.cgal_signature_coverage import audit_signature_coverage
 from scripts.cgal_endpoint_primal_star import audit_endpoint_primal_star
 from scripts.cgal_endpoint_third_edge import audit_endpoint_third_edges
+from scripts.cgal_primal_face_identity import parse_primal_face_pairs,audit_group_primal_faces
 
 
 def _site_geometry(site,scale):
@@ -72,7 +73,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			"--sites",str(temp/"sites.txt"),"--labelled-edges",
 			str(temp/"labelled.txt"),"--edge-topology",
 			str(temp/"topology.txt"),"--face-incidence",
-			str(temp/"incidence.txt"),"--ray-directions",
+			str(temp/"incidence.txt"),"--primal-face-pairs",str(temp/"primal_faces.txt"),"--ray-directions",
 			str(temp/"directions.txt"),"--skeleton-edge-ids",
 			str(temp/"skeleton_ids.txt"),"--skeleton",str(temp/"skeleton.txt"),"--bounds","-5000","-5000","25000","25000"]
 		result=subprocess.run(command,input=input_lines,text=True,
@@ -84,6 +85,8 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 		assert native["labelled_edges"]==len(edges)
 		topology=(temp/"topology.txt").read_text(encoding="utf-8").splitlines()
 		assert len(topology)==len(edges)
+		primal_face_pairs=parse_primal_face_pairs(
+			(temp/"primal_faces.txt").read_text(encoding="utf-8").splitlines(),len(edges))
 		endpoint_ids=[]
 		for index,record in enumerate(topology):
 			fields=record.split(maxsplit=4)
@@ -327,6 +330,12 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert all(row["status"]=="third_native_edge_observed_no_rotation_proof"
 				and not row["cyclic_order_proven"] and not row["ownership_proven"]
 				for row in carried_stats["endpoint_third_edges"])
+			carried_stats["primal_face_identity"]=audit_group_primal_faces(
+				carried_stats["coincident_endpoint_groups"],primal_face_pairs)
+			assert len(carried_stats["primal_face_identity"])==2
+			assert all(row["status"]=="native_face_identity_observed_only"
+				and not row["cyclic_order_proven"] and not row["ownership_proven"]
+				for row in carried_stats["primal_face_identity"])
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
@@ -343,7 +352,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_primal_star','endpoint_third_edges','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_primal_star','endpoint_third_edges','primal_face_identity','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8

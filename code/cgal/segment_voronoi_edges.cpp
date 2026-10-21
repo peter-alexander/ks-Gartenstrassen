@@ -17,6 +17,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -77,12 +79,14 @@ struct Recorder {
 };
 
 int main(int argc,char** argv) {
-	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path;
+	std::string path,site_path,labelled_path,topology_path,skeleton_path,skeleton_edge_ids_path,face_incidence_path,ray_directions_path,primal_face_pairs_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
-		if (option=="--ray-directions" && i+1<argc) {
+		if (option=="--primal-face-pairs" && i+1<argc) {
+			primal_face_pairs_path=argv[++i];
+		} else if (option=="--ray-directions" && i+1<argc) {
 			ray_directions_path=argv[++i];
 		} else if (option=="--face-incidence" && i+1<argc) {
 			face_incidence_path=argv[++i];
@@ -206,10 +210,28 @@ int main(int argc,char** argv) {
 				if (!topology) throw std::runtime_error("Cannot create topology output");
 				topology << std::setprecision(17);
 			}
+			std::ofstream face_pairs;
+			if (!primal_face_pairs_path.empty()) {
+				face_pairs.open(primal_face_pairs_path);
+				if (!face_pairs) throw std::runtime_error("Cannot create primal face pairs output");
+			}
+			std::map<const void*,std::size_t> face_ids;
+			const auto face_id=[&face_ids](const auto& handle) {
+				const void* key=std::addressof(*handle);
+				const auto found=face_ids.find(key);
+				if (found!=face_ids.end()) return found->second;
+				const std::size_t id=face_ids.size();
+				face_ids.emplace(key,id);
+				return id;
+			};
 			for (auto edge=diagram.finite_edges_begin();
 					edge!=diagram.finite_edges_end();++edge) {
 				const auto face=edge->first;
 				const int i=edge->second;
+				if (face_pairs.is_open()) {
+					face_pairs << "H " << labelled_edges << " " << face_id(face)
+						<< " " << face_id(face->neighbor(i)) << "\n";
+				}
 				const auto a=face->vertex(diagram.cw(i))->site();
 				const auto b=face->vertex(diagram.ccw(i))->site();
 				const auto endpoint_of=[](const auto& point,const auto& segment) {
@@ -268,6 +290,9 @@ int main(int argc,char** argv) {
 			}
 			if (directions.is_open() && !directions.good()) {
 				throw std::runtime_error("Ray direction output write failed");
+			}
+			if (face_pairs.is_open() && !face_pairs.good()) {
+				throw std::runtime_error("Primal face pairs output write failed");
 			}
 			if (incidence.is_open() && !incidence.good()) {
 				throw std::runtime_error("Face incidence output write failed");
