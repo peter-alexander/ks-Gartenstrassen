@@ -86,6 +86,7 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		blockers=[]
 		shared_endpoint_covered_area=0.
 		blocked_area_by_site={}
+		unknown_area_by_margin={"negative_bound":0.,"near_zero_bound":0.,"positive_but_insufficient":0.}
 		def visit(xmin,ymin,xmax,ymax,depth):
 			nonlocal checked,certified_area,unknown_area,deepest,shared_endpoint_covered_area
 			tile=box(xmin,ymin,xmax,ymax)
@@ -112,6 +113,9 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 				certified_area+=part.area
 			elif depth==max_depth or xmin==xmax or ymin==ymax:
 				unknown_area+=part.area
+				category=("negative_bound" if margin < -tolerance else
+					"positive_but_insufficient" if margin>tolerance else "near_zero_bound")
+				unknown_area_by_margin[category]+=part.area
 				if limiting is not None:
 					blocked_area_by_site[limiting]=blocked_area_by_site.get(limiting,0.)+part.area
 					if len(blockers)<diagnostic_limit:
@@ -137,6 +141,7 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 				for s in sorted(dominated,key=repr)],
 			"certified_area_m2":certified_area,"unknown_area_m2":unknown_area,
 			"unknown_tile_examples":blockers,
+			"unknown_area_by_margin_m2":unknown_area_by_margin,
 			"unknown_area_by_limiting_site":[{"site":{"kind":site[0],"coordinates":list(site[1])},
 				"area_m2":area} for site,area in sorted(blocked_area_by_site.items(),
 				key=lambda item:(-item[1],repr(item[0])))],
