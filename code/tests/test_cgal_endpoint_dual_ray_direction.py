@@ -16,9 +16,13 @@ class EndpointDualRayDirectionTests(unittest.TestCase):
 		self.assertFalse(row["voronoi_side_proven"])
 		self.assertFalse(row["ownership_proven"])
 
-	def test_missing_ray_blocks(self):
-		self.assertEqual(audit_endpoint_dual_ray_directions([GROUP],{25:RAYS[25],26:RAYS[26]})[0]["status"],
-			"blocked_endpoint_ray_direction_evidence")
+	def test_missing_ray_blocks_and_retains_other_evidence(self):
+		row=audit_endpoint_dual_ray_directions([GROUP],
+			{25:RAYS[25],26:RAYS[26]})[0]
+		self.assertEqual(row["status"],"blocked_endpoint_ray_direction_evidence")
+		self.assertEqual(row["missing_ray_edge_ids"],[28])
+		self.assertEqual([item["edge_id"] for item in row["rays"]],[25,26])
+		self.assertFalse(row["voronoi_side_proven"])
 
 	def test_zero_direction_blocks(self):
 		bad={**RAYS,28:[[2,3,2,3]]}
