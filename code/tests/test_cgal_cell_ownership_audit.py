@@ -29,6 +29,11 @@ class OwnerAuditTests(unittest.TestCase):
 		self.assertEqual(result["failures"],0)
 		self.assertGreaterEqual(result["sample_points"],2)
 
+	def test_correct_unique_owner_is_not_reported_as_tie(self):
+		result=audit([feature("a",box(-1,1,3,9))],self.axes)
+		self.assertEqual(result["failures"],0)
+		self.assertEqual(result["possible_tie_samples"],0)
+
 	def test_swapped_owner_is_reported(self):
 		result=audit([feature("b",box(-1,1,3,9))],self.axes)
 		self.assertGreater(result["failures"],0)
