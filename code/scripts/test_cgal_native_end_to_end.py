@@ -451,13 +451,6 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				and row["status"] in ("complete_native_face_cycle_only",
 					"blocked_incomplete_or_ambiguous_face_circulation")
 				for row in carried_stats["endpoint_face_circulation"])
-			carried_stats["vertex_star_face_cycle_join"]=audit_vertex_star_face_cycles(
-				carried_stats["endpoint_native_vertex_stars"],
-				carried_stats["endpoint_face_circulation"],primal_face_pairs)
-			assert len(carried_stats["vertex_star_face_cycle_join"])==2
-			assert all(row["status"]=="complete_native_vertex_star_face_cycle_only"
-				and not row["ownership_proven"]
-				for row in carried_stats["vertex_star_face_cycle_join"])
 			carried_stats["endpoint_cycle_coverage"]=audit_endpoint_cycle_coverage(
 				carried_stats["endpoint_primal_star"],
 				carried_stats["endpoint_face_circulation"])
@@ -558,6 +551,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert len(carried_stats["endpoint_native_vertex_stars"])==2
 			assert all(not row["ownership_proven"] and not row["cyclic_order_proven"]
 				for row in carried_stats["endpoint_native_vertex_stars"])
+			carried_stats["vertex_star_face_cycle_join"]=audit_vertex_star_face_cycles(
+				carried_stats["endpoint_native_vertex_stars"],
+				carried_stats["endpoint_face_circulation"],primal_face_pairs)
+			assert len(carried_stats["vertex_star_face_cycle_join"])==2
+			assert all(row["status"]=="complete_native_vertex_star_face_cycle_only"
+				and not row["ownership_proven"]
+				for row in carried_stats["vertex_star_face_cycle_join"])
 			carried_stats["unresolved_side_conflict_crosscheck"]=audit_unresolved_side_conflict_crosscheck(
 				carried_stats["endpoint_ray_local_sides"],
 				carried_stats["unresolved_endpoint_conflicts"])
