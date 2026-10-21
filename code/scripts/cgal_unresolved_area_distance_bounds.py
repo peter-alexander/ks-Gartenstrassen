@@ -1,13 +1,24 @@
 """Conservative whole-area distance bounds for unresolved native CGAL faces.
 
-Rectangle corner maxima bound candidate point-to-site distance from above:
-distance to a convex point/segment site is convex. Rectangle-to-site
+Clipped polygon vertex maxima bound candidate point-to-site distance from above:
+distance to a convex point/segment site is convex. Clipped-polygon-to-site
 minimum bounds any competing generator distance from below. A tile is
 certified only if every competitor's lower bound exceeds the candidate
 upper bound. Uncertified tiles remain explicitly unknown.
 """
-from math import isfinite
 from shapely.geometry import box,Point
+
+
+def _vertices(geometry):
+	if geometry.geom_type=="Polygon":
+		for xy in geometry.exterior.coords:
+			yield Point(xy)
+		for interior in geometry.interiors:
+			for xy in interior.coords:
+				yield Point(xy)
+	elif hasattr(geometry,"geoms"):
+		for child in geometry.geoms:
+			yield from _vertices(child)
 from scripts.cgal_unresolved_site_audit import _metric_site
 
 
@@ -45,10 +56,12 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 				return
 			checked+=1
 			deepest=max(deepest,depth)
-			corners=(Point(xmin,ymin),Point(xmin,ymax),
-				Point(xmax,ymin),Point(xmax,ymax))
-			max_candidate=max(point.distance(candidate) for point in corners)
-			certified=all(tile.distance(other)>max_candidate+tolerance for other in others)
+			vertices=list(_vertices(part))
+			if not vertices:
+				unknown_area+=part.area
+				return
+			max_candidate=max(point.distance(candidate) for point in vertices)
+			certified=all(part.distance(other)>max_candidate+tolerance for other in others)
 			if certified:
 				certified_area+=part.area
 			elif depth==max_depth or xmin==xmax or ymin==ymax:

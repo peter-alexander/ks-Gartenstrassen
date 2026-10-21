@@ -24,6 +24,21 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertGreater(row["unknown_area_m2"],0)
 		self.assertFalse(row["ownership_proven"])
 
+	def test_clipped_polygon_certifies_where_bounding_box_cannot(self):
+		from shapely.geometry import Polygon
+		# Triangle lies near the candidate, while its bbox contains a far corner.
+		poly=Polygon([(0,0),(2,0),(0,2)])
+		row=audit_unresolved_area_distance_bounds([poly],[None],
+			[(0,(C,("P",(1500,1500))),[])],
+			CAND,max_depth=0)[0]
+		self.assertEqual(row["status"],"partial_area_distance_bound_unknown")
+		# A competitor at (10,10) is far from the clipped triangle.
+		row=audit_unresolved_area_distance_bounds([poly],[None],
+			[(0,(C,("P",(10000,10000))),[])],
+			CAND,max_depth=0)[0]
+		self.assertEqual(row["status"],"full_area_distance_bound_verified_only")
+		self.assertFalse(row["ownership_proven"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
