@@ -17,9 +17,9 @@ class CGALSISOverlayTests(unittest.TestCase):
 			((1000,4000),(2000,4000)):"west",
 			((9000,4000),(11000,4000)):"middle",
 			((18000,4000),(19000,4000)):"east"}
-		old,baseline=_assign(polygons,mask,owners,(0,0),batch_size=2)
+		old,baseline=_assign(polygons,mask,owners,(0,0),face_labels=["west","middle","east"],batch_size=2)
 		new,optimized=_assign(polygons,mask,owners,(0,0),
-			mask_parts=mask_parts,batch_size=2)
+			mask_parts=mask_parts,face_labels=["west","middle","east"],batch_size=2)
 		self.assertEqual(set(old),set(new))
 		self.assertAlmostEqual(sum(g.area for g in old.values()),160)
 		self.assertAlmostEqual(sum(g.area for g in new.values()),160)
@@ -57,13 +57,14 @@ class CGALSISOverlayTests(unittest.TestCase):
 		self.assertAlmostEqual(result["west"].area,100)
 		self.assertAlmostEqual(stats["assigned_m2"],200)
 
-	def test_default_owner_is_assigned_before_sis_clipping(self):
+	def test_unassigned_face_is_rejected(self):
 		polygons=[box(0,0,10,10)]
 		mask=box(0,0,10,10)
 		owners={((1000,4000),(2000,4000)):"west"}
-		result,stats=_assign(polygons,mask,owners,(0,0))
-		self.assertEqual(set(result),{"west"})
-		self.assertAlmostEqual(stats["assigned_m2"],100)
+		with self.assertRaisesRegex(ValueError,"Eindeutige"):
+			_assign(polygons,mask,owners,(0,0))
+		with self.assertRaisesRegex(ValueError,"Unbekannte"):
+			_assign(polygons,mask,owners,(0,0),face_labels=[None])
 
 	def test_reject_invalid_batch_size(self):
 		with self.assertRaises(ValueError):

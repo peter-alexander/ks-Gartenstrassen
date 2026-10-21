@@ -13,7 +13,7 @@ class CGALClippingTests(unittest.TestCase):
 			((20000,0),(20000,10000)):"right"}
 		polygons=[box(0,0,10,10),box(10,0,20,10)]
 		mask=MultiPolygon([box(1,1,9,9),box(11,1,19,9)])
-		groups,qa=_assign(polygons,mask,owners,(0,0),batch_size=1)
+		groups,qa=_assign(polygons,mask,owners,(0,0),face_labels=["left","right"],batch_size=1)
 		self.assertEqual(set(groups),{"left","right"})
 		self.assertAlmostEqual(groups["left"].area,64)
 		self.assertAlmostEqual(groups["right"].area,64)
@@ -25,7 +25,7 @@ class CGALClippingTests(unittest.TestCase):
 		owners={((0,0),(1000,0)):"axis"}
 		polygons=[box(-5,-5,5,5)]
 		mask=MultiPolygon([box(-4,-4,-2,-2),box(2,2,4,4)])
-		groups,qa=_assign(polygons,mask,owners,(0,0),batch_size=2)
+		groups,qa=_assign(polygons,mask,owners,(0,0),face_labels=["axis"],batch_size=2)
 		self.assertEqual(set(groups),{"axis"})
 		self.assertAlmostEqual(groups["axis"].area,8)
 		self.assertEqual(qa["intersections_calculated"],2)

@@ -1,33 +1,28 @@
-# CGAL Segment-Voronoi – originale LINEAR_USE-Geometrien
+# CGAL Segment-Voronoi – originale LINEAR_USE-Linien
 
-Installation (WSL/Ubuntu):
+Installation:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake libcgal-dev libgmp-dev libmpfr-dev
 ```
 
-Vollständige Pipeline:
+Wiener Berechnung:
 
 ```bash
 GIP_NETWORK_SOURCE=/pfad/gip_network_ogd.gpkg bash code/scripts/run-gartenstrassen-wien.sh
 ```
 
-Nur CGAL/SIS-GeoJSON:
+CGAL-Konstruktion: ursprüngliche LINEAR_USE-Linien, nur Segmentnoding und
+Millimeterraster. Die Zellzuordnung erfolgt *nach der Polygonisierung*
+mit direktem räumlichem LineString-Polygon-Schnitt, bevor SIS geschnitten
+wird. Bei 0 oder mehr als 1 Treffern wird die Linie diagnostiziert und
+nicht zugeordnet; bei unterschiedlichen edge_ids für dieselbe Fläche
+wird die Fläche separat ausgegeben.
 
-```bash
-bash code/scripts/run-cgal-voronoi-debug-wien.sh
-```
+Unter `output/cgal_original_line_intersections_sis_wien__*` liegen vier GeoJSON-Diagnoselayer und ein
+JSON-Bericht. Erst bei eindeutiger Zuordnung erfolgt der SIS-Verschnitt.
+Dann entstehen `output/cgal_original_line_intersections_sis_wien.geojson` und optional PMTiles.
 
-Vorher müssen die SIS-Daten und der originale LINEAR_USE-Cache vorhanden sein.
-Ergebnis: `output/cgal_original_linear_use_sis_wien.geojson`.
-
-Der C++-Exporter liest noded Original-Segmente in ganzzahligen
-Millimetern von stdin. `--edges` liefert die Segment-, Strahl- und
-Geradenstücke der Dualgrenzen; `--bounds` begrenzt den Zielbereich.
-Die GIS-Verarbeitung weist den polygonisierten Flächen `edge_id` aus
-den Originalsegmenten zu, schneidet SIS und fasst anschließend je
-`edge_id` nur räumlich berührende Flächen zusammen.
-
-Die Linearisierung parabolischer CGAL-Grenzen ist eine Approximation.
-GeoJSON dient bis zur Validierung als experimenteller Debug-Export.
+Wichtig: Auch reine Punktberührungen zählen im Schnitt. Die
+Linien/Polygon-Schnittzuordnung wird auf echten Wiener Daten noch validiert.

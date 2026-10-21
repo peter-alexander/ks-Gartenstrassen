@@ -5,12 +5,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 REPO="$PWD"
 PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
-GEOJSON="$REPO/output/cgal_original_linear_use_sis_wien.geojson"
-PMTILES="$REPO/output/cgal_original_linear_use_sis_wien.pmtiles"
-AUDIT="$REPO/output/cgal_original_cell_ownership_audit.json"
+GEOJSON="$REPO/output/cgal_original_line_intersections_sis_wien.geojson"
+PMTILES="$REPO/output/cgal_original_line_intersections_sis_wien.pmtiles"
+REPORT="$REPO/output/cgal_original_line_intersections_sis_wien__zuordnungsbericht.json"
 AXES="$REPO/cache/wien/linear_use_original.sqlite"
 SIS="$REPO/cache/sis-wien.sqlite"
-ALLOW_FAILED_QA="${ALLOW_FAILED_QA:-0}"
 
 [[ -x "$PYTHON" ]] || { echo "Python fehlt: $PYTHON" >&2; exit 1; }
 [[ ! -L "$REPO/output" && ! -L "$REPO/cache" ]] || {
@@ -39,49 +38,30 @@ if [[ ! -f "$GEOJSON" ]]; then
 fi
 [[ -s "$GEOJSON" ]] || { echo "CGAL-GeoJSON fehlt/leer" >&2; exit 1; }
 
-# QA is regenerated if input is newer; a stale report must not pass.
-if [[ ! -s "$AUDIT" || "$GEOJSON" -nt "$AUDIT" || "$AXES" -nt "$AUDIT" ]]; then
-	if [[ -e "$AUDIT" || -L "$AUDIT" ]]; then
-		echo "QA-Bericht ist veraltet: archiviere statt alte Resultate zu übernehmen."
-		mv -- "$AUDIT" "$AUDIT.previous.$(date +%s).json"
-	fi
-	echo "Prüfe Zellzuordnung und Geometriegültigkeit ..."
-	if ! (cd "$REPO/code" && "$PYTHON" -m scripts.audit_cgal_cell_ownership \
-		--cache "$AXES" --geojson "$GEOJSON" --out "$AUDIT"); then
-		[[ -s "$AUDIT" ]] || {
-			echo "QA abgebrochen, kein Bericht erzeugt." >&2
-			exit 1
-		}
-	fi
-fi
-
-# Exit non-zero on invalid, incomplete or outdated reports, unless an
-# intentionally unverified visualization is explicitly requested.
-QA_STATUS="$("$PYTHON" - "$AUDIT" <<'PY'
+# The generator performs original-line intersections before SIS and
+# writes a fresh diagnostic report. No synthetic sample-point audit.
+[[ -s "$REPORT" ]] || {
+	echo "LINEAR_USE-Schnittbericht fehlt: $REPORT" >&2
+	exit 1
+}
+"$PYTHON" - "$REPORT" <<'PY'
 import json
 import sys
 from pathlib import Path
 try:
 	r=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-	assert r["qa_status"] in ("passed","failed")
-	assert isinstance(r["ownership_failures"],int)
-	assert isinstance(r["invalid_geometry_count"],int)
-	assert r["failures"]==r["ownership_failures"]+r["invalid_geometry_count"]
-	print(r["qa_status"])
+	assert r["schema"]=="original-line-polygon-intersections-v1"
+	assert r["lines_multiple_polygons"]==0
+	assert r["lines_no_polygon"]==0
+	assert r["polygons_conflicting_edge_ids"]==0
+	assert r["polygons_without_unambiguous_edge_id"]==0
+	assert r["polygons_unambiguously_assigned"]==r["polygon_count"]
+	print("LINEAR_USE-Flächenzuordnung: eindeutig; Bericht:",sys.argv[1])
 except (OSError,ValueError,KeyError,AssertionError,TypeError) as exc:
-	print(f"QA-Bericht unbrauchbar: {exc}",file=sys.stderr)
-	sys.exit(2)
+	print("LINEAR_USE-Flächenzuordnung ungeklärt oder Bericht unbrauchbar:",
+		exc,file=sys.stderr)
+	sys.exit(1)
 PY
-)" || exit 1
-echo "QA-Status: $QA_STATUS | Bericht: $AUDIT"
-if [[ "$QA_STATUS" != passed ]]; then
-	echo "QA fehlgeschlagen: keine automatische Freigabe der PMTiles." >&2
-	if [[ "$ALLOW_FAILED_QA" != 1 ]]; then
-		echo "Nur für bewusst ungeprüfte Sichtprüfung: ALLOW_FAILED_QA=1" >&2
-		exit 1
-	fi
-	echo "Ungeprüfte Vorschau wird ausdrücklich erlaubt." >&2
-fi
 
 if [[ -e "$PMTILES" || -L "$PMTILES" ]]; then
 	echo "Vorhandene PMTiles wird nicht überschrieben: $PMTILES"
@@ -94,7 +74,7 @@ command -v tippecanoe >/dev/null || {
 }
 # tippecanoe can write PMTiles directly. Write to a staging file to avoid
 # presenting partial archives as completed previews.
-STAGE="$REPO/output/.cgal_original_linear_use_sis_wien.$.pmtiles"
+STAGE="$REPO/output/.cgal_original_line_intersections_sis_wien.$.pmtiles"
 trap 'rm -f -- "$STAGE"' EXIT
 tippecanoe -o "$STAGE" -l gartenstrassen -Z 8 -z 15 \
 	--no-feature-limit --no-tile-size-limit \
@@ -107,4 +87,4 @@ fi
 mv -- "$STAGE" "$PMTILES"
 echo "GeoJSON: $GEOJSON"
 echo "PMTiles: $PMTILES"
-echo "CGAL/SIS-PMTiles zur Sichtprüfung; maßgeblich ist der oben ausgewiesene QA-Status."
+echo "CGAL/SIS-PMTiles zur Sichtprüfung; Schnittzuordnung ohne Konflikte."
