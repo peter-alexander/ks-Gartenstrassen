@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$(cd .. && pwd -P)"
 PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
-CACHE="$REPO/cache/wien/linear_use.sqlite"
+CACHE="$REPO/cache/wien/linear_use_original.sqlite"
 AOI="$REPO/cache/wien/aoi.geojson"
 SIS_MANIFEST="$REPO/cache/wien/raster.json"
 SIS_ROOT="$REPO/cache/wien/strassenraum"
