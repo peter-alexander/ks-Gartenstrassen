@@ -44,6 +44,7 @@ from scripts.cgal_endpoint_third_edge import audit_endpoint_third_edges
 from scripts.cgal_primal_face_identity import parse_primal_face_pairs,audit_group_primal_faces
 from scripts.cgal_primal_face_vertices import parse_primal_face_vertices
 from scripts.cgal_primal_face_neighbors import parse_primal_face_neighbors
+from scripts.cgal_primal_mirror_slots import audit_primal_mirror_slots
 from scripts.cgal_shared_face_slots import audit_shared_face_slots
 from scripts.cgal_three_edge_face_adjacency import audit_three_edge_face_adjacency
 from scripts.cgal_endpoint_face_chain import audit_endpoint_face_chain
@@ -102,6 +103,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			len(edges),primal_face_pairs)
 		assert not primal_face_neighbors["cyclic_order_proven"]
 		assert not primal_face_neighbors["ownership_proven"]
+
 		endpoint_ids=[]
 		for index,record in enumerate(topology):
 			fields=record.split(maxsplit=4)
@@ -140,6 +142,11 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 				"primary_finite":fields[4]=="1",
 				"neighbor_finite":fields[5]=="1",
 				"opposite_sites":fields[6]}
+		primal_mirror_slots=audit_primal_mirror_slots(
+			primal_face_pairs,face_incidence,primal_face_neighbors)
+		assert len(primal_mirror_slots)==len(edges)
+		assert all(not row["ownership_proven"] and not row["cyclic_order_proven"]
+			for row in primal_mirror_slots)
 		flags=(temp/"skeleton_ids.txt").read_text(encoding="utf-8").splitlines()
 		assert len(flags)==len(edges)
 		excluded_ids=[]
