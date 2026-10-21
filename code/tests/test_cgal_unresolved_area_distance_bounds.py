@@ -82,6 +82,27 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertEqual(row["non_strict_dominated_site_count"],0)
 		self.assertFalse(row["ownership_proven"])
 
+	def test_shared_endpoint_behind_halfplane_certifies_tile(self):
+		candidate=("S",(0,0,0,10000))
+		competitor=("S",(0,0,10000,0))
+		rows=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		result=audit_unresolved_area_distance_bounds([box(-2,1,-1,2)],[None],
+			[(0,(candidate,competitor),[])],rows,max_depth=0)[0]
+		self.assertEqual(result["status"],"full_area_distance_bound_verified_only")
+		self.assertAlmostEqual(result["shared_endpoint_halfplane_covered_area_m2"],1)
+		self.assertFalse(result["ownership_proven"])
+
+	def test_shared_endpoint_forward_projection_does_not_certify(self):
+		candidate=("S",(0,0,0,10000))
+		competitor=("S",(0,0,10000,0))
+		rows=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		result=audit_unresolved_area_distance_bounds([box(1,1,2,2)],[None],
+			[(0,(candidate,competitor),[])],rows,max_depth=0)[0]
+		self.assertEqual(result["shared_endpoint_halfplane_covered_area_m2"],0)
+		self.assertFalse(result["ownership_proven"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
