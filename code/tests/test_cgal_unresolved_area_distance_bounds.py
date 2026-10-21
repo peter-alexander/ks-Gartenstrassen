@@ -138,6 +138,30 @@ class UnresolvedAreaDistanceBoundsTests(unittest.TestCase):
 		self.assertEqual(row["shared_endpoint_affine_covered_area_m2"],0)
 		self.assertFalse(row["ownership_proven"])
 
+	def test_parallel_segments_and_competitor_endpoint_are_dominated(self):
+		candidate=("S",(0,0,0,10000))
+		other=("S",(10000,0,10000,10000))
+		endpoint=("P",(10000,0))
+		rows=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		result=audit_unresolved_area_distance_bounds([box(1,1,2,2)],[None],
+			[(0,(candidate,other),[]),(1,(candidate,endpoint),[])],
+			rows,max_depth=0)[0]
+		self.assertEqual(result["status"],"full_area_distance_bound_verified_only")
+		self.assertEqual(result["generator_count"],3)
+		self.assertAlmostEqual(result["parallel_segment_covered_area_m2"],1)
+		self.assertFalse(result["ownership_proven"])
+
+	def test_parallel_segments_reject_wrong_side(self):
+		candidate=("S",(0,0,0,10000))
+		other=("S",(10000,0,10000,10000))
+		rows=[{"face_index":0,"status":"candidate_only_not_proven",
+			"candidate_site":{"kind":"S","coordinates":[0,0,0,10000]}}]
+		result=audit_unresolved_area_distance_bounds([box(8,1,9,2)],[None],
+			[(0,(candidate,other),[])],rows,max_depth=0)[0]
+		self.assertEqual(result["parallel_segment_covered_area_m2"],0)
+		self.assertFalse(result["ownership_proven"])
+
 	def test_proven_face_is_rejected(self):
 		with self.assertRaises(ValueError):
 			audit_unresolved_area_distance_bounds([box(-1,-1,1,1)],[C],
