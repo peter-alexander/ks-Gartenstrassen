@@ -36,6 +36,7 @@ def audit(features, axes, *, tolerance_m=0.01):
 			lines.append(part)
 			line_ids.append(edge_id)
 	tree=STRtree(lines)
+	to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
 	details=[]
 	invalid_geometries=[]
 	sampled=0
