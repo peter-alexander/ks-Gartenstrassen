@@ -46,6 +46,7 @@ def probe(binary,name,geometry):
 		topology=Path(tmp)/"topology.txt"
 		incidence=Path(tmp)/"incidence.txt"
 		command=[str(Path(binary).resolve()),"--edges",str(Path(tmp)/"edges.txt"),
+			"--labelled-edges",str(Path(tmp)/"labelled.txt"),
 			"--edge-topology",str(topology),"--face-incidence",str(incidence),
 			"--bounds","-5000","-5000","25000","25000"]
 		process=subprocess.run(command,input=geometry,text=True,capture_output=True,
