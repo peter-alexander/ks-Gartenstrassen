@@ -35,6 +35,27 @@ def _point_on_candidate_segment(site,candidate):
 	return cross==0 and 0<=dot<=dx*dx+dy*dy
 
 
+def _shared_endpoint_behind_halfplane(candidate,other,vertices,scale):
+	"""If all projections on the other segment point behind their common
+	endpoint, its closest point is that endpoint everywhere in the polygon.
+	The candidate contains that endpoint and is therefore no farther away.
+	"""
+	if candidate[0]!="S" or other[0]!="S":
+		return False
+	a,b=candidate[1][:2],candidate[1][2:]
+	p,q=other[1][:2],other[1][2:]
+	shared=set((a,b)) & set((p,q))
+	if len(shared)!=1:
+		return False
+	end=next(iter(shared))
+	far=q if p==end else p
+	dx,dy=far[0]-end[0],far[1]-end[1]
+	if dx==dy==0:
+		return False
+	return all((vertex.x*scale-end[0])*dx+(vertex.y*scale-end[1])*dy<=0
+		for vertex in vertices)
+
+
 def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		*,scale=1000.,max_depth=3,tolerance=1e-9,diagnostic_limit=24):
 	if len(polygons)!=len(labels) or not 0<=max_depth<=8 or scale<=0 or tolerance<0 or diagnostic_limit<0:
@@ -63,9 +84,10 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		unknown_area=0.
 		deepest=0
 		blockers=[]
+		shared_endpoint_covered_area=0.
 		blocked_area_by_site={}
 		def visit(xmin,ymin,xmax,ymax,depth):
-			nonlocal checked,certified_area,unknown_area,deepest
+			nonlocal checked,certified_area,unknown_area,deepest,shared_endpoint_covered_area
 			tile=box(xmin,ymin,xmax,ymax)
 			part=polygon.intersection(tile)
 			if part.is_empty or part.area<=0:
@@ -77,10 +99,15 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 				unknown_area+=part.area
 				return
 			max_candidate=max(point.distance(candidate) for point in vertices)
+			shared_endpoint_dominated=[site for site in sites if site!=key
+				and _shared_endpoint_behind_halfplane(key,site,vertices,scale)]
 			competitors=[(part.distance(geom)-max_candidate,site)
-				for site,geom in geometries.items() if site!=key and site not in dominated]
+				for site,geom in geometries.items() if site!=key and site not in dominated
+				and not _shared_endpoint_behind_halfplane(key,site,vertices,scale)]
 			margin,limiting=min(competitors,key=lambda pair:(pair[0],repr(pair[1]))) if competitors else (float('inf'),None)
 			certified=margin>tolerance
+			if certified and shared_endpoint_dominated:
+				shared_endpoint_covered_area+=part.area
 			if certified:
 				certified_area+=part.area
 			elif depth==max_depth or xmin==xmax or ymin==ymax:
@@ -105,6 +132,7 @@ def audit_unresolved_area_distance_bounds(polygons,labels,edges,candidates,
 		rows.append({"face_index":index,"generator_count":len(sites),
 			"tiles_checked":checked,"max_depth_reached":deepest,
 			"non_strict_dominated_site_count":len(dominated),
+			"shared_endpoint_halfplane_covered_area_m2":shared_endpoint_covered_area,
 			"non_strict_dominated_sites":[{"kind":s[0],"coordinates":list(s[1])}
 				for s in sorted(dominated,key=repr)],
 			"certified_area_m2":certified_area,"unknown_area_m2":unknown_area,
