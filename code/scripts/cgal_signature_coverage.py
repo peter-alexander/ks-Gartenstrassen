@@ -27,7 +27,6 @@ def audit_signature_coverage(results):
 			sig=(row["local_index"],row["neighbor_index"],row["primary_finite"],row["neighbor_finite"])
 			bucket=by_signature[sig]["left_first" if row["left_site_is_first"] else "right_first"]
 			bucket.append({"fixture":fixture["fixture"],"edge_id":row["edge_id"]})
-		return_rows=None
 	out=[]
 	for sig,observations in sorted(by_signature.items()):
 		left=observations["left_first"]
