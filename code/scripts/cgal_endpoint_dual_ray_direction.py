@@ -15,13 +15,15 @@ def audit_endpoint_dual_ray_directions(alignment_groups,rays):
 			and group.get("ownership_proven") is False
 			and len(links)==3 and len({row.get("edge_id") for row in links})==3)
 		evidence=[]
+		missing=[]
 		if valid:
 			for link in links:
 				eid=link["edge_id"]
 				records=rays.get(eid,[])
 				if len(records)!=1 or len(records[0])!=4:
+					missing.append(eid)
 					valid=False
-					break
+					continue
 				try:
 					x0,y0,x1,y1=[float(v) for v in records[0]]
 				except (ValueError,TypeError):
@@ -37,6 +39,7 @@ def audit_endpoint_dual_ray_directions(alignment_groups,rays):
 		reports.append({"edge_ids":group.get("edge_ids",[]),
 			"status":"native_endpoint_ray_directions_recorded_only" if valid
 				else "blocked_endpoint_ray_direction_evidence",
-			"rays":evidence if valid else [],
+			"rays":evidence,
+			"missing_ray_edge_ids":missing,
 			"voronoi_side_proven":False,"ownership_proven":False})
 	return reports
