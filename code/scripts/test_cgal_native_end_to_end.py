@@ -37,6 +37,7 @@ from scripts.cgal_endpoint_ray_local_sides import audit_endpoint_ray_local_sides
 from scripts.cgal_coincident_endpoint_group import audit_coincident_endpoint_group
 from scripts.cgal_group_topology_consistency import audit_group_topological_consistency
 from scripts.cgal_group_primal_indices import audit_group_primal_indices
+from scripts.cgal_primal_index_calibration import audit_primal_index_calibration
 
 
 def _site_geometry(site,scale):
@@ -302,6 +303,13 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			assert all(row["status"]=="native_incidence_recorded_not_ownership"
 				and not row["ownership_proven"]
 				for row in carried_stats["group_primal_indices"])
+			carried_stats["primal_index_calibration"]=audit_primal_index_calibration(
+				carried_stats["group_primal_indices"],
+				carried_stats["primal_side_comparison"])
+			assert len(carried_stats["primal_index_calibration"])==2
+			assert all(row["status"]=="comparison_only_no_ownership_inference"
+				and not row["ownership_proven"] and len(row["native_edges"])==2
+				for row in carried_stats["primal_index_calibration"])
 			carried_stats["directed_boundary"]=directed_face_edges(
 				carried_polygons,carried_labels,segments,
 				face_ids=[item["face_index"] for item
@@ -318,7 +326,7 @@ def verify_native_fixture(binary, *, fixture='parallel', diagnose=False):
 			label is None for label in carried_labels)
 		assert len(carried_stats["internal_duals"])==len(carried_stats["site_audit"])
 		assert sum(value for key,value in carried_stats.items()
-			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
+			if key not in ('diagnostic_examples','site_audit','internal_duals','subface_validation','grid_conflicts','directed_boundary','boundary_sides','pair_constraints','shared_boundary_audit','native_source_audit','degenerate_ray_sides','endpoint_ray_local_sides','coincident_endpoint_groups','group_topological_consistency','group_primal_indices','primal_index_calibration','endpoint_dual_experiment','endpoint_neighbor_audit','side_calibration','actual_shared_ray_sides','primal_side_comparison','side_hypothesis','side_hypothesis_summary'))==len(polygons)
 		for polygon,label in zip(carried_polygons,carried_labels):
 			if label is not None:
 				assert polygon.distance(_site_geometry(label,1000.))<=1e-8
