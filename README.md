@@ -506,3 +506,61 @@ verworfenen `edge_id` und verbleibende Fehler.
 **Die bestehenden drei Ergebnisdateien behalten ihre Namen und werden
 beim nächsten normalen Wiener Lauf ersetzt.** Native CGAL-Dateien,
 TURN_USE-Berechnung und Vorschau bleiben unverändert.
+
+
+## Finaler Wiener SIS-Verschnitt (aktuelle Ausgabe)
+
+Der bestehende Ablauf bis zur Vereinigung nach `edge_id`,
+den TURN_USE-Pufferversuchen (1–4 m), der Rückübernahme
+originaler CGAL-Faces und der letzten 250-m²-Debug-Bereinigung
+bleibt erhalten.
+
+**Neu:** Nur die aus dieser vollständigen Pipeline hervorgehende,
+vereinigte Geometrie wird anschließend mit den **SIS-Belagsflächen
+des vollständigen Wiener WFS-Index** (Provider `SISBELAGOGD`)
+in **EPSG:31256** verschnitten. Die SIS-Maske umfasst alle
+`TYPE`- und `BELAG`-Werte, ohne Klassenselektion.
+Das vorhandene RTree in `cache/sis-wien.sqlite` beschränkt
+die Abfragen auf relevante SIS-Flächen. Nur **flächenhafte**
+Überdeckungen gelangen ins GeoJSON. Dadurch können aus einem zuvor
+zusammenhängenden Polygon getrennte `MultiPolygon`-Teile
+entstehen; die originale `edge_id` bleibt unverändert.
+
+**Die einzigen regulären neuen Ausgabedateien:**
+
+- `output/cgal_native_faces_sis_wien.geojson`:
+  Finale `Polygon`-/`MultiPolygon`-Geometrien
+  **nach** dem SIS-Schnitt; mit `sis_clipped=true`,
+  `pre_sis_area_m2`, `area_m2`
+  und der ursprünglichen `edge_id`.
+- `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson`:
+  **Unveränderte Debug-Stufe VOR dem SIS-Schnitt**, nach
+  TURN_USE + 250-m²-Abschlussfilter.
+
+Das Pre-SIS-Dissolve-GeoJSON und sein Diagnosebericht werden nur noch
+im **temporären Arbeitsverzeichnis** erzeugt und anschließend entfernt.
+Vorhandene gleichnamige alte Vor-SIS-Ergebnisdateien werden **nach
+erfolgreichem Lauf** gelöscht. Die zuvor gecachte native CGAL-Vorschau
+und ihr Stream bleiben dagegen zur Wiederverwendung erhalten, um
+keine neue, teure CGAL-Berechnung auszulösen.
+
+**Ausführen:**
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh
+```
+
+Voraussetzung: die aktuelle, vollständig abgeschlossene
+`cache/sis-wien.sqlite` aus der etablierten SIS-V2-
+Vorbereitung. Wenn sie fehlt, zuerst
+`bash code/scripts/run-sis-v2-wien.sh` verwenden.
+Alternativer SIS-Index-Pfad über `SIS_V2_INDEX`.
+Fehlende, unvollständige oder inkompatible SIS-Daten führen zum
+Abbruch **ohne Publikation ungeclippter Endgeometrien**.
+
+**Grenze:** Die verwendeten CGAL-Ursprungs-Faces stammen weiterhin
+aus der vorläufigen Vorschau mit ggf. geraden Ersatzchords und sind
+noch nicht als geometrisch exakte native CGAL-Flächen abgesichert.
+Der SIS-Schnitt macht das Zwischenergebnis nicht automatisch exakt.
