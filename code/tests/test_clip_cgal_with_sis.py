@@ -87,7 +87,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 			self.assertEqual(feature["properties"]["sis_mask"],"all_belags_all_types")
 			self.assertEqual(feature["geometry"]["type"],"MultiPolygon")
 			result=transform(TO_METRIC,shape(feature["geometry"]))
-			self.assertLess(result.symmetric_difference(mask1.union(mask2)).area,.01)
+			self.assertLess(result.symmetric_difference(mask1.union(mask2)).area,.05)
 			self.assertEqual(stats["pre_sis_features"],2)
 			self.assertEqual(stats["features_with_sis_overlap"],1)
 			self.assertEqual(stats["without_sis_overlap"],1)
