@@ -315,8 +315,8 @@ Ergebnis **wie zuvor**, ohne SIS-Verschnitt:
 - `output/cgal_native_faces_inner_points_pre_sis_wien.geojson`:
   pro erfolgreicher `edge_id` ein zusammenhängendes Polygon
 - `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson`:
-  Original-Faces sämtlicher problematischer `edge_id` (vor
-  dem TURN_USE-Abzug) mit Fehlergrund
+  Verbleibende, **bereits um die TURN_USE-Hüllen gekürzte**
+  Face-Geometrien problematischer `edge_id` mit Fehlergrund
 - `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_report.json`:
   Anzahl und Wirkung der TURN_USE-Hüllen sowie Fehlerstatistik
 
@@ -343,3 +343,38 @@ Polygongeometrie ergibt, kommt wie bisher nur in die Debug-Ausgabe.
 Die zugrunde liegende Vorschau kann ersatzweise linearisierte
 CGAL-Kurven enthalten; die resultierenden Polygone sind deshalb
 weiterhin **prüfpflichtige Zwischenprodukte**.
+
+
+### Debug-Geometrie ist jetzt immer nach dem TURN_USE-Abzug
+
+Die Datei `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson`
+zeigt jetzt ausschließlich die **nach den konvexen TURN_USE-Hüllen
+verbleibenden Face-Geometrien** der beim Dissolve gescheiterten
+`edge_id`. Bei einer getrennten Fläche bleibt im
+Debug eine `MultiPolygon`-Quellgeometrie erhalten; der
+reguläre Output akzeptiert weiterhin nur ein einzelnes Polygon.
+
+- `turn_use_cut_status=unchanged`: kein Überlappen der
+  Face mit einer der Hüllen, Geometrie deshalb unverändert.
+- `turn_use_cut_status=cut`: GeoJSON enthält die
+  tatsächlich beschnittene Geometrie (EPSG:4326).
+- `turn_use_cut_status=fully_removed`: vollständig
+  entfernt; **kein** Polygon wird zurückgeholt. Es bleibt ein
+  Debug-Datensatz mit `geometry: null` und
+  der ursprünglichen `face_number` als Nachweis.
+- `source_invalid`, `source_not_polygon`,
+  `cut_failed`, `source_error`:
+  die Geometrie lässt sich nicht sicher nach dem Abzug darstellen,
+  daher ebenfalls `geometry: null`. Die Ursache steht
+  in `dissolve_error_detail` bzw.
+  `turn_use_cut_note`.
+
+Auch wenn eine Face innerhalb einer `edge_id` ungültig
+ist, werden die anderen Faces derselben Gruppe dennoch einzeln
+beschnitten und für die Diagnose ausgegeben. Es findet **keine**
+automatische Geometriereparatur und keine Rückkehr zur unbeschnittenen
+Quellfläche statt.
+
+Der normale Wiener Lauf regeneriert bei vorhandenem CGAL-Stream und
+Vorschau die bisher benannte reguläre Ausgabe, die beschnittene
+Debug-Ausgabe und den Fehlerbericht. CGAL muss nicht erneut laufen.
