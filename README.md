@@ -461,3 +461,48 @@ weiterverwendet. Neue reguläre Attribute sind
 `turn_use_buffer_m`. Der JSON-Bericht protokolliert
 die `matched_original_face_numbers`, die Größe des
 Auswahlkandidaten und die Fläche der wiederhergestellten Originalunion.
+
+
+## Letzter Rettungsschritt: Debug-Restflächen ab 250 m²
+
+Wenn eine `edge_id` nach dem ungepufferten TURN_USE-Ausschluss,
+den vier Pufferstufen **1–4 m** und dem gegebenenfalls erfolgreichen
+Matching auf ursprüngliche CGAL-Faces noch immer problematisch ist,
+folgt ein abschließender **Flächenfilter direkt auf den verbleibenden
+Debug-Geometrien**:
+
+1. Für jede noch verbliebene Face (in **EPSG:31256**) alle
+   `MultiPolygon`-Teile in einzelne Polygonkomponenten zerlegen.
+2. Komponenten mit **Fläche kleiner als 250 m²** vollständig verwerfen.
+   Genau **250 m² bleiben enthalten**. Die Grenze wird je Komponente
+   und **nicht** über die Summe einer gesamten MultiPolygon-Face geprüft.
+3. Die ausreichend großen Restkomponenten **derselben originalen
+   `edge_id`** mit `union_all` vereinigen.
+   Ein gültiges `Polygon` **oder `MultiPolygon`
+   wird zusätzlich in das **reguläre** GeoJSON übernommen.
+4. Hier erfolgt **keine Rückübernahme der ursprünglichen CGAL-Faces**:
+   Das reguläre Endergebnis enthält exakt die ausreichend großen,
+   bereits durch TURN_USE (bis 4 m) ausgeschnittenen **Restflächen**.
+5. Wenn eine Geometrie nicht verarbeitet werden kann, bleibt ein
+   Debug-Nachweis mit Fehlergrund erhalten. Sind ausschließlich
+   Komponenten unter 250 m² vorhanden, erscheint die `edge_id`
+   nicht im Kartenoutput; die Verwerfung steht im JSON-Bericht.
+
+Reguläre Zusatzattribute:
+`recovered_by_debug_area_filter=true`,
+`debug_area_threshold_m2=250`,
+`debug_kept_components`,
+`debug_discarded_components` und
+`partial_source_errors` (wenn zwar gültige große
+Teilflächen ausgegeben werden konnten, andere Quell-Faces aber
+geometrisch nicht verarbeitbar waren). Bei solchen Teilrettungen
+bleiben die nicht verarbeitbaren Quell-Faces im Debug-Bericht.
+
+Der `__dissolve_report.json` dokumentiert die Gesamtzahl
+der verworfenen Polygonkomponenten, die verworfene Fläche in m²,
+die zusätzlich übernommenen `edge_id`, die vollständig
+verworfenen `edge_id` und verbleibende Fehler.
+
+**Die bestehenden drei Ergebnisdateien behalten ihre Namen und werden
+beim nächsten normalen Wiener Lauf ersetzt.** Native CGAL-Dateien,
+TURN_USE-Berechnung und Vorschau bleiben unverändert.
