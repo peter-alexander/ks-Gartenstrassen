@@ -225,6 +225,37 @@ def _recover_collapsed_metric_input(source_wgs,projected_metric):
 	}
 
 
+def _repair_metric_self_intersection(source_wgs,metric,to_wgs):
+	"""Only accept make_valid if it changes under 0.01 m² of real WGS84 area.
+
+	Unlike simple total-area subtraction, the symmetric difference
+	detects spatially relocated or damaged geometry.
+	"""
+	if not explain_validity(metric).startswith("Self-intersection"):
+		return None
+	pieces=_polygonal_parts(make_valid(metric))
+	if not pieces:
+		return None
+	candidate=union_all(pieces)
+	if not isinstance(candidate,(Polygon,MultiPolygon)) or candidate.is_empty or not candidate.is_valid:
+		return None
+	compare=transform(to_wgs,candidate)
+	if not isinstance(compare,(Polygon,MultiPolygon)) or compare.is_empty or not compare.is_valid:
+		return None
+	changed=source_wgs.symmetric_difference(compare)
+	geod=Geod(ellps="WGS84")
+	changed_area=sum(abs(geod.geometry_area_perimeter(part)[0])
+		for part in _polygonal_parts(changed))
+	if changed_area>0.01:
+		return None
+	return candidate,{
+		"method":"make_valid_metric_verified_by_geodesic_symmetric_difference",
+		"changed_geodesic_area_m2":changed_area,
+		"change_budget_m2":0.01,
+		"repaired_metric_type":candidate.geom_type,
+	}
+
+
 def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 	"""Repair ONLY invalidity introduced by reprojection, with safeguards.
 
@@ -318,11 +349,21 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 			stats["input_metric_repaired_features"]+=1
 			stats["input_metric_collapsed_holes"]+=metric_repair["removed_holes"]
 			stats["input_metric_collapsed_parts"]+=metric_repair["removed_polygon_parts"]
+	if (isinstance(metric,(Polygon,MultiPolygon)) and
+			not metric.is_empty and not metric.is_valid and
+			explain_validity(metric).startswith("Self-intersection")):
+		fixed=_repair_metric_self_intersection(geom,metric,to_wgs)
+		if fixed is not None:
+			metric,metric_repair=fixed
+			stats["input_metric_self_intersections_repaired"]+=1
+			stats["input_metric_self_intersection_changed_area_m2"]+=metric_repair[
+				"changed_geodesic_area_m2"]
 	if not isinstance(metric,(Polygon,MultiPolygon)) or metric.is_empty or not metric.is_valid or metric.area<=0:
 		raise ValueError(
 			f"{props['edge_id']}: ungültige metrische CGAL-Eingabe "
 			f"({explain_validity(metric)}); "
-			"nicht auf höchstens 0,01 m² kollabierte Komponenten reduzierbar")
+			"kontrollierte Korrektur mit höchstens 0,01 m² tatsächlicher "
+			"Flächenabweichung nicht möglich")
 	stats["pre_sis_area_sum_m2"]+=metric.area
 	# Same proven SIS WFS-index RTree/geometry union used by the
 	# existing SIS-V2 street mask, including ALL BELAG and TYPE values.
@@ -354,6 +395,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 		"wgs84_projection_repaired":repair is not None,
 		"wgs84_repair_method":repair["repair"] if repair is not None else None,
 		"input_metric_projection_repaired":metric_repair is not None,
+		"input_metric_repair_method":metric_repair["method"] if metric_repair else None,
 	})
 	stats["features_with_sis_overlap"]+=1
 	stats["sis_overlap_area_sum_m2"]+=clip.area
@@ -414,7 +456,7 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 					"sis_mask":"all_belags_all_types",
 					"minimum_intersection_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
 					"wgs84_repair_method":"targeted_collapsed_tiny_holes_or_strict_make_valid",
-					"input_metric_repair_method":"drop_only_projection_collapsed_wgs84_tiny_rings",
+					"input_metric_repair_method":"collapsed_tiny_rings_or_symmetric_difference_verified_make_valid",
 					"debug_stage":"after_turn_use_and_250m2_before_sis",
 					"pre_sis_intermediate_not_published":True,
 					"statistics":dict(stats),
