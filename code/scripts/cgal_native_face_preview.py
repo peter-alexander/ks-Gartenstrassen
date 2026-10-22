@@ -97,7 +97,7 @@ def _new_report_file(path,report):
 			temp.unlink(missing_ok=True)
 
 
-def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None):
+def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,identity=None):
 	"""Write WGS84 GeoJSON for native segment Faces before geometry validation.
 
 	The resulting polygons are UNCHECKED and UNCLIPPED (bbox filtered
@@ -254,6 +254,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None):
 		"schema":"native-cgal-faces-raw-preview-v1",
 		"output_geojson":str(out),
 		"source_face_stream":str(stream_path),
+		"preview_input_identity":identity,
 		"native_face_records":face_no,
 		"stats":dict(stats),
 		"first_issues":first_issues,
