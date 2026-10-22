@@ -108,6 +108,9 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(len(valid["features"]),1)
 			self.assertEqual(len(debug["features"]),1)
 			self.assertEqual(report["failures"][0]["reason"],"source_not_polygon")
+			self.assertIsNone(debug["features"][0]["geometry"])
+			self.assertEqual(debug["features"][0]["properties"][
+				"turn_use_cut_status"],"source_not_polygon")
 
 	def test_invalid_bowtie_source_not_automatically_repaired(self):
 		with TemporaryDirectory() as root:
@@ -120,7 +123,9 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(len(debug["features"]),1)
 			self.assertEqual(report["failures"][0]["reason"],
 				"source_invalid_polygon")
-			self.assertFalse(shape(debug["features"][0]["geometry"]).is_valid)
+			self.assertIsNone(debug["features"][0]["geometry"])
+			self.assertEqual(debug["features"][0]["properties"][
+				"turn_use_cut_status"],"source_invalid")
 
 	def test_valid_fallback_can_be_merged_but_is_explicitly_marked(self):
 		with TemporaryDirectory() as root:
@@ -177,8 +182,19 @@ class PreviewDissolveTests(unittest.TestCase):
 				"split")
 			self.assertEqual(debug["features"][0]["properties"][
 				"dissolve_error"],"not_contiguous")
-			# Debug retains the original source geometry before mask.
-			self.assertTrue(shape(debug["features"][0]["geometry"]).equals(whole))
+			# The actual *post-cut* disconnected MultiPolygon, not the
+			# original unmasked source Face, is written to debug.
+			debug_feature=debug["features"][0]
+			self.assertEqual(debug_feature["geometry"]["type"],"MultiPolygon")
+			self.assertEqual(debug_feature["properties"][
+				"turn_use_cut_status"],"cut")
+			self.assertTrue(debug_feature["properties"]["debug_after_turn_use"])
+			remaining=shape(debug_feature["geometry"])
+			self.assertLess(remaining.area,whole.area)
+			self.assertGreater(whole.difference(remaining).area,0)
+			# The masked-out area must no longer be included.
+			self.assertLess(remaining.intersection(_square(
+				16.3016,48.2,16.3024,48.202)).area,1e-12)
 			self.assertEqual(report["failures"][0]["face_numbers"],[12])
 
 	def test_mask_can_remove_whole_source_face_without_crashing(self):
@@ -193,8 +209,48 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(valid["features"],[])
 			self.assertEqual(len(debug["features"]),1)
 			self.assertEqual(report["failures"][0]["reason"],"empty_union")
+			self.assertIsNone(debug["features"][0]["geometry"])
+			self.assertEqual(debug["features"][0]["properties"][
+				"turn_use_cut_status"],"fully_removed")
+			self.assertEqual(stats["statistics"]["debug_null_geometries"],1)
 			self.assertEqual(stats["statistics"][
 				"faces_entirely_removed_by_turn_use"],1)
+
+	def test_error_in_one_face_does_not_prevent_cutting_other_debug_faces(self):
+		with TemporaryDirectory() as root:
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			# A broken Face and a valid neighbouring Face share an edge_id.
+			# The broken Face is recorded as null (not falsely uncut);
+			# the second must still be clipped and exported for debugging.
+			bowtie=Polygon([(16.300,48.200),(16.304,48.204),
+				(16.300,48.204),(16.304,48.200)])
+			good=_square(16.310,48.200,16.314,48.204)
+			turn_hull=transform(to_metric,_square(
+				16.311,48.201,16.312,48.202))
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("broken",10,bowtie),
+				_feature("broken",11,good,kind="inner_point")],
+				hulls=[("node-1",turn_hull)])
+			self.assertEqual(valid["features"],[])
+			self.assertEqual(len(debug["features"]),2)
+			self.assertEqual([f["properties"]["face_number"]
+				for f in debug["features"]],[10,11])
+			self.assertIsNone(debug["features"][0]["geometry"])
+			self.assertEqual(debug["features"][0]["properties"][
+				"turn_use_cut_status"],"source_invalid")
+			cut=shape(debug["features"][1]["geometry"])
+			self.assertTrue(cut.is_valid)
+			self.assertEqual(debug["features"][1]["properties"][
+				"turn_use_cut_status"],"cut")
+			self.assertLess(cut.area,good.area)
+			self.assertAlmostEqual(
+				cut.intersection(_square(
+					16.3112,48.2012,16.3118,48.2018)).area,0,places=12)
+			self.assertEqual(report["failures"][0]["reason"],
+				"source_invalid_polygon")
+			self.assertEqual(stats["statistics"]["debug_null_geometries"],1)
+			self.assertEqual(stats["statistics"]["debug_post_cut_geometries"],1)
 
 	def test_existing_previous_outputs_may_be_replaced_explicitly(self):
 		with TemporaryDirectory() as root:

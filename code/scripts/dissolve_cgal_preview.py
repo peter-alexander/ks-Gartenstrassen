@@ -5,12 +5,12 @@ CGAL site provenance. Do not rerun CGAL, alter ownership, clip to SIS,
 repair polygons or silently turn disconnected pieces into MultiPolygon.
 
 Historically used GIP2 node TURN_USE convex hulls are subtracted from each
-source Face in EPSG:31256. The original source Face is retained in debug.
+source Face in EPSG:31256. The post-TURN_USE-cut Face geometry is retained in debug.
 
 One valid contiguous Polygon per edge_id is written to the regular
 GeoJSON. If any source polygon is invalid, the union fails, or the
 result is not a single valid Polygon, the entire edge_id is put into
-a JSON failure report and ALL its original source Faces into a separate
+a JSON failure report and ALL its post-cut Face geometries into a separate
 debug GeoJSON. Other edge_ids continue processing.
 
 Since the preview may replace bad CGAL halfedges by straight endpoint
@@ -41,7 +41,7 @@ from scripts.wienwide_grid import load_aoi
 from shapely.validation import explain_validity
 
 
-SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v2"
+SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v3-debug-post-cut"
 
 
 def _json_line_features(path):
@@ -192,54 +192,95 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 					fallback_count=0
 					reason=None
 					detail=None
+					# Collect post-TURN_USE geometry for EVERY source Face,
+					# including after a different Face in this edge_id
+					# has already failed. Never put the pre-cut geometry
+					# back into the debug output.
+					debug_surfaces=[]
 					for number,kind,fallback,raw in rows:
 						types[kind]+=1
 						fallback_count+=fallback
+						debug_metric=None
+						cut_status="not_processed"
+						cut_note=None
+						item_error=None
+						item_detail=None
 						try:
 							feature=json.loads(raw)
 							geometry=shape(feature["geometry"])
 							if not isinstance(geometry,Polygon):
-								reason="source_not_polygon"
-								detail=f"Face {number}: {geometry.geom_type}"
-								break
+								item_error="source_not_polygon"
+								item_detail=f"Face {number}: {geometry.geom_type}"
+								cut_status="source_not_polygon"
+								continue
 							if geometry.is_empty or geometry.area<=0 or not geometry.is_valid:
-								reason="source_invalid_polygon"
-								detail=f"Face {number}: {explain_validity(geometry)}"
-								break
+								item_error="source_invalid_polygon"
+								item_detail=f"Face {number}: {explain_validity(geometry)}"
+								cut_status="source_invalid"
+								continue
 							metric=transform(to_metric,geometry)
 							if not metric.is_valid or metric.is_empty or metric.area<=0:
-								reason="projection_invalid"
-								detail=f"Face {number}: {explain_validity(metric)}"
-								break
-							# Historical TURN_USE convex junction cut goes HERE,
-							# strictly before union_all(parts) by edge_id.
+								item_error="projection_invalid"
+								item_detail=f"Face {number}: {explain_validity(metric)}"
+								cut_status="projection_invalid"
+								continue
+							debug_metric=metric
+							cut_status="unchanged"
+							# Historical TURN_USE convex junction cut, always
+							# BEFORE union_all(parts) by original edge_id.
 							if hull_tree is not None:
-								indices=hull_tree.query(metric,predicate="intersects")
-								if len(indices):
-									local_mask=union_all([hull_geometries[int(i)]
-										for i in indices])
-									cut=metric.difference(local_mask)
-									if not cut.is_empty and not cut.is_valid:
-										raise ValueError("TURN_USE-Differenz ungültig")
-									if not cut.is_empty and cut.geom_type not in (
-											"Polygon","MultiPolygon"):
-										raise ValueError("TURN_USE-Differenz ist "
+								try:
+									indices=hull_tree.query(metric,predicate="intersects")
+									if len(indices):
+										local_mask=union_all([
+											hull_geometries[int(i)] for i in indices])
+										cut=metric.difference(local_mask)
+										# Even a problematic cut geometry is
+										# the ONLY correct candidate for debug.
+										debug_metric=cut
+										cut_status="cut"
+										if not cut.is_empty and not cut.is_valid:
+											raise ValueError("TURN_USE-Differenz ungültig")
+										if not cut.is_empty and cut.geom_type not in (
+												"Polygon","MultiPolygon"):
+											raise ValueError("TURN_USE-Differenz ist "
 												+cut.geom_type+" statt Polygon/MultiPolygon")
-									removed=max(0.,metric.area-cut.area)
-									if removed>1e-8:
-										stats["faces_cut_by_turn_use"]+=1
-										stats["turn_use_removed_area_sum_m2"]+=removed
-									if cut.is_empty:
-										stats["faces_entirely_removed_by_turn_use"]+=1
-										continue
-									metric=cut
+										removed=max(0.,metric.area-cut.area)
+										if removed>1e-8:
+											stats["faces_cut_by_turn_use"]+=1
+											stats["turn_use_removed_area_sum_m2"]+=removed
+										if cut.is_empty:
+											stats["faces_entirely_removed_by_turn_use"]+=1
+											cut_status="fully_removed"
+											continue
+										metric=cut
+								except Exception as exc:
+									item_error="turn_use_cut_error"
+									item_detail=f"Face {number}: {type(exc).__name__}: {exc}"
+									# If difference itself raised before
+									# producing a result, geometry is UNKNOWN.
+									# Never show the uncut input as post-cut.
+									if cut_status=="unchanged":
+										debug_metric=None
+										cut_status="cut_failed"
+									else:
+										cut_status="cut_invalid"
+									cut_note=item_detail
+									continue
 							parts.append(metric)
 							area_sum+=metric.area
 						except Exception as exc:
-							reason=("turn_use_cut_error"
-								if "TURN_USE" in str(exc) else "source_geometry_error")
-							detail=f"Face {number}: {type(exc).__name__}: {exc}"
-							break
+							item_error="source_geometry_error"
+							item_detail=f"Face {number}: {type(exc).__name__}: {exc}"
+							debug_metric=None
+							cut_status="source_error"
+							cut_note=item_detail
+						finally:
+							debug_surfaces.append((
+								number,debug_metric,cut_status,cut_note))
+							if item_error is not None and reason is None:
+								reason=item_error
+								detail=item_detail
 					joined=None
 					if reason is None:
 						try:
@@ -301,12 +342,31 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							"fallback_face_count":fallback_count,
 							"turn_use_cut_before_union":True,
 							"face_numbers":[number for number,_,_,_ in rows]})
-						for _,_,_,raw in rows:
+						for (_,_,_,raw),(_,post_cut,cut_status,cut_note) in zip(
+								rows,debug_surfaces):
 							feature=json.loads(raw)
 							props=dict(feature["properties"])
 							props["dissolve_error"]=reason
 							props["dissolve_error_detail"]=detail
-							props["debug_source_face"]=True
+							props["debug_after_turn_use"]=True
+							props["turn_use_cut_status"]=cut_status
+							props["turn_use_cut_note"]=cut_note
+							# A fully removed or unprocessable Face has no
+							# remaining geometry. Keep its ID as an explicit
+							# null-geometry audit record, not an uncut polygon.
+							if post_cut is None or post_cut.is_empty:
+								feature["geometry"]=None
+								stats["debug_null_geometries"]+=1
+							else:
+								try:
+									feature["geometry"]=mapping(
+										transform(to_wgs,post_cut))
+									stats["debug_post_cut_geometries"]+=1
+								except Exception as exc:
+									feature["geometry"]=None
+									props["turn_use_cut_status"]="output_transform_failed"
+									props["turn_use_cut_note"]=str(exc)
+									stats["debug_null_geometries"]+=1
 							feature["properties"]=props
 							first_bad=_write_feature(bad,feature,first_bad)
 					if progress and stats["edge_ids_checked"]%1000==0:
@@ -319,7 +379,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 					'"dissolved_by":"edge_id","sis_clipped":false,'
 					'"turn_use_hull_cut_before_union":true}}\n')
 				bad.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
-					'"debug_source_geometries":true}}\n')
+					'"debug_post_turn_use_cut":true,'
+					'"null_geometry_for_removed_or_unavailable_faces":true}}\n')
 		overview={
 			"schema":SCHEMA,
 			"source_preview":str(preview),
@@ -331,6 +392,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 			},
 			"merged_geojson":str(out),
 			"debug_geojson":str(debug),
+			"debug_geometry_semantics":"post_turn_use_cut; "
+				"fully removed or not safely cut -> null geometry",
 			"preview_based":True,
 			"geometrically_assured":False,
 			"sis_clipped":False,
