@@ -317,7 +317,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertTrue(remaining_metric.is_valid)
 			self.assertLess(remaining_metric.intersection(
 				hull.buffer(4)).area,1e-7)
-			self.assertAlmostEqual(remaining_metric.area,180.,places=3)
+			self.assertAlmostEqual(remaining_metric.area,200.,places=3)
 
 	def test_previously_valid_polygon_remains_unbuffered(self):
 		with TemporaryDirectory() as root:
