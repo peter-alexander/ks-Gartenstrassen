@@ -595,3 +595,37 @@ SIS-Neustart **ohne weitere CGAL-Dissolve-Berechnung** möglich;
 die ursprüngliche Debug-Stufe bleibt ebenfalls erhalten.
 Bei erfolgreichem regulärem Gesamtlauf wird dieser temporäre
 Zwischenstand wie bisher entfernt.
+
+
+### WGS84-SIS-Projektion: kollabierte Kleinstlöcher/-Polygone
+
+Für den konkret beobachteten Fehler
+`Too few points in geometry component` gilt jetzt eine
+**zusätzliche, gezielte Sonderbehandlung**. Die metrische SIS-Fläche in
+EPSG:31256 wird nicht verändert. Nur wenn ein ursprünglicher Ring bei
+der WGS84-Umrechnung auf weniger als drei unterschiedliche
+Koordinaten kollabiert, darf sein nicht mehr darstellbarer Innenring
+oder ein vollständig kollabierter `MultiPolygon`-Teil
+aus der **WGS84-Ausgabe** entfernt werden.
+
+Bedingung: Der **Gesamtflächeninhalt aller so entfernten
+ursprünglichen metrischen Teile beträgt höchstens 0,01 m²**,
+alle verbleibenden WGS84-Koordinaten bleiben unverändert und das
+Endergebnis ist ein gültiges Polygon/MultiPolygon. Die letzte
+verbliebene Polygonkomponente darf niemals entfernt werden.
+Der Gesamtflächenverlust wird zusätzlich beim metrischen
+WGS84-Rückweg geprüft.
+
+Diese Sonderbehandlung erklärt Fälle, bei denen ein viele Meter
+langer, aber praktisch flächenloser Innenring verschwindet:
+Der sonst übliche Hausdorff-Grenzwert von 2 cm eignet sich **nicht**
+für das Entfernen eines solchen kollabierten, flächenlosen
+Innenrings. Seine tatsächliche Randabweichung wird deshalb
+protokolliert, nicht als null ausgegeben. Die strengere
+`make_valid`-Kontrolle für **andere
+Geometrieinvaliditäten** bleibt bestehen.
+
+Für den ausstehenden Wiener SIS-Lauf lässt sich der erhaltene
+Vor-SIS-Zwischenstand unter
+`cache/wien/.cgal-sis-stage-jZJMmhoL/` verwenden,
+**ohne den CGAL-Dissolve erneut auszuführen**.
