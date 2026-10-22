@@ -14,6 +14,7 @@ from pathlib import Path
 
 from shapely.geometry import LineString, Polygon
 from shapely.ops import linemerge
+from shapely.validation import explain_validity
 
 from scripts.cgal_segment_input import SCALE
 
@@ -157,7 +158,13 @@ def read_native_faces(path,owners,origin,window,*,progress=None):
 					polygon=Polygon(face_ring)
 					if polygon.is_empty or not polygon.is_valid or polygon.area<=0:
 						raise ValueError(f"Face {face_number}, edge_id {face_owner}: "
-							"native Polygongeometrie ungültig")
+							f"native Polygongeometrie ungültig "
+							f"({explain_validity(polygon)}; "
+							f"{len(face_ring)} Ringpunkte; "
+							f"{edge_number} Halfedges; "
+							f"Fläche {polygon.area:.12g} m²). "
+							"Gespeicherten Face-Stream mit "
+							"scripts.inspect_cgal_native_face untersuchen.")
 					clipped=polygon.intersection(window)
 					if not clipped.is_empty and clipped.area>0:
 						if not clipped.is_valid:
