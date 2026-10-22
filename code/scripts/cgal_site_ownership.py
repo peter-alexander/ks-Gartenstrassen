@@ -14,6 +14,7 @@ from shapely.geometry import LineString, mapping
 from shapely.ops import transform
 import os
 import tempfile
+from datetime import datetime, timezone
 from shapely.strtree import STRtree
 
 from scripts.cgal_segment_input import SCALE
@@ -181,8 +182,16 @@ def write_site_diagnostics(output,faces,sites,stats,to_wgs):
 	report=path.with_name(path.stem+"__site_zuordnung.json")
 	geojson=path.with_name(path.stem+"__site_konflikte.geojson")
 	for target in (report,geojson):
-		if target.exists() or target.is_symlink():
-			raise FileExistsError(f"CGAL-Site-Diagnose bereits vorhanden: {target}")
+		if target.is_symlink():
+			raise ValueError(f"CGAL-Site-Diagnose darf kein Symlink sein: {target}")
+		if target.exists():
+			stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+			previous=target.with_name(target.name+".previous."+stamp)
+			suffix=0
+			while previous.exists() or previous.is_symlink():
+				suffix+=1
+				previous=target.with_name(target.name+f".previous.{stamp}.{suffix}")
+			os.replace(target,previous)
 	by_line={line:(edge_id,geom) for line,edge_id,geom in sites}
 	features=[]
 	for error in stats["provenance_errors"]:
