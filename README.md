@@ -185,3 +185,51 @@ Der strenge endgültige Export bleibt unverändert aktiv und bricht bei
 fehlerhafter Geometrie weiterhin ab. Beide Vorschau-Dateien werden
 bei unveränderter Eingabe wiederverwendet, bei abweichenden Prüfsummen
 aber nicht still überschrieben.
+
+
+## Selektive Punkt-Faces ursprünglicher LINEAR_USE-Stützpunkte
+
+**Aktuelle Variante:** Originale Linien-Stützpunkte `A—B—C—D—E—F`
+liefern alle fünf **Segment-Faces** und zusätzlich nur die nativen
+**Punkt-Faces B, C, D und E**. A und F sind Linien-Endpunkte
+und werden nicht als Punkt-Faces übernommen.
+
+Maßgeblich ist ausschließlich die originale `LINEAR_USE`-
+Koordinatenfolge (EPSG:31256, millimetergenau für CGAL umgesetzt).
+Weder beim Noding hinzugekommene Punkte noch die künstlichen
+Rahmeneckpunkte werden als innere Original-Stützpunkte behandelt.
+Sollte ein Stützpunkt in mehreren verschiedenen `edge_id`-
+Linien vorkommen, wird er wegen unklarer eindeutiger Herkunft
+konservativ nicht zugeordnet.
+
+CGAL exportiert nun **begrenzt** liegende Segment- und Punkt-Faces
+mit nativen Generatoren (`F` beziehungsweise `P`).
+Die Zuordnung zu `edge_id` erfolgt ohne räumliche
+Suche ausschließlich über den ursprünglichen Generator.
+Damit der vorherige Versuch einschließlich Cache und Vorschau
+erhalten bleibt, nutzt diese Version eine neue Ausgabe:
+
+`output/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson`
+
+Sofortige **visuelle Ausgabe ungeprüfter Einzel-Faces**:
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh --preview-only
+```
+
+`generator_type=segment` bezeichnet die normalen
+Voronoi-Segmentzellen; `generator_type=inner_point`
+die selektiv hinzugekommenen Punktzellen. Die nicht geprüfte
+Vorschau behält mögliche Ersatzsehnengeraden und
+topologische Unstimmigkeiten, die im
+`__preview_report.json` dokumentiert werden.
+Sie ist **noch nicht vereinigt**, nicht SIS-geschnitten und
+nicht für eine fertige GIS-Karte freigegeben.
+
+Bei strenger Verarbeitung werden die ausgewählten Punkt-Faces
+mit den Segment-Faces gleicher originaler `edge_id`
+vereinigt; die regulären strengen Geometrieprüfungen bleiben
+aktiv. Ein neuer CGAL-Lauf ist einmalig nötig, da der vorige
+gespeicherte Face-Stream nur Segment-Faces enthält.

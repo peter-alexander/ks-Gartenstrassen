@@ -31,3 +31,22 @@ jobs:
         run: bash -n code/scripts/run-sis-steps.sh code/scripts/run-sis-v2-wien.sh code/scripts/run-linear-use-wien.sh code/scripts/run-cgal-voronoi-debug-wien.sh code/scripts/run-gartenstrassen-wien.sh
       - name: Python-Tests ohne Geodaten und Netzabfragen
         run: cd code && python -m unittest discover -s tests -v
+
+  cgal-inner-point-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: CGAL installieren
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libcgal-dev libgmp-dev libmpfr-dev
+      - name: Native Segment- und Punkt-Faces kompilieren
+        run: |
+          cmake -S code/cgal -B build/cgal -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/cgal --parallel 2
+      - name: B-Face im abgewinkelten Original A-B-C pruefen
+        run: |
+          python -m pip install -q -r code/requirements-analysis.txt
+          printf '0 0 10000 0\n10000 0 15000 12000\n-40000 -40000 60000 -40000\n60000 -40000 60000 60000\n60000 60000 -40000 60000\n-40000 60000 -40000 -40000\n' | \
+            build/cgal/cgal_voronoi_faces --faces /tmp/cgal-native-inner-points.txt
+          grep -q '^P 10000 0$' /tmp/cgal-native-inner-points.txt
+          PYTHONPATH=code python code/tests/cgal_original_inner_point_face_smoke.py /tmp/cgal-native-inner-points.txt

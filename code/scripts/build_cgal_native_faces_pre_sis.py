@@ -4,7 +4,7 @@ The native Voronoi_diagram_2 Face already knows its supporting site.
 C++ serializes the Face CCB and original input supporting segment; Python
 assembles that ONE Face's ordered halfedges. No global polygonize_full,
 point probe, site/polygon spatial join or inferred owner is used.
-CGAL point-site faces are deliberately omitted.
+Only Point Faces at unique original LINEAR_USE internal vertices are included.
 """
 import argparse
 from collections import defaultdict
@@ -25,6 +25,7 @@ from scripts.build_cgal_voronoi_geojson import (
 from scripts.cgal_segment_input import SCALE, _noded_segments
 from scripts.cgal_native_faces import read_native_faces
 from scripts.cgal_native_face_preview import write_preview
+from scripts.cgal_original_vertices import original_inner_point_owners
 from scripts.wienwide_grid import checksum, load_aoi
 
 
@@ -35,7 +36,7 @@ def _cache_paths(out):
 
 def _identity(cache,aoi,binary):
 	return {
-		"schema":"cgal-native-face-stream-v1",
+		"schema":"cgal-native-face-stream-v2-with-point-sites",
 		"source_sha256":checksum(cache),
 		"aoi_sha256":checksum(aoi),
 		"binary_sha256":checksum(binary),
@@ -43,6 +44,8 @@ def _identity(cache,aoi,binary):
 			Path(__file__).with_name("cgal_segment_input.py")),
 		"payload_code_sha256":checksum(
 			Path(__file__).with_name("build_cgal_voronoi_geojson.py")),
+		"original_vertex_code_sha256":checksum(
+			Path(__file__).with_name("cgal_original_vertices.py")),
 	}
 
 
@@ -108,7 +111,8 @@ def _read_or_compute_faces(owners,frame,binary,bounds,out,identity,timeout):
 		stage.unlink(missing_ok=True)
 	print("CGAL: native Voronoi-Faces gespeichert: "
 		f"{cgal['segment_faces']:,} Segment-Faces, "
-		f"{cgal['point_faces_omitted']:,} Punkt-Faces ausgelassen",
+		f"{cgal['point_faces_exported']:,} native Punkt-Faces, "
+		f"{cgal['unbounded_point_faces_omitted']:,} unbeschränkte Punkt-Faces ausgelassen",
 		flush=True)
 	return faces_path,cgal
 
@@ -136,6 +140,10 @@ def build(cache,aoi_path,binary,out,*,timeout=900,preview_only=False):
 	owners,origin=_noded_segments(
 		[(edge_id,line) for _object_id,edge_id,line in records],
 		progress=lambda message:print(message,flush=True))
+	point_owners,point_stats=original_inner_point_owners(records,origin)
+	print(f"CGAL: {point_stats['unique_inner_original_vertices']:,} "
+		"eindeutige ursprüngliche innere Stützpunkte "
+		"für die Auswahl der Punkt-Faces",flush=True)
 	frame=_frame(aoi,origin)
 	bounds=list(window.bounds)
 	out.parent.mkdir(parents=True,exist_ok=True)
@@ -165,6 +173,7 @@ def build(cache,aoi_path,binary,out,*,timeout=900,preview_only=False):
 			"vor allen strengen Polygonprüfungen",flush=True)
 		summary=write_preview(face_stream,owners,origin,aoi,
 			preview,preview_report,
+			point_owners=point_owners,
 			progress=lambda message:print(message,flush=True),
 			identity=preview_identity)
 	if preview_only:
@@ -173,11 +182,14 @@ def build(cache,aoi_path,binary,out,*,timeout=900,preview_only=False):
 			flush=True)
 		return 0
 	groups,stats=read_native_faces(face_stream,owners,origin,aoi,
+		point_owners=point_owners,
 		progress=lambda message:print(message,flush=True))
 	if not groups:
 		raise ValueError("Keine nativen CGAL-Segmentflächen im Stadtfenster")
 	print(f"CGAL vor SIS: {stats['segment_faces_inside_window']:,} "
-		f"native Segment-Faces, {stats['original_edge_ids']:,} edge_ids; "
+		f"native Segment-Faces, "
+		f"{stats.get('point_faces_inside_window',0):,} innere Punkt-Faces, "
+		f"{stats['original_edge_ids']:,} edge_ids; "
 		f"{stats.get('segment_faces_outside_aoi_bbox',0):,} außerhalb AOI-Hülle übersprungen",
 		flush=True)
 	to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -207,11 +219,12 @@ def build(cache,aoi_path,binary,out,*,timeout=900,preview_only=False):
 	collection={"type":"FeatureCollection","features":features,
 		"metadata":{"schema":"cgal-native-face-dissolve-pre-sis-v1",
 			"crs":"EPSG:4326","source_segments":len(owners),
+			"original_vertex_selection":point_stats,
 			"native_cgal":cgal_stats,"native_faces":stats,
 			"source_area_m2":source_area,"dissolved_area_m2":merged_area,
 			"export_geometry_repairs":repairs,
 			"site_ownership_method":"direct_native_voronoi_face_dual_site",
-			"point_site_cells_assigned":False,
+			"point_site_cells_assigned":"only_unique_original_inner_vertices",
 			"clipped_to_existing_aoi":True,
 			"sis_clipped":False,"experimental":True}}
 	_write_json_atomic(out,collection)

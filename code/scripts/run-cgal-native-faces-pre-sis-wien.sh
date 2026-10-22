@@ -10,7 +10,7 @@ CACHE="$REPO/cache/wien/linear_use_original.sqlite"
 AOI="$REPO/cache/wien/aoi.geojson"
 BUILD="$REPO/build/cgal"
 BIN="$BUILD/cgal_voronoi_faces"
-OUT="$REPO/output/cgal_native_faces_dissolved_pre_sis_wien.geojson"
+OUT="$REPO/output/cgal_native_faces_inner_points_pre_sis_wien.geojson"
 
 [[ -x "$PYTHON" ]] || { echo "Python fehlt: $PYTHON" >&2; exit 1; }
 [[ -f "$CACHE" && -f "$AOI" ]] || {
