@@ -290,3 +290,56 @@ cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen/code
 
 Dabei ist keine weitere CGAL-Berechnung nötig. Bestehende Dateien
 werden nicht automatisch gelöscht oder überschrieben.
+
+
+## TURN_USE-Kreuzungshüllen wieder vor dem Dissolve abziehen
+
+Wiederaufnahme der **historischen SIS-V2-Regel** vom 17.10.2026
+(`scripts/sis_gip2.py` im Commit `07374b16c192`):
+
+1. `NODE` und `TURN_USE` mit RTree aus der **originalen**
+   `gip_network_ogd.gpkg` im Wiener Bereich laden.
+2. Alle TURN_USE-Linien nach `via_node_id` gruppieren
+   (`NODE.object_id`), **ohne `base_type`-Filter**.
+3. Aus sämtlichen Stützpunkten pro NODE eine konvexe Hülle
+   (`MultiPoint(coords).convex_hull`) bilden. Keine
+   pauschalen Radien oder künstlichen Flächen bei kollinearen Linien.
+4. Hüllen auf die vorhandene Wiener AOI begrenzen.
+5. **Für jede einzelne** CGAL-Segment- und innere Punkt-Face zunächst
+   diese TURN_USE-Hüllen abziehen.
+6. Erst **danach** die gekürzten Faces derselben originalen
+   `edge_id` vereinigen.
+
+Ergebnis **wie zuvor**, ohne SIS-Verschnitt:
+
+- `output/cgal_native_faces_inner_points_pre_sis_wien.geojson`:
+  pro erfolgreicher `edge_id` ein zusammenhängendes Polygon
+- `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson`:
+  Original-Faces sämtlicher problematischer `edge_id` (vor
+  dem TURN_USE-Abzug) mit Fehlergrund
+- `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_report.json`:
+  Anzahl und Wirkung der TURN_USE-Hüllen sowie Fehlerstatistik
+
+**Lauf:**
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh
+```
+
+Verwendet standardmäßig dieselbe Original-GPKG wie der LINEAR_USE-
+Importer: `/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg`.
+Abweichender Pfad via `GIP_NETWORK_SOURCE` setzen.
+
+Der zuvor erzeugte native CGAL-Stream und die selektive Vorschau bleiben
+erhalten und werden wiederverwendet. Die bestehenden *regulären und
+Debug-Dissolve-Ergebnisse* werden nach einer erfolgreichen neuen
+Verarbeitung atomar ersetzt. **Keine neue CGAL-Berechnung** nötig.
+
+Eine `edge_id`, die nach dem TURN_USE-Abzug nur noch
+getrennte Teilflächen, gar keine Fläche oder keine gültige
+Polygongeometrie ergibt, kommt wie bisher nur in die Debug-Ausgabe.
+Die zugrunde liegende Vorschau kann ersatzweise linearisierte
+CGAL-Kurven enthalten; die resultierenden Polygone sind deshalb
+weiterhin **prüfpflichtige Zwischenprodukte**.
