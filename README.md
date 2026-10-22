@@ -233,3 +233,60 @@ mit den Segment-Faces gleicher originaler `edge_id`
 vereinigt; die regulären strengen Geometrieprüfungen bleiben
 aktiv. Ein neuer CGAL-Lauf ist einmalig nötig, da der vorige
 gespeicherte Face-Stream nur Segment-Faces enthält.
+
+## Nächster Schritt: native Voronoi-Faces nach originaler edge_id vereinigen
+
+Der **normale Wiener Lauf** erzeugt nun statt eines strengen
+Face-Exports (der bei einer fehlerhaften linearen Halfedge früh abbrechen
+konnte) direkt ein GeoJSON aus **nach edge_id vereinigten Flächen**:
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh
+```
+
+Der native CGAL-Face-Stream und die Vorschau der Segment-Faces samt
+ursprünglichen inneren Punkt-Faces werden wiederverwendet. Danach folgt
+ein eigenständiger Dissolve pro `edge_id`. Pro `edge_id` wird genau
+**ein gültiges, zusammenhängendes Polygon** angenommen und geprüft.
+Kein `MultiPolygon`-Fallback, kein `make_valid`, keine heuristische
+Neu-Zuordnung und kein SIS-Verschnitt.
+
+Die Ergebnisse liegen in folgenden Dateien:
+
+- **Vereinigte Polygone:**
+  `output/cgal_native_faces_inner_points_pre_sis_wien.geojson`
+- **Problematische Original-Faces für QGIS:**
+  `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson`
+- **Vollständiger Diagnosebericht mit `edge_id` und Ursache:**
+  `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_report.json`
+
+Ergibt die Vereinigung einer `edge_id` mehrere getrennte Flächen,
+etwas anderes als `Polygon`, oder schlägt sie wegen ungültiger
+Original-Faces fehl, wird die ganze `edge_id` **nur im Debug** geführt.
+Andere `edge_id` werden trotzdem ausgegeben. Debug-Features enthalten
+die ursprünglichen Vorschau-Faces mit `face_number`, `generator_type`
+und `dissolve_error`.
+
+**Wichtige Genauigkeitsgrenze:** Die Vorschau kann fehlerhafte
+CGAL-Halfedges durch gerade Endpunkt-Sehnen ersetzen. Das gilt auch
+für einen Dissolve, der formal gültige Polygone erzeugt. Daher sind
+diese Outputs weiterhin als **prüfpflichtiges Zwischenprodukt**
+(`preview_based=true`) markiert, nicht als geprüfter CGAL-/SIS-Export.
+
+Wer die bereits vorhandene Vorschau **ohne** erneute
+Segmentaufbereitung/CGAL-Verifikation sofort vereinigen möchte, kann
+direkt diesen Schritt ausführen:
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen/code
+../.venv/bin/python -m scripts.dissolve_cgal_preview \
+	--preview ../output/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson \
+	--out ../output/cgal_native_faces_inner_points_pre_sis_wien.geojson \
+	--debug ../output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson \
+	--report ../output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_report.json
+```
+
+Dabei ist keine weitere CGAL-Berechnung nötig. Bestehende Dateien
+werden nicht automatisch gelöscht oder überschrieben.
