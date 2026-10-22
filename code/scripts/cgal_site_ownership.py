@@ -70,7 +70,7 @@ def read_sites(path,owners,origin):
 
 
 def attribute_faces(faces,site_segments,site_stats,*,window=None):
-	"""Attribute only polygons containing positive length of a CGAL segment site.
+	"""Attribute polygons whose INTERIOR contains positive length of a CGAL site.
 
 	No source-line 1:1 assumption. Many distinct segment sites of the same
 	edge_id may legitimately contribute to one reconstructed polygon.
@@ -82,6 +82,10 @@ def attribute_faces(faces,site_segments,site_stats,*,window=None):
 	errors=[]
 	failed_segment_sites=0
 	off_window_segment_sites=0
+	boundary_only_contacts=0
+	sites_with_boundary_contacts=0
+	sites_with_multiple_interior_faces=0
+	sites_only_on_boundaries=0
 	polygon_sites=defaultdict(int)
 	for site_number,edge_id,segment in site_segments:
 		# A source LINEAR_USE polyline can extend beyond the Vienna AOI.
@@ -91,21 +95,39 @@ def attribute_faces(faces,site_segments,site_stats,*,window=None):
 			off_window_segment_sites+=1
 			continue
 		matches=tree.query(segment,predicate="intersects")
-		positive=[]
-		for idx in matches:
-			idx=int(idx)
-			length=segment.intersection(faces[idx]).length
-			if length>1e-8:
-				positive.append(idx)
-		if len(positive)!=1:
+		interior=[]
+		boundary=[]
+		for index in matches:
+			idx=int(index)
+			# DE-9IM first position: segment interior ∩ polygon interior.
+			# Dimension 1 means a *positive-length* segment lies inside
+			# the polygon. Geometric intersection length also includes
+			# segments lying entirely along a polygon boundary.
+			if segment.relate_pattern(faces[idx],"1********"):
+				interior.append(idx)
+			elif segment.intersection(faces[idx]).length>1e-8:
+				boundary.append(idx)
+		if boundary:
+			sites_with_boundary_contacts+=1
+			boundary_only_contacts+=len(boundary)
+		if len(interior)!=1:
 			failed_segment_sites+=1
+			if len(interior)>1:
+				sites_with_multiple_interior_faces+=1
+			if not interior and boundary:
+				sites_only_on_boundaries+=1
 			if len(errors)<30:
 				errors.append({"site_line":site_number,"edge_id":edge_id,
-					"reason":"site_crosses_multiple_faces" if positive
-					else "site_has_no_face",
-					"positive_faces":len(positive)})
+					"reason":"site_crosses_multiple_face_interiors"
+						if len(interior)>1 else
+						"site_only_on_face_boundaries" if boundary else
+						"site_has_no_face",
+					"interior_face_indices":sorted(interior),
+					"boundary_face_indices":sorted(boundary),
+					"interior_faces":len(interior),
+					"boundary_faces":len(boundary)})
 			continue
-		idx=positive[0]
+		idx=interior[0]
 		candidates[idx].add(edge_id)
 		polygon_sites[idx]+=1
 	labels=[]
@@ -126,11 +148,15 @@ def attribute_faces(faces,site_segments,site_stats,*,window=None):
 		"polygons_with_segment_edge_id":sum(label is not None for label in labels),
 		"polygons_without_segment_edge_id":sum(label is None for label in labels),
 		"segment_sites_without_unique_face":failed_segment_sites,
+		"sites_with_multiple_face_interiors":sites_with_multiple_interior_faces,
+		"sites_only_on_face_boundaries":sites_only_on_boundaries,
+		"sites_with_boundary_contacts":sites_with_boundary_contacts,
+		"ignored_boundary_only_intersections":boundary_only_contacts,
 		"polygons_with_conflicting_segment_edge_id":conflicts,
-		"attribution":"native_cgal_segment_sites_supporting_input",
+		"attribution":"native_cgal_segment_sites_polygon_interior_de9im",
 		"point_site_attribution":False,
 		"provenance_errors":errors})
-	# The first list is bounded; separately track all failed sites.
+	# The diagnostic examples are bounded, but all failures are counted.
 	# A missing or split segment site must never be silently accepted.
 	return labels,stats
 
