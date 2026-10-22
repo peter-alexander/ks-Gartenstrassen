@@ -14,6 +14,7 @@ upstream results; writes the final GeoJSON atomically.
 import argparse
 from collections import Counter
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -226,39 +227,54 @@ def _recover_collapsed_metric_input(source_wgs,projected_metric):
 
 
 def _repair_metric_self_intersection(source_wgs,metric,to_wgs):
-	"""Only accept make_valid if it changes under 0.01 m² of real WGS84 area.
+	"""Audit a metric self-intersection without attributing CRS drift to make_valid.
 
-	Unlike simple total-area subtraction, the symmetric difference
-	detects spatially relocated or damaged geometry.
+	Return (candidate, measurements). The candidate is rejected only when
+	its repair changes more than 0.01 m² of spatial footprint; report
+	exactly which independent check prevented acceptance.
 	"""
+	details={"method":"make_valid_metric_verified_against_unrepaired_roundtrip",
+		"change_budget_m2":0.01}
 	if not explain_validity(metric).startswith("Self-intersection"):
-		return None
-	pieces=_polygonal_parts(make_valid(metric))
-	if not pieces:
-		return None
-	candidate=union_all(pieces)
-	if not isinstance(candidate,(Polygon,MultiPolygon)) or candidate.is_empty or not candidate.is_valid:
-		return None
-	compare=transform(to_wgs,candidate)
-	if not isinstance(compare,(Polygon,MultiPolygon)) or compare.is_empty or not compare.is_valid:
-		return None
-	# Compare with the UNREPAIRED metric polygon after the SAME
-	# inverse projection. Comparing directly with source_wgs wrongly
-	# includes normal WGS84 -> EPSG:31256 -> WGS84 roundtrip drift.
-	unrepaired_roundtrip=transform(to_wgs,metric)
-	changed=unrepaired_roundtrip.symmetric_difference(compare)
-	geod=Geod(ellps="WGS84")
-	changed_area=sum(abs(geod.geometry_area_perimeter(part)[0])
-		for part in _polygonal_parts(changed))
-	if changed_area>0.01:
-		return None
-	return candidate,{
-		"method":"make_valid_metric_verified_against_unrepaired_roundtrip",
-		"changed_geodesic_area_m2":changed_area,
-		"comparison":"unrepaired_metric_wgs84_roundtrip_vs_repaired_metric_wgs84",
-		"change_budget_m2":0.01,
-		"repaired_metric_type":candidate.geom_type,
-	}
+		details["failure"]="not_self_intersection"
+		return None,details
+	try:
+		validated=make_valid(metric)
+		pieces=_polygonal_parts(validated)
+		details["make_valid_type"]=validated.geom_type
+		if not pieces:
+			details["failure"]="make_valid_no_polygonal_parts"
+			return None,details
+		candidate=pieces[0] if len(pieces)==1 else union_all(pieces)
+		details["repaired_metric_type"]=candidate.geom_type
+		details["repaired_metric_valid"]=bool(candidate.is_valid)
+		if not isinstance(candidate,(Polygon,MultiPolygon)) or candidate.is_empty or not candidate.is_valid:
+			details["failure"]="invalid_metric_candidate"
+			return None,details
+		compare=transform(to_wgs,candidate)
+		roundtrip=transform(to_wgs,metric)
+		details["repaired_wgs84_valid"]=bool(compare.is_valid)
+		# WGS84 validity is checked later on the actual SIS-clipped
+		# geometry. It is not a prerequisite for comparing the repair
+		# footprint here: the pre-repair roundtrip is itself invalid.
+		details["unrepaired_wgs84_valid"]=bool(roundtrip.is_valid)
+		if not isinstance(compare,(Polygon,MultiPolygon)) or compare.is_empty:
+			details["failure"]="non_polygonal_roundtrip"
+			return None,details
+		changed=roundtrip.symmetric_difference(compare)
+		geod=Geod(ellps="WGS84")
+		changed_area=sum(abs(geod.geometry_area_perimeter(part)[0])
+			for part in _polygonal_parts(changed))
+		details["changed_geodesic_area_m2"]=changed_area
+		if not math.isfinite(changed_area) or changed_area>0.01:
+			details["failure"]="changed_area_exceeds_budget"
+			return None,details
+		details["failure"]=None
+		return candidate,details
+	except Exception as exc:
+		details["failure"]="geometric_audit_exception"
+		details["exception"]=f"{type(exc).__name__}: {exc}"
+		return None,details
 
 
 def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
@@ -357,19 +373,24 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	if (isinstance(metric,(Polygon,MultiPolygon)) and
 			not metric.is_empty and not metric.is_valid and
 			explain_validity(metric).startswith("Self-intersection")):
-		fixed=_repair_metric_self_intersection(geom,metric,to_wgs)
-		if fixed is not None:
-			metric,metric_repair=fixed
+		candidate,report=_repair_metric_self_intersection(geom,metric,to_wgs)
+		if candidate is not None:
+			metric,metric_repair=candidate,report
 			stats["input_metric_self_intersections_repaired"]+=1
-			stats["input_metric_self_intersection_changed_area_m2"]+=metric_repair[
+			stats["input_metric_self_intersection_changed_area_m2"]+=report[
 				"changed_geodesic_area_m2"]
+		else:
+			raise ValueError(
+				f"{props['edge_id']}: metrische Selbstüberschneidung "
+				f"({explain_validity(metric)}), Reparaturprüfung: "
+				f"{json.dumps(report,ensure_ascii=False)}")
 	if not isinstance(metric,(Polygon,MultiPolygon)) or metric.is_empty or not metric.is_valid or metric.area<=0:
 		raise ValueError(
 			f"{props['edge_id']}: ungültige metrische CGAL-Eingabe "
 			f"({explain_validity(metric)}); "
 			"kontrollierte Korrektur mit höchstens 0,01 m² tatsächlicher "
 			"Flächenabweichung nicht möglich")
-	stats["pre_sis_area_sum_m2"]+=metric.area
+		stats["pre_sis_area_sum_m2"]+=metric.area
 	# Same proven SIS WFS-index RTree/geometry union used by the
 	# existing SIS-V2 street mask, including ALL BELAG and TYPE values.
 	clip=sis_mask(db,metric)
