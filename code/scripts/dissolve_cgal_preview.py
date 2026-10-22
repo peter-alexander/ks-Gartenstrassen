@@ -13,8 +13,15 @@ that larger hull from the remaining post-cut Faces, then retry the union.
 A recovered edge_id is moved to regular output at the first successful
 stage; the final debug shows the geometry after the last attempted cut.
 
-One valid contiguous Polygon per edge_id is written to the regular
-GeoJSON. If any source polygon is invalid, the union fails, or the
+At each successful buffer stage, the contiguous residual polygon is
+ONLY a spatial selection geometry: match it against the valid ORIGINAL
+native CGAL Faces of that same edge_id using positive-area overlap,
+then union the selected UNCLIPPED original Faces for the regular output.
+That restored output may be Polygon or MultiPolygon; never assign
+ownership across edge_ids or accept a boundary-touch-only match.
+
+For edge_ids already valid before the buffer loop, the previous
+post-TURN_USE-cut Polygon output remains unchanged. If any source polygon is invalid, the union fails, or the
 result is not a single valid Polygon, the entire edge_id is put into
 a JSON failure report and ALL its post-cut Face geometries into a separate
 debug GeoJSON. Other edge_ids continue processing.
@@ -38,7 +45,7 @@ import tempfile
 
 from pyproj import Transformer
 from shapely import union_all
-from shapely.geometry import Polygon, mapping, shape
+from shapely.geometry import Polygon, MultiPolygon, mapping, shape
 from shapely.ops import transform
 from shapely.strtree import STRtree
 
@@ -47,7 +54,7 @@ from scripts.wienwide_grid import load_aoi
 from shapely.validation import explain_validity
 
 
-SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v4-buffer-retry"
+SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v5-original-face-restore"
 
 
 def _json_line_features(path):
@@ -144,9 +151,50 @@ def _write_feature(stream,feature,first):
 	return False
 
 
+def _restore_original_faces(candidate,original_faces,to_wgs):
+	"""Use a recovered residual ONLY to select native Faces of SAME edge_id.
+
+	The original Faces are pre-TURN_USE (and pre-buffer) metric geometries.
+	Require positive overlap area: mere common boundaries cannot select
+	unrelated original Faces. No cross-edge_id joins, clipping, buffering,
+	make_valid or spatial owner reassignment. MultiPolygon is allowed.
+	"""
+	if not isinstance(candidate,Polygon) or candidate.is_empty or not candidate.is_valid:
+		raise ValueError("Wiederherstellung benötigt gültigen Polygon-Kandidaten")
+	if not original_faces:
+		raise ValueError("Keine ursprünglichen CGAL-Faces verfügbar")
+	geoms=[geom for _,geom in original_faces]
+	tree=STRtree(geoms)
+	selected=[]
+	matched_numbers=[]
+	for i in tree.query(candidate,predicate="intersects"):
+		number,original=original_faces[int(i)]
+		if not isinstance(original,Polygon) or original.is_empty or not original.is_valid:
+			raise ValueError(f"Face {number}: ursprüngliches Polygon ungültig")
+		overlap=original.intersection(candidate)
+		if overlap.area<=0:
+			continue
+		selected.append(original)
+		matched_numbers.append(number)
+	if not selected:
+		raise ValueError("Kein ursprüngliches Polygon mit positiver Flächenüberschneidung")
+	restored=union_all(selected)
+	if not isinstance(restored,(Polygon,MultiPolygon)) or restored.is_empty or not restored.is_valid:
+		raise ValueError("Vereinigte ursprüngliche Faces ergeben kein gültiges Polygon/MultiPolygon")
+	wgs=transform(to_wgs,restored)
+	if not isinstance(wgs,(Polygon,MultiPolygon)) or wgs.is_empty or not wgs.is_valid:
+		raise ValueError("Ursprüngliche Faces ergeben kein gültiges WGS84 Polygon/MultiPolygon")
+	return {
+		"geometry":restored,
+		"matched_face_numbers":sorted(matched_numbers),
+		"matched_face_count":len(matched_numbers),
+		"buffer_candidate_area_m2":candidate.area,
+	}
+
+
 def _retry_buffered_hulls(
 		debug_surfaces,initial_reason,initial_detail,hull_geometries,
-		buffer_cache,to_wgs,stats):
+		buffer_cache,original_faces,to_wgs,stats):
 	"""Progressively cut only FAILED edge_ids, in metric EPSG:31256.
 
 	Each stage buffers the ORIGINAL convex hull by an absolute radius
@@ -271,13 +319,23 @@ def _retry_buffered_hulls(
 					reason="output_geometry_error"
 					detail=f"+{radius} m: ungültiges WGS84-Polygon"
 				else:
-					stats[f"buffer_{radius}m_recovered_edge_ids"]+=1
-					return (surfaces,None,None,merged,radius,attempted)
+					# The buffered Polygon is a SELECTION FOOTPRINT only.
+					# Restore the complete original Faces it overlaps, and
+					# do not require their union to be contiguous.
+					try:
+						restored=_restore_original_faces(
+							merged,original_faces,to_wgs)
+						except Exception as exc:
+						reason="original_face_restore_error"
+						detail=f"+{radius} m: {type(exc).__name__}: {exc}"
+					else:
+						stats[f"buffer_{radius}m_recovered_edge_ids"]+=1
+						return (surfaces,None,None,merged,radius,attempted,restored)
 		except Exception as exc:
 			reason="union_error"
 			detail=f"+{radius} m: {type(exc).__name__}: {exc}"
 		stats[f"buffer_{radius}m_still_debug"]+=1
-	return surfaces,reason,detail,None,None,attempted
+	return surfaces,reason,detail,None,None,attempted,None
 
 
 def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
@@ -331,6 +389,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 						(edge_id,)).fetchall()
 					stats["edge_ids_checked"]+=1
 					parts=[]
+					original_faces=[]
 					area_sum=0.0
 					types=Counter()
 					fallback_count=0
@@ -368,6 +427,9 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 								item_detail=f"Face {number}: {explain_validity(metric)}"
 								cut_status="projection_invalid"
 								continue
+							# Save only validated original Faces belonging
+							# to THIS edge_id before any TURN_USE subtraction.
+							original_faces.append((number,metric))
 							debug_metric=metric
 							cut_status="unchanged"
 							# Historical TURN_USE convex junction cut, always
@@ -451,26 +513,27 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 					initial_reason=reason
 					attempted=[]
 					recovered_at_m=0
+					restored_original=None
 					if reason is not None and hull_tree is not None:
 						stats["buffer_retry_edge_ids"]+=1
 						(debug_surfaces,reason,detail,recovered_joined,
-							recovered_radius,attempted)=_retry_buffered_hulls(
+							recovered_radius,attempted,restored_original)=_retry_buffered_hulls(
 							debug_surfaces,reason,detail,hull_geometries,
-							buffer_cache,to_wgs,stats)
+							buffer_cache,original_faces,to_wgs,stats)
 						if recovered_radius is not None:
-							joined=recovered_joined
+							# The valid residual is only used to MATCH originals.
+							joined=restored_original["geometry"]
 							recovered_at_m=recovered_radius
-							area_sum=sum(geom.area for _,geom,_,_ in debug_surfaces
-								if geom is not None and not geom.is_empty)
-							recovered_edge_ids.append({
-								"edge_id":edge_id,"buffer_m":recovered_at_m,
-								"initial_reason":initial_reason})
+							area_sum=sum(geom.area for _,geom in original_faces
+								if number in restored_original["matched_face_numbers"])
 					if reason is None:
 						try:
 							wgs=transform(to_wgs,joined)
-							if not isinstance(wgs,Polygon) or not wgs.is_valid or wgs.is_empty:
+							if (not isinstance(wgs,(Polygon,MultiPolygon))
+									or (recovered_at_m==0 and not isinstance(wgs,Polygon))
+									or not wgs.is_valid or wgs.is_empty):
 								raise ValueError(
-									"Projektion liefert kein gültiges Einzelpolygon")
+									"Projektion liefert kein gültiges erlaubtes Polygon/MultiPolygon")
 							new_feature={
 								"type":"Feature",
 								"properties":{
@@ -484,9 +547,26 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 									"sis_clipped":False,
 									"turn_use_hulls_removed":bool(hull_geometries),
 									"turn_use_buffer_m":recovered_at_m,
-									"recovered_by_buffer":recovered_at_m>0},
+									"recovered_by_buffer":recovered_at_m>0,
+									"geometry_from_original_faces":recovered_at_m>0,
+									"matched_original_face_count":(
+										restored_original["matched_face_count"] if restored_original else 0),
+									"buffer_candidate_area_m2":(
+										restored_original["buffer_candidate_area_m2"] if restored_original else None)},
 								"geometry":mapping(wgs)}
 							first_good=_write_feature(good,new_feature,first_good)
+							if restored_original is not None:
+								recovered_edge_ids.append({
+									"edge_id":edge_id,
+									"buffer_m":recovered_at_m,
+									"initial_reason":initial_reason,
+									"result_geometry_type":joined.geom_type,
+									"matched_original_face_numbers":restored_original["matched_face_numbers"],
+									"candidate_area_m2":restored_original["buffer_candidate_area_m2"],
+									"original_union_area_m2":joined.area})
+								stats["restored_original_face_matches"]+=restored_original["matched_face_count"]
+								if isinstance(joined,MultiPolygon):
+									stats["restored_multipolygon_outputs"]+=1
 							stats["merged_polygons"]+=1
 							stats["accepted_source_faces"]+=len(rows)
 							accepted_fallbacks+=fallback_count
@@ -548,7 +628,9 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 					'"point_faces":"original_inner_vertices_only",'
 					'"dissolved_by":"edge_id","sis_clipped":false,'
 					'"turn_use_hull_cut_before_union":true,'
-					'"failed_edges_buffered_m":[1,2,3,4]}}\n')
+					'"failed_edges_buffered_m":[1,2,3,4],'
+					'"buffer_recovered_output":"union_of_positive_area_matched_original_faces",'
+					'"buffer_recovered_allows_multipolygon":true}}\n')
 				bad.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
 					'"debug_post_turn_use_cut":true,'
 					'"failed_edges_buffered_up_to_m":4,'
@@ -575,6 +657,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 			"statistics":dict(stats),
 			"accepted_fallback_source_faces":accepted_fallbacks,
 			"recovered_edge_ids":recovered_edge_ids,
+			"buffer_recovery_output":"uncut_original_native_faces_selected_by_positive_area_overlap_same_edge_id",
 			"failures":failures,
 		}
 		(stage/"report.json").write_text(json.dumps(
