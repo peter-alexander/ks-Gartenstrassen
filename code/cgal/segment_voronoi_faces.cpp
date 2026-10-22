@@ -4,11 +4,13 @@
 // stdin: integer millimetre x1 y1 x2 y2 per input segment (including frame).
 // output:
 // F sx1 sy1 sx2 sy2   -- native supporting (inserted) CGAL segment
+// P x y                 -- native point-site Face (later filtered by original-line vertex index)
 // H x1 y1 x2 y2       -- ordered halfedge from its source to its target
 // S x1 y1 x2 y2       -- one linearized bisector chord of that halfedge
 // E                    -- end halfedge
 // Z                    -- end face
-// Point-site faces deliberately not emitted or assigned.
+// Both segment and bounded point-site faces emitted with native site provenance.
+// Original LINEAR_USE ownership of point sites is resolved in Python from original vertices.
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Segment_Delaunay_graph_2.h>
 #include <CGAL/Segment_Delaunay_graph_filtered_traits_2.h>
@@ -100,27 +102,31 @@ int main(int argc,char** argv) {
 		Chords chords{out};
 		std::size_t segment_faces=0;
 		std::size_t point_faces=0;
+		std::size_t unbounded_point_faces=0;
 		std::size_t unbounded_segment_faces=0;
 		std::size_t halfedges=0;
 
 		for (auto face=vd.faces_begin();face!=vd.faces_end();++face) {
 			const auto site=face->dual()->site();
-			if (site.is_point()) {
-				++point_faces;
-				continue;
-			}
-			if (!site.is_segment())
+			if (!site.is_point() && !site.is_segment())
 				throw std::runtime_error("Unexpected CGAL site");
 			if (face->is_unbounded()) {
-				// The artificial enclosing frame is expected to own
-				// all unbounded faces. Do not fabricate a finite polygon.
-				++unbounded_segment_faces;
+				// Do not fabricate a finite polygon for an infinite Face.
+				if (site.is_point())
+					++unbounded_point_faces;
+				else
+					++unbounded_segment_faces;
 				continue;
 			}
-			const auto supporting=site.supporting_site();
-			const auto a=supporting.source(),b=supporting.target();
-			out << "F " << a.x() << " " << a.y() << " "
-				<< b.x() << " " << b.y() << "\n";
+			if (site.is_point()) {
+				const auto p=site.point();
+				out << "P " << p.x() << " " << p.y() << "\n";
+			} else {
+				const auto supporting=site.supporting_site();
+				const auto a=supporting.source(),b=supporting.target();
+				out << "F " << a.x() << " " << a.y() << " "
+					<< b.x() << " " << b.y() << "\n";
+			}
 			auto current=vd.ccb_halfedges(face);
 			auto first=current;
 			do {
@@ -137,13 +143,17 @@ int main(int argc,char** argv) {
 				++current;
 			} while (current!=first);
 			out << "Z\n";
-			++segment_faces;
+			if (site.is_point())
+				++point_faces;
+			else
+				++segment_faces;
 		}
 		if (!out.good())
 			throw std::runtime_error("Face output write failed");
 		std::cout << "{\"status\":\"ok\",\"input_segments\":" << n
 			<< ",\"segment_faces\":" << segment_faces
-			<< ",\"point_faces_omitted\":" << point_faces
+			<< ",\"point_faces_exported\":" << point_faces
+			<< ",\"unbounded_point_faces_omitted\":" << unbounded_point_faces
 			<< ",\"unbounded_segment_faces_omitted\":"
 			<< unbounded_segment_faces
 			<< ",\"halfedges\":" << halfedges
