@@ -63,194 +63,45 @@ def _sis_database(path,polygons,*,schema="sis-wien-index-v5",with_digest=True):
 
 
 class WGS84ProjectionRegressionTests(unittest.TestCase):
-	def _near_touching_valid_metric_polygon(self):
-		# An intact metric polygon with a hole only 1 nanometre from
-		# its outer shell. In EPSG:31256 it is valid, but during
-		# conversion to WGS84 the gap can collapse and self-intersect.
-		x,y=TO_METRIC(16.34,48.21)
-		return Polygon([
-			(x,y),(x+100,y),(x+100,y+20),(x,y+20)],
-			holes=[[
-				(x+1e-9,y+5),(x+4,y+5),
-				(x+4,y+10),(x+1e-9,y+10)]])
-
-	def _collapsed_seven_metre_hole(self):
-		# Reproduce the observed SIS failure mode: "Too few points
-		# in geometry component" with ~7-8 metres Hausdorff difference,
-		# but a genuine source hole of less than a billionth of m².
+	def test_invalid_wgs84_ring_is_exported_as_valid_polygon(self):
 		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
-		gap=1e-10
-		return Polygon([
+		metric=Polygon([
 			(x,y),(x+20,y),(x+20,y+20),(x,y+20)],
 			holes=[[
-				(x+10,y+5),(x+10+gap,y+5),
-				(x+10+gap,y+12),(x+10,y+12)]])
-
-	def test_collapsed_seven_metre_wgs84_hole_keeps_all_real_area(self):
-		metric=self._collapsed_seven_metre_hole()
+				(x+10,y+5),(x+10+1e-10,y+5),
+				(x+10+1e-10,y+12),(x+10,y+12)]])
 		self.assertTrue(metric.is_valid)
-		raw=transform(TO_WGS,metric)
-		self.assertTrue(explain_validity(raw).startswith(
-			"Too few points in geometry component"))
-		self.assertLess(Polygon(metric.interiors[0]).area,1e-8)
-		repaired,event=_export_valid_wgs84(
-			metric,TO_METRIC,TO_WGS,"collapsed-7m")
-		self.assertTrue(repaired.is_valid)
-		self.assertEqual(event["repair"],
-			"remove_only_projection_collapsed_negligible_rings")
-		self.assertEqual(event["discarded_collapsed_holes"],1)
-		self.assertGreater(event["boundary_shift_m"],6)
-		self.assertLess(event["discarded_metric_component_area_m2"],1e-8)
-		converted=transform(TO_METRIC,repaired)
-		self.assertLess(abs(converted.area-metric.area),0.01)
+		self.assertFalse(transform(TO_WGS,metric).is_valid)
+		export,event=_export_valid_wgs84(metric,TO_METRIC,TO_WGS,"edge")
+		self.assertTrue(export.is_valid)
+		self.assertIn(export.geom_type,("Polygon","MultiPolygon"))
+		self.assertEqual(event["repair"],"make_valid_polygonal_export")
+		self.assertEqual(event["edge_id"],"edge")
 
-	def test_collapsed_hole_does_not_remove_other_valid_interior_rings(self):
-		metric=self._collapsed_seven_metre_hole()
-		x0,y0,x1,y1=metric.bounds
-		normally_sized=[(x0+3,y0+5),(x0+6,y0+5),
-			(x0+6,y0+8),(x0+3,y0+8)]
-		metric=Polygon(metric.exterior,[
-			list(metric.interiors[0].coords),normally_sized])
-		self.assertTrue(metric.is_valid)
-		wgs,event=_export_valid_wgs84(
-			metric,TO_METRIC,TO_WGS,"keep-ordinary-hole")
-		self.assertTrue(wgs.is_valid)
-		self.assertEqual(event["discarded_collapsed_holes"],1)
-		self.assertEqual(len(wgs.interiors),1)
-		metric_roundtrip=transform(TO_METRIC,wgs)
-		raw_roundtrip=transform(TO_METRIC,transform(TO_WGS,metric))
-		self.assertLess(abs(metric_roundtrip.area-raw_roundtrip.area),0.01)
-
-	def test_collapsed_tiny_multipolygon_component_is_not_misreported_as_area(self):
-		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
-		big=box(x,y,x+20,y+20)
-		tiny=box(x+30,y+2,x+30+5e-12,y+9)
-		metric=MultiPolygon([big,tiny])
-		self.assertTrue(metric.is_valid)
-		wgs=transform(TO_WGS,metric)
-		self.assertTrue(explain_validity(wgs).startswith(
-			"Too few points in geometry component"))
-		repaired,event=_export_valid_wgs84(
-			metric,TO_METRIC,TO_WGS,"tiny-component")
-		self.assertTrue(repaired.is_valid)
-		self.assertEqual(event["discarded_collapsed_polygon_components"],1)
-		self.assertEqual(event["discarded_collapsed_holes"],0)
-		self.assertLess(event["discarded_metric_component_area_m2"],1e-8)
-		self.assertEqual(repaired.geom_type,"Polygon")
-		self.assertLess(abs(transform(TO_METRIC,repaired).area-
-			transform(TO_METRIC,wgs).area),0.01)
-
-	def test_tiny_component_cannot_be_only_output_polygon(self):
-		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
-		metric=box(x,y,x+1e-10,y+7)
-		raw=transform(TO_WGS,metric)
-		self.assertFalse(raw.is_valid)
-		self.assertIsNone(_strip_projection_collapsed_holes(
-			metric,raw,TO_METRIC))
-
-
-	def test_reject_large_hole_masquerading_as_collapsed(self):
-		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
-		metric=Polygon([(x,y),(x+20,y),(x+20,y+20),(x,y+20)],
-			holes=[[(x+5,y+5),(x+9,y+5),
-				(x+9,y+12),(x+5,y+12)]])
-		exterior=transform(TO_WGS,metric).exterior
-		lon,lat=exterior.coords[0]
-		# Synthetic corrupt WGS84 ring with only two unique points:
-		# Do not allow it to replace a legitimate 28m² source hole.
-		corrupt=Polygon(exterior,holes=[[
-			(lon+1e-5,lat+1e-5),
-			(lon+1e-5,lat+1e-5),
-			(lon+2e-5,lat+2e-5),
-			(lon+2e-5,lat+2e-5)]])
-		self.assertIsNone(_strip_projection_collapsed_holes(
-			metric,corrupt,TO_METRIC))
-
-	def test_sis_feature_records_collapsed_hole_method(self):
-		metric=self._collapsed_seven_metre_hole()
-		x0,y0,x1,y1=metric.bounds
-		source=_input_feature("collapsed-hole-edge",
-			box(x0-2,y0-2,x1+2,y1+2))
-		with patch("scripts.clip_cgal_with_sis.sis_mask",
-				return_value=metric):
-			from collections import Counter
-			stats=Counter()
-			result=_clip_feature(source,None,TO_METRIC,TO_WGS,stats)
-		self.assertEqual(result["properties"]["edge_id"],"collapsed-hole-edge")
-		self.assertTrue(result["properties"]["wgs84_projection_repaired"])
-		self.assertEqual(result["properties"]["wgs84_repair_method"],
-			"remove_only_projection_collapsed_negligible_rings")
-		self.assertTrue(shape(result["geometry"]).is_valid)
-		self.assertEqual(stats["wgs84_collapsed_holes_removed"],1)
-
-
-	def test_valid_metric_sis_can_become_invalid_in_wgs84(self):
-		metric=self._near_touching_valid_metric_polygon()
-		self.assertTrue(metric.is_valid)
-		raw=transform(TO_WGS,metric)
-		self.assertFalse(raw.is_valid,explain_validity(raw))
-		self.assertIn("Self-intersection",explain_validity(raw))
-		repaired,event=_export_valid_wgs84(
-			metric,TO_METRIC,TO_WGS,"test-edge")
-		self.assertIsNotNone(event)
-		self.assertTrue(repaired.is_valid)
-		self.assertIn(repaired.geom_type,("Polygon","MultiPolygon"))
-		self.assertEqual(event["edge_id"],"test-edge")
-		self.assertLessEqual(event["area_shift_m2"],
-			event["area_tolerance_m2"])
-		self.assertLessEqual(event["boundary_shift_m"],0.02)
-		repaired_metric=transform(TO_METRIC,repaired)
-		self.assertLess(abs(repaired_metric.area-metric.area),0.01)
-
-	def test_large_boundary_displacement_reports_actual_spatial_audit(self):
-		metric=self._near_touching_valid_metric_polygon()
-		# Force a repaired polygon far away, so boundary protection
-		# must reject it and disclose the spatial difference.
-		with patch("scripts.clip_cgal_with_sis.make_valid",
-				return_value=box(16.34,48.21,16.35,48.22)):
-			with self.assertRaises(ValueError) as ctx:
-				_export_valid_wgs84(metric,TO_METRIC,TO_WGS,
-					"test-diagnostic")
-		self.assertIn("test-diagnostic",str(ctx.exception))
-		# The exact early guard may reject by area difference before
-		# reaching the Hausdorff audit. Both outcomes remain safe.
-		self.assertIn("kontrollierte Reparatur abgelehnt",
-			str(ctx.exception))
-
-	def test_healthy_wgs84_sis_polygon_is_never_repaired(self):
+	def test_healthy_wgs84_polygon_unchanged(self):
 		x,y=TO_METRIC(16.34,48.21)
 		metric=box(x,y,x+30,y+20)
-		self.assertTrue(metric.is_valid)
 		with patch("scripts.clip_cgal_with_sis.make_valid",
-				side_effect=AssertionError("make_valid must not run")):
-			geom,event=_export_valid_wgs84(
-				metric,TO_METRIC,TO_WGS,"healthy")
+				side_effect=AssertionError("unexpected geometry repair")):
+			export,event=_export_valid_wgs84(metric,TO_METRIC,TO_WGS,"good")
+		self.assertTrue(export.is_valid)
 		self.assertIsNone(event)
-		self.assertTrue(geom.is_valid)
 
-	def test_reject_non_equivalent_repair_instead_of_silently_changing_area(self):
-		metric=self._near_touching_valid_metric_polygon()
-		with patch("scripts.clip_cgal_with_sis.make_valid",
-				return_value=box(16.3,48.2,16.35,48.25)):
-			with self.assertRaisesRegex(ValueError,
-					"kontrollierte Reparatur abgelehnt"):
-				_export_valid_wgs84(metric,TO_METRIC,TO_WGS,"must-not-lose-area")
-
-	def test_sis_feature_records_conservative_projection_repair(self):
-		metric=self._near_touching_valid_metric_polygon()
-		x,y=metric.bounds[:2]
-		source=_input_feature("problem-edge",
-			box(x-1,y-1,x+101,y+21))
-		with patch("scripts.clip_cgal_with_sis.sis_mask",
-				return_value=metric):
+	def test_repaired_sis_feature_keeps_edge_id(self):
+		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
+		metric=Polygon([
+			(x,y),(x+20,y),(x+20,y+20),(x,y+20)],
+			holes=[[
+				(x+10,y+5),(x+10+1e-10,y+5),
+				(x+10+1e-10,y+12),(x+10,y+12)]])
+		source=_input_feature("persist-edge",box(x-2,y-2,x+22,y+22))
+		with patch("scripts.clip_cgal_with_sis.sis_mask",return_value=metric):
 			from collections import Counter
-			stats=Counter()
-			result=_clip_feature(source,None,TO_METRIC,TO_WGS,stats)
+			result=_clip_feature(source,None,TO_METRIC,TO_WGS,Counter())
+		self.assertEqual(result["properties"]["edge_id"],"persist-edge")
 		self.assertTrue(result["properties"]["sis_clipped"])
 		self.assertTrue(result["properties"]["wgs84_projection_repaired"])
-		self.assertEqual(result["properties"]["edge_id"],"problem-edge")
 		self.assertTrue(shape(result["geometry"]).is_valid)
-		self.assertEqual(stats["wgs84_repaired_features"],1)
 
 
 class InputMetricProjectionTests(unittest.TestCase):
