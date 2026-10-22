@@ -1,12 +1,13 @@
 """Native CGAL input-site provenance: no point cells and no guessed owners."""
 import unittest
 from pathlib import Path
+import json
 from tempfile import TemporaryDirectory
 
 from shapely.geometry import box, LineString
 
 from scripts.cgal_site_ownership import (
-	read_sites,attribute_faces,require_sound_attribution)
+	read_sites,attribute_faces,require_sound_attribution,write_site_diagnostics)
 from scripts.build_cgal_pre_sis import _group_before_sis
 
 
@@ -48,6 +49,54 @@ class SiteOwnershipTests(unittest.TestCase):
 			self.assertEqual(stats["segment_sites_without_unique_face"],1)
 			with self.assertRaisesRegex(ValueError,"nicht eindeutig"):
 				require_sound_attribution(stats)
+
+	def test_boundary_overlap_does_not_count_as_polygon_interior(self):
+		# The site is inside the first polygon but lies on the boundary
+		# of a second (overlapping only in this artificial topology).
+		faces=[box(0,0,10,10),box(0,5,10,15)]
+		stats={"native_segment_sites":1,"native_point_sites_omitted":0,
+			"outer_frame_segment_sites_omitted":0}
+		segment=LineString([(1,5),(9,5)])
+		self.assertEqual([segment.intersection(f).length for f in faces],
+			[8.0,8.0])
+		labels,report=attribute_faces(faces,[(1,"a",segment)],stats)
+		require_sound_attribution(report)
+		self.assertEqual(labels,["a",None])
+		self.assertEqual(report["ignored_boundary_only_intersections"],1)
+		self.assertEqual(report["sites_with_boundary_contacts"],1)
+
+	def test_shared_boundary_is_not_silently_assigned(self):
+		faces=[box(0,0,10,10),box(10,0,20,10)]
+		site=(24,"a",LineString([(10,2),(10,8)]))
+		labels,report=attribute_faces(faces,[site],
+			{"native_segment_sites":1,"native_point_sites_omitted":0,
+				"outer_frame_segment_sites_omitted":0})
+		self.assertEqual(labels,[None,None])
+		self.assertEqual(report["sites_only_on_face_boundaries"],1)
+		self.assertEqual(report["ignored_boundary_only_intersections"],2)
+		with self.assertRaisesRegex(ValueError,"nicht eindeutig"):
+			require_sound_attribution(report)
+		with TemporaryDirectory() as root:
+			report_path,geojson_path=write_site_diagnostics(
+				Path(root)/"result.geojson",faces,[site],report,
+				lambda x,y:(x,y))
+			self.assertEqual(json.loads(report_path.read_text())[
+				"sites_only_on_face_boundaries"],1)
+			features=json.loads(geojson_path.read_text())["features"]
+			self.assertEqual(len(features),3)
+			self.assertEqual({f["properties"]["kind"] for f in features},
+				{"segment_site","polygon_face"})
+
+	def test_multiple_polygon_interiors_is_still_rejected(self):
+		faces=[box(0,0,10,10),box(10,0,20,10)]
+		site=(35,"a",LineString([(2,5),(18,5)]))
+		labels,report=attribute_faces(faces,[site],
+			{"native_segment_sites":1,"native_point_sites_omitted":0,
+				"outer_frame_segment_sites_omitted":0})
+		self.assertEqual(labels,[None,None])
+		self.assertEqual(report["sites_with_multiple_face_interiors"],1)
+		with self.assertRaisesRegex(ValueError,"nicht eindeutig"):
+			require_sound_attribution(report)
 
 	def test_opposite_sites_same_original_edge_merge_before_sis(self):
 		geoms=[box(0,0,2,2),box(2,0,4,2),box(10,0,12,2)]
