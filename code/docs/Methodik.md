@@ -19,3 +19,22 @@ Abbruch statt zu einer heuristischen Korrektur.
 Nach der Zellzuordnung erfolgt die Vereinigung nach `edge_id`
 und räumlichem Zusammenhang, anschließend ein GeoJSON-Export.
 **SIS kommt in diesem Schritt nicht vor.**
+
+## Schnittprüfung und Reproduzierbarkeit
+
+Nur positive Linienanteile innerhalb der Polygoninnenfläche
+(`LineString.relate_pattern(Polygon, "1********")`) zählen als
+Site-Zuordnung. Getrennt dokumentiert werden Randüberlagerungen,
+Mehrfachtreffer verschiedener Polygoninnenflächen und Sites ohne
+Innenflächentreffer. Punktzellen werden weiterhin **nicht** zugewiesen.
+
+Weil die Wiener CGAL-Polygonisierung teuer ist, werden nach der
+Polygonisierung alle Voronoi-Polygone sowie die auf originale
+`edge_id` zurückgeführten Segment-Sites in einer SQLite-Datei
+zwischengespeichert. Der Cache prüft die Prüfsummen der Originaldaten,
+der AOI, des CGAL-Binarys und der Geometrieaufbereitung. Er dient
+nur zur Wiederholung der Zuordnung ohne neue CGAL-Polygonisierung.
+
+Bei nicht eindeutigen Site-Zuordnungen erzeugen wir zusätzlich eine
+GeoJSON-Diagnose mit Segment-Sites und beteiligten Polygonflächen.
+Keine automatische Zuordnung aus bloßen Grenzkontakten.

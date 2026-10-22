@@ -10,7 +10,11 @@ import math
 from pathlib import Path
 from collections import defaultdict
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, mapping
+from shapely.ops import transform
+import os
+import tempfile
+from datetime import datetime, timezone
 from shapely.strtree import STRtree
 
 from scripts.cgal_segment_input import SCALE
@@ -70,7 +74,7 @@ def read_sites(path,owners,origin):
 
 
 def attribute_faces(faces,site_segments,site_stats,*,window=None):
-	"""Attribute only polygons containing positive length of a CGAL segment site.
+	"""Attribute polygons whose INTERIOR contains positive length of a CGAL site.
 
 	No source-line 1:1 assumption. Many distinct segment sites of the same
 	edge_id may legitimately contribute to one reconstructed polygon.
@@ -82,6 +86,10 @@ def attribute_faces(faces,site_segments,site_stats,*,window=None):
 	errors=[]
 	failed_segment_sites=0
 	off_window_segment_sites=0
+	boundary_only_contacts=0
+	sites_with_boundary_contacts=0
+	sites_with_multiple_interior_faces=0
+	sites_only_on_boundaries=0
 	polygon_sites=defaultdict(int)
 	for site_number,edge_id,segment in site_segments:
 		# A source LINEAR_USE polyline can extend beyond the Vienna AOI.
@@ -91,21 +99,39 @@ def attribute_faces(faces,site_segments,site_stats,*,window=None):
 			off_window_segment_sites+=1
 			continue
 		matches=tree.query(segment,predicate="intersects")
-		positive=[]
-		for idx in matches:
-			idx=int(idx)
-			length=segment.intersection(faces[idx]).length
-			if length>1e-8:
-				positive.append(idx)
-		if len(positive)!=1:
+		interior=[]
+		boundary=[]
+		for index in matches:
+			idx=int(index)
+			# DE-9IM first position: segment interior ∩ polygon interior.
+			# Dimension 1 means a *positive-length* segment lies inside
+			# the polygon. Geometric intersection length also includes
+			# segments lying entirely along a polygon boundary.
+			if segment.relate_pattern(faces[idx],"1********"):
+				interior.append(idx)
+			elif segment.intersection(faces[idx]).length>1e-8:
+				boundary.append(idx)
+		if boundary:
+			sites_with_boundary_contacts+=1
+			boundary_only_contacts+=len(boundary)
+		if len(interior)!=1:
 			failed_segment_sites+=1
+			if len(interior)>1:
+				sites_with_multiple_interior_faces+=1
+			if not interior and boundary:
+				sites_only_on_boundaries+=1
 			if len(errors)<30:
 				errors.append({"site_line":site_number,"edge_id":edge_id,
-					"reason":"site_crosses_multiple_faces" if positive
-					else "site_has_no_face",
-					"positive_faces":len(positive)})
+					"reason":"site_crosses_multiple_face_interiors"
+						if len(interior)>1 else
+						"site_only_on_face_boundaries" if boundary else
+						"site_has_no_face",
+					"interior_face_indices":sorted(interior),
+					"boundary_face_indices":sorted(boundary),
+					"interior_faces":len(interior),
+					"boundary_faces":len(boundary)})
 			continue
-		idx=positive[0]
+		idx=interior[0]
 		candidates[idx].add(edge_id)
 		polygon_sites[idx]+=1
 	labels=[]
@@ -126,11 +152,15 @@ def attribute_faces(faces,site_segments,site_stats,*,window=None):
 		"polygons_with_segment_edge_id":sum(label is not None for label in labels),
 		"polygons_without_segment_edge_id":sum(label is None for label in labels),
 		"segment_sites_without_unique_face":failed_segment_sites,
+		"sites_with_multiple_face_interiors":sites_with_multiple_interior_faces,
+		"sites_only_on_face_boundaries":sites_only_on_boundaries,
+		"sites_with_boundary_contacts":sites_with_boundary_contacts,
+		"ignored_boundary_only_intersections":boundary_only_contacts,
 		"polygons_with_conflicting_segment_edge_id":conflicts,
-		"attribution":"native_cgal_segment_sites_supporting_input",
+		"attribution":"native_cgal_segment_sites_polygon_interior_de9im",
 		"point_site_attribution":False,
 		"provenance_errors":errors})
-	# The first list is bounded; separately track all failed sites.
+	# The diagnostic examples are bounded, but all failures are counted.
 	# A missing or split segment site must never be silently accepted.
 	return labels,stats
 
@@ -140,3 +170,71 @@ def require_sound_attribution(stats):
 			"polygons_with_conflicting_segment_edge_id"]:
 		raise ValueError("CGAL-Segment-Site-Zuordnung ist nicht eindeutig: "
 			+json.dumps(stats["provenance_errors"][:5],ensure_ascii=False))
+
+
+def write_site_diagnostics(output,faces,sites,stats,to_wgs):
+	"""Preserve inspectable native-site failures before rejecting the run.
+
+	Only the bounded example set is exported; counts are complete.
+	This output is independent of SIS, and never overwrites older files.
+	"""
+	path=Path(output)
+	report=path.with_name(path.stem+"__site_zuordnung.json")
+	geojson=path.with_name(path.stem+"__site_konflikte.geojson")
+	for target in (report,geojson):
+		if target.is_symlink():
+			raise ValueError(f"CGAL-Site-Diagnose darf kein Symlink sein: {target}")
+		if target.exists():
+			stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+			previous=target.with_name(target.name+".previous."+stamp)
+			suffix=0
+			while previous.exists() or previous.is_symlink():
+				suffix+=1
+				previous=target.with_name(target.name+f".previous.{stamp}.{suffix}")
+			os.replace(target,previous)
+	by_line={line:(edge_id,geom) for line,edge_id,geom in sites}
+	features=[]
+	for error in stats["provenance_errors"]:
+		num=error.get("site_line")
+		if num is not None and num in by_line:
+			edge_id,segment=by_line[num]
+			features.append({"type":"Feature",
+				"properties":{"kind":"segment_site","site_line":num,
+					"edge_id":edge_id,"reason":error["reason"],
+					"interior_faces":error.get("interior_faces",0),
+					"boundary_faces":error.get("boundary_faces",0)},
+				"geometry":mapping(transform(to_wgs,segment))})
+			for status,key in (
+					("interior","interior_face_indices"),
+					("boundary","boundary_face_indices")):
+				for idx in error.get(key,[])[:12]:
+					features.append({"type":"Feature",
+						"properties":{"kind":"polygon_face",
+							"site_line":num,"polygon_index":idx,
+							"site_relation":status},
+						"geometry":mapping(transform(to_wgs,faces[idx]))})
+		elif "polygon_index" in error:
+			idx=error["polygon_index"]
+			features.append({"type":"Feature",
+				"properties":{"kind":"polygon_conflict",
+					"polygon_index":idx,
+					"edge_ids":error["edge_ids"]},
+				"geometry":mapping(transform(to_wgs,faces[idx]))})
+	diagnostic={"type":"FeatureCollection","features":features}
+	staged={}
+	try:
+		for target,document in ((report,stats),(geojson,diagnostic)):
+			target.parent.mkdir(parents=True,exist_ok=True)
+			with tempfile.NamedTemporaryFile(
+					mode="w",encoding="utf-8",dir=target.parent,
+					prefix=target.name+".",suffix=".tmp",delete=False) as handle:
+				staged[target]=Path(handle.name)
+				json.dump(document,handle,ensure_ascii=False,
+					indent=2 if target==report else None,allow_nan=False)
+				handle.write("\n")
+		for target in (report,geojson):
+			os.replace(staged.pop(target),target)
+	finally:
+		for tmp in staged.values():
+			tmp.unlink(missing_ok=True)
+	return report,geojson
