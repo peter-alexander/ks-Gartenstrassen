@@ -21,13 +21,15 @@ import tempfile
 from urllib.parse import quote
 
 from pyproj import Transformer
+from shapely import make_valid,union_all
 from shapely.geometry import Polygon,MultiPolygon,shape,mapping
 from shapely.ops import transform
+from shapely.validation import explain_validity
 
 from scripts.sis_wien_source import mask as sis_mask
 
 
-SCHEMA="cgal-native-faces-sis-belagsflaechen-wien-v1"
+SCHEMA="cgal-native-faces-sis-belagsflaechen-wien-v2-checked-projection-repair"
 SIS_SCHEMAS=frozenset(("sis-wien-index-v4","sis-wien-index-v5"))
 # The source WFS geometries and inverse WGS84 <-> MGI/31256 transform
 # can create sub-centimetre-wide boundary slivers on an exact boundary
@@ -85,6 +87,81 @@ def _validate_index(db):
 	return meta
 
 
+def _polygonal_parts(geom):
+	if isinstance(geom,Polygon):
+		return [geom] if not geom.is_empty else []
+	if isinstance(geom,MultiPolygon):
+		return [part for part in geom.geoms if not part.is_empty]
+	if hasattr(geom,"geoms"):
+		return [part for item in geom.geoms for part in _polygonal_parts(item)]
+	return []
+
+
+def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
+	"""Repair ONLY invalidity introduced by reprojection, with safeguards.
+
+	Metric geometry is already a valid SIS intersection. We never
+	change it or its edge_id. In exceptional cases floating-point
+	round-trip makes the WGS84 geometry topologically invalid. Only
+	a make_valid polygonal result demonstrably indistinguishable at
+	the projected geometry precision is admissible. Never buffer(0)
+	blindly or silently skip an edge_id.
+	"""
+	wgs=transform(to_wgs,metric)
+	if isinstance(wgs,(Polygon,MultiPolygon)) and not wgs.is_empty and wgs.is_valid:
+		return wgs,None
+	if wgs.is_empty or not isinstance(wgs,(Polygon,MultiPolygon)):
+		raise ValueError(f"{edge_id}: SIS->WGS84 ist leer oder nicht polygonal")
+	invalidity=explain_validity(wgs)
+	try:
+		repaired=make_valid(wgs)
+		pieces=_polygonal_parts(repaired)
+		if not pieces:
+			raise ValueError("make_valid liefert keine polygonalen Bestandteile")
+		candidate=union_all(pieces)
+		if (not isinstance(candidate,(Polygon,MultiPolygon))
+				or candidate.is_empty or not candidate.is_valid):
+			raise ValueError("make_valid-Polygone ergeben keine gültige Fläche")
+		# Both candidates are projected BACK from the identical WGS84
+		# coordinates; this isolates the tiny repair from the ordinary
+		# curved datum-transformation difference to the source Polygon.
+		roundtrip=transform(to_metric,wgs)
+		verified=transform(to_metric,candidate)
+		if not verified.is_valid or verified.is_empty:
+			raise ValueError("Reparierte Fläche ist in EPSG:31256 ungültig")
+		area_shift=abs(verified.area-roundtrip.area)
+		# 0.01 m² absolute and 1e-6 relative to the clipped area.
+		area_tolerance=max(0.01,metric.area*1e-6)
+		if area_shift>area_tolerance:
+			raise ValueError(
+				f"Flächendifferenz nach Reparatur {area_shift:.6g} m² "
+				f"größer als Toleranz {area_tolerance:.6g} m²")
+		# GEOS can validate a polygon after a wholesale rearrangement.
+		# Demand its boundary remains within 2 cm of the ORIGINAL
+		# (WGS84 -> metric roundtrip) rings.
+		boundary_distance=roundtrip.boundary.hausdorff_distance(
+			verified.boundary)
+		if boundary_distance>0.02:
+			raise ValueError(
+				f"Randabweichung nach Reparatur {boundary_distance:.6g} m "
+				"überschreitet 0.02 m")
+		event={
+			"edge_id":edge_id,
+			"original_wgs84_invalidity":invalidity,
+			"repair":"shapely.make_valid / nur polygonale Bestandteile",
+			"repair_result_type":candidate.geom_type,
+			"area_shift_m2":area_shift,
+			"area_tolerance_m2":area_tolerance,
+			"boundary_shift_m":boundary_distance,
+		}
+		return candidate,event
+	except Exception as exc:
+		raise ValueError(
+			f"{edge_id}: ungültiger WGS84-SIS-Polygonschnitt "
+			f"({invalidity}); kontrollierte Reparatur abgelehnt: {exc}"
+		) from exc
+
+
 def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	props=feature.get("properties")
 	if not isinstance(props,dict) or not isinstance(props.get("edge_id"),str) or not props["edge_id"]:
@@ -109,9 +186,10 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	# Guard area against accidental expansion / wrong mask.
 	if clip.difference(metric).area>max(.01,metric.area*1e-9):
 		raise ValueError(f"{props['edge_id']}: SIS-Ergebnis überschreitet ursprüngliche CGAL-Fläche")
-	wgs=transform(to_wgs,clip)
-	if not isinstance(wgs,(Polygon,MultiPolygon)) or wgs.is_empty or not wgs.is_valid:
-		raise ValueError(f"{props['edge_id']}: ungültiger WGS84-SIS-Polygonschnitt")
+	wgs,repair=_export_valid_wgs84(clip,to_metric,to_wgs,props["edge_id"])
+	if repair is not None:
+		stats["wgs84_repaired_features"]+=1
+		stats["wgs84_repair_area_shift_m2"]+=repair["area_shift_m2"]
 	outprops=dict(props)
 	outprops.update({
 		"pre_sis_area_m2":metric.area,
@@ -120,6 +198,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 		"sis_provider":"SISBELAGOGD",
 		"sis_mask":"all_belags_all_types",
 		"sis_min_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
+		"wgs84_projection_repaired":repair is not None,
 	})
 	stats["features_with_sis_overlap"]+=1
 	stats["sis_overlap_area_sum_m2"]+=clip.area
@@ -179,6 +258,7 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 					"sis_sha256":meta["sha256"],
 					"sis_mask":"all_belags_all_types",
 					"minimum_intersection_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
+					"wgs84_repair_method":"make_valid_only_if_roundtrip_area_and_boundary_unchanged",
 					"debug_stage":"after_turn_use_and_250m2_before_sis",
 					"pre_sis_intermediate_not_published":True,
 					"statistics":dict(stats),
@@ -193,7 +273,8 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 	print(f"SIS-Verschnitt: {stats['pre_sis_features']:,} CGAL-edge_ids, "
 		f"{stats['features_with_sis_overlap']:,} SIS-Flächen, "
 		f"{stats['without_sis_overlap']:,} ohne Überdeckung, "
-		f"{stats['sis_multipolygon_features']:,} MultiPolygone; "
+		f"{stats['sis_multipolygon_features']:,} MultiPolygone, "
+		f"{stats['wgs84_repaired_features']:,} konservative WGS84-Korrekturen; "
 		f"Ausgabe: {out}",flush=True)
 	return dict(stats)
 

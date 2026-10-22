@@ -567,3 +567,31 @@ Abbruch **ohne Publikation ungeclippter Endgeometrien**.
 aus der vorläufigen Vorschau mit ggf. geraden Ersatzchords und sind
 noch nicht als geometrisch exakte native CGAL-Flächen abgesichert.
 Der SIS-Schnitt macht das Zwischenergebnis nicht automatisch exakt.
+
+
+### SIS-Schnitt: numerisch ungültige WGS84-Geometrie
+
+Ein in **EPSG:31256 gültiges** SIS-Schnittpolygon kann beim Umrechnen
+nach **WGS84** durch beinahe zusammenfallende Koordinaten ungültig
+werden. Nur **in diesem Fall** wird die exportierte WGS84-Geometrie
+konservativ mit `shapely.make_valid` behandelt:
+ausschließlich polygonale Bestandteile, nur bei gültigem Ergebnis,
+Flächenänderung im metrischen WGS84-Rückweg höchstens
+`max(0,01 m², 1e-6 × SIS-Schnittfläche)` und
+Randverschiebung höchstens **2 cm** gegenüber den ursprünglichen
+WGS84-Koordinaten im metrischen Rückweg. Die metrische
+SIS-Schnittfläche wird dabei **nicht** verändert. Erfolgreiche
+Korrekturen werden mit
+`wgs84_projection_repaired=true` markiert und gezählt.
+Materielle Veränderungen werden abgelehnt statt unbemerkt übernommen.
+
+Schlägt der finale SIS-Schritt fehl, bleibt das vollständige
+**Vor-SIS-Dissolve-Zwischenergebnis** in seinem
+`cache/wien/.cgal-sis-stage-…`-Verzeichnis erhalten.
+Der Runner gibt dann einen ausführbaren
+`python -m scripts.clip_cgal_with_sis`-Befehl mit
+den tatsächlich verwendeten Pfaden aus. Damit ist ein
+SIS-Neustart **ohne weitere CGAL-Dissolve-Berechnung** möglich;
+die ursprüngliche Debug-Stufe bleibt ebenfalls erhalten.
+Bei erfolgreichem regulärem Gesamtlauf wird dieser temporäre
+Zwischenstand wie bisher entfernt.

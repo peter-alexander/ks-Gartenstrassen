@@ -95,7 +95,24 @@ done
 # Intermediäres Pre-SIS-GeoJSON und Bericht bleiben TEMPORÄR.
 # Das reguläre output/ erhält nur das fertige SIS-Ergebnis und Debug.
 WORK="$(mktemp -d "$REPO/cache/wien/.cgal-sis-stage-XXXXXXXX")"
-trap 'rm -rf -- "$WORK"' EXIT
+PIPELINE_FINISHED=0
+cleanup_cgal_sis_stage() {
+	local result=$?
+	if [[ "$PIPELINE_FINISHED" == 1 ]]; then
+		rm -rf -- "$WORK"
+	else
+		echo "SIS-Pipeline wurde nicht erfolgreich abgeschlossen." >&2
+		echo "Zwischenergebnisse für gezielten SIS-Neustart erhalten: $WORK" >&2
+		if [[ -s "$WORK/cgal_dissolved_before_sis.geojson" ]]; then
+			echo "Ohne erneuten CGAL-Dissolve ausschließlich SIS-Verschnitt starten:" >&2
+			printf 'cd %q && %q -m scripts.clip_cgal_with_sis --pre-sis %q --sis-db %q --out %q --replace-existing\n' \
+				"$REPO/code" "$PYTHON" "$WORK/cgal_dissolved_before_sis.geojson" \
+				"$SIS_DB" "$OUT" >&2
+		fi
+	fi
+	return "$result"
+}
+trap cleanup_cgal_sis_stage EXIT
 PREVIEW="$REPO/cache/wien/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson"
 PRE_SIS="$WORK/cgal_dissolved_before_sis.geojson"
 DEBUG_STAGE="$WORK/debug_before_sis.geojson"
@@ -132,3 +149,4 @@ rm -f -- \
 
 echo "SIS-Ausgabe: $OUT"
 echo "Debug vor SIS: $DEBUG"
+PIPELINE_FINISHED=1
