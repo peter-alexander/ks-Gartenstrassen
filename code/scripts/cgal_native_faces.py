@@ -57,12 +57,15 @@ def _join_halfedge(chords,start,end,*,face_number,halfedge_number):
 	return coords
 
 
-def read_native_faces(path,owners,origin,window,*,progress=None):
+def read_native_faces(path,owners,origin,aoi,*,progress=None):
 	"""Return native segment polygons grouped by their original edge_id.
 
 	The owner key comes strictly from a CGAL face's supporting original
 	segment. No STRtree lookup, invented query point, or nearest-site rule.
 	"""
+	if aoi.is_empty or not aoi.is_valid:
+		raise ValueError("CGAL-Face-Prüfgebiet muss gültig und nicht leer sein")
+	minx,miny,maxx,maxy=aoi.bounds
 	groups=defaultdict(list)
 	stats=Counter()
 	face_number=0
@@ -155,6 +158,19 @@ def read_native_faces(path,owners,origin,window,*,progress=None):
 						raise ValueError(f"Face {face_number}: "
 							f"CCB nicht geschlossen ({gap:.6g} m)")
 					face_ring[-1]=face_ring[0]
+					# Geometrisch beweisbar außerhalb des Prüfgebiets:
+					# Ist die gesamte Face-Hülle disjunkt von der AOI-Hülle,
+					# kann auch eine ungültige Face die AOI nicht erreichen.
+					# Noch vor Polygon() / is_valid / intersection() ausscheiden.
+					# Kein Flächen-Fallback und keine Geometriereparatur.
+					bx0=min(pt[0] for pt in face_ring)
+					bx1=max(pt[0] for pt in face_ring)
+					by0=min(pt[1] for pt in face_ring)
+					by1=max(pt[1] for pt in face_ring)
+					if bx1<minx or bx0>maxx or by1<miny or by0>maxy:
+						stats["segment_faces_outside_aoi_bbox"]+=1
+						state="outside"
+						continue
 					polygon=Polygon(face_ring)
 					if polygon.is_empty or not polygon.is_valid or polygon.area<=0:
 						raise ValueError(f"Face {face_number}, edge_id {face_owner}: "
@@ -165,7 +181,7 @@ def read_native_faces(path,owners,origin,window,*,progress=None):
 							f"Fläche {polygon.area:.12g} m²). "
 							"Gespeicherten Face-Stream mit "
 							"scripts.inspect_cgal_native_face untersuchen.")
-					clipped=polygon.intersection(window)
+					clipped=polygon.intersection(aoi)
 					if not clipped.is_empty and clipped.area>0:
 						if not clipped.is_valid:
 							raise ValueError(f"Face {face_number}: "

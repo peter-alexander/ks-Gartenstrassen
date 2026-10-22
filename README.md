@@ -119,3 +119,25 @@ nativen Face-Records. Es wird **keine** Geometrie repariert, keine Face
 einer anderen `edge_id` zugeordnet und kein SIS-Verschnitt ausgeführt.
 Die Fehlerursache muss anhand dieser Geometrie geklärt werden, bevor der
 Vor-SIS-Export wieder freigegeben wird.
+
+
+## CGAL-Faces außerhalb von Wien ignorieren
+
+Der native CGAL-Export enthält auch Zellen weit außerhalb Wiens, weil
+der künstliche Voronoi-Rahmen die Stadt mit großem Abstand umschließt.
+Diese Bereiche dürfen die Ausgabe **vor SIS** nicht blockieren.
+
+`read_native_faces` schließt jetzt anhand der **gesamten Randkurven-
+Bounding-Box** jede Face aus, deren Hülle vollständig außerhalb der
+AOI-Hülle liegt. Diese Prüfung passiert **vor** der Polygon-Gültigkeit.
+Für verbleibende Faces gilt unverändert die strenge Gültigkeitsprüfung.
+
+Danach wird direkt mit der **bereits vorhandenen** geometrischen Wiener
+AOI aus `cache/wien/aoi.geojson` geschnitten – nicht nur mit deren
+rechteckigem Bounds-Ausschnitt. Eine zusätzliche Wiener Grenzdatei ist
+dafür nicht erforderlich.
+
+Der gespeicherte CGAL-Face-Stream
+(`__native_faces.txt` + `__native_faces_meta.json`) bleibt gültig:
+Bei erneutem Start des bestehenden Wiener Laufs wird nur die
+Vorverarbeitung/Polygonvereinigung wiederholt, nicht CGAL neu berechnet.
