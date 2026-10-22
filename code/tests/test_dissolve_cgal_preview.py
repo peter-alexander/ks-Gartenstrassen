@@ -163,9 +163,8 @@ class PreviewDissolveTests(unittest.TestCase):
 	def test_mask_that_disconnects_one_edge_id_routes_original_faces_to_debug(self):
 		with TemporaryDirectory() as root:
 			whole=_square(16.300,48.200,16.304,48.202)
-			to_metric=__import__("pyproj",fromlist=["Transformer"]).Transformer.from_crs(
+			to_metric=Transformer.from_crs(
 				4326,31256,always_xy=True).transform
-			from shapely.ops import transform
 			# A rectangular TURN_USE hull makes two disjoint islands.
 			cut=transform(to_metric,_square(
 				16.3015,48.1995,16.3025,48.2025))
