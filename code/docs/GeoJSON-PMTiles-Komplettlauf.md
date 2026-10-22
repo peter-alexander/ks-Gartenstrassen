@@ -1,20 +1,19 @@
-# Originale LINEAR_USE-Linien → CGAL-Voronoi → SIS
+# Aktueller Zwischenschritt: CGAL vor SIS
 
 ```bash
-GIP_NETWORK_SOURCE=/pfad/gip_network_ogd.gpkg bash code/scripts/run-gartenstrassen-wien.sh
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh
 ```
 
-Die räumliche Zuordnung basiert jetzt ausschließlich auf
-Original-`LINEAR_USE`-Linien, nicht auf künstlichen Stichproben.
-Jede Linie muss genau eine polygonisierte Voronoi-Fläche schneiden;
-Mehrfach- und Nulltreffer werden in separaten GeoJSON-Dateien gespeichert.
-Widersprüchliche `edge_id`-Vorschläge an einer Fläche und nicht
-eindeutig zugeordnete Flächen haben ebenfalls eigene GeoJSON-Dateien.
+Verwendet den bestehenden Original-LINEAR_USE-Cache,
+führt eine CGAL-Voronoi-Berechnung mit Site-Provenienz durch
+und vereinigt vor dem SIS-Verschnitt die Segmentzellen mit
+identischer `edge_id`.
 
-Eindeutige Zuordnungen werden erst danach mit SIS geschnitten.
-Berührende Flächen derselben `edge_id` werden vereinigt;
-räumlich getrennte Flächen bleiben getrennt.
+Ausgabe:
+`output/cgal_original_segment_sites_pre_sis_wien.geojson`
 
-Ergebnisse und Bericht stehen unter `output/cgal_original_line_intersections_sis_wien*`.
-Die Python-Skripte überschreiben bereits vorhandene Ausgaben nicht.
-Nicht bestandene Zuordnung blockiert die Veröffentlichung.
+Punktzellen bleiben ausdrücklich unzugeordnet. Der Export
+ist vorläufig und darf noch nicht als vollständig validierte
+SIS- oder PMTiles-Karte verwendet werden. SIS und PMTiles
+bleiben während dieser Qualitätskontrolle ausgesetzt.
