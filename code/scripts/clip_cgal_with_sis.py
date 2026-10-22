@@ -347,7 +347,7 @@ def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 			try:
 				spatial_change=metric.symmetric_difference(verified)
 				audit["metric_source_vs_repaired_symdiff_area_m2"]=spatial_change.area
-			audit["metric_source_vs_repaired_symdiff_type"]=spatial_change.geom_type
+				audit["metric_source_vs_repaired_symdiff_type"]=spatial_change.geom_type
 			except Exception as audit_exc:
 				audit["metric_symdiff_error"]=(
 					f"{type(audit_exc).__name__}: {audit_exc}")
