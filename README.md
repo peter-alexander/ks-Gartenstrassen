@@ -61,3 +61,35 @@ werden auch bei einem Fehler gespeichert:
 - `output/cgal_original_segment_sites_pre_sis_wien__site_konflikte.geojson`
 
 Ältere Berichte werden archiviert, nicht überschrieben.
+
+
+## Native CGAL-Voronoi-Faces (aktuelle Stufe)
+
+**Aktiver Wiener Lauf:** `bash code/scripts/run-gartenstrassen-wien.sh`.
+
+Anders als die bisherigen Debug-Auswertungen werden Voronoi-Zellen
+nun direkt mit `CGAL::Voronoi_diagram_2` ausgelesen. Jede Segment-Face
+enthält ihre eigene CGAL-Site samt ursprünglichem unterstützenden
+Eingabesegment. Die bereits während des Nodens erhaltene `edge_id`
+wird über genau dieses Segment übernommen. Der C++-Exporter liefert
+die Rand-Halfedges einer Face in Umlaufrichtung und linearisiert die
+CGAL-Bisektoren. Python setzt diese explizite Face-Geometrie zusammen,
+schneidet sie auf das Wiener Untersuchungsfenster zu und vereinigt
+zusammenhängende Face-Polygone gleicher `edge_id`.
+
+**Punkt-Faces werden vollständig ausgelassen**, nicht einmal
+nachträglich einer `edge_id` zugewiesen. Keine räumliche
+Eigentümersuche, keine zufälligen Prüfpunkte oder Ersatz-Zuordnung.
+Die Ausgabe ist **vor SIS**, ein direkter Vergleich mit dem QGIS
+Cluster Generator ist möglich.
+
+Ausgabe:
+`output/cgal_native_faces_dissolved_pre_sis_wien.geojson`
+
+Der native Face-Stream wird zur Wiederverwendung getrennt gespeichert:
+`output/cgal_native_faces_dissolved_pre_sis_wien__native_faces.txt`
+und `__native_faces_meta.json` mit Prüfsummen der Quellen und
+CGAL-Version. Bestehende Dateien werden nicht still überschrieben.
+
+Die frühere `site_intersections`-Methode bleibt ausschließlich
+historische Diagnose und gehört **nicht** zum aktiven Lauf.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Current approved stage: original LINEAR_USE -> CGAL -> dissolve, BEFORE SIS.
+# Current stage: LINEAR_USE -> native CGAL Voronoi faces -> edge_id dissolve, BEFORE SIS.
 # SIS overlay/PMTiles are intentionally not run until this stage is reviewed.
 set -euo pipefail
 
@@ -22,5 +22,5 @@ if [[ ! -f "$CACHE" ]]; then
 	bash "$REPO/code/scripts/run-linear-use-wien.sh"
 fi
 
-bash "$REPO/code/scripts/run-cgal-pre-sis-wien.sh"
+bash "$REPO/code/scripts/run-cgal-native-faces-pre-sis-wien.sh"
 echo "Zwischenstand vor SIS fertig. SIS-Verschnitt bleibt bis zur Prüfung ausgesetzt."
