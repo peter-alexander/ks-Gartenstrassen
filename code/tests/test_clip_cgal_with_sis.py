@@ -180,6 +180,34 @@ class MetricSelfIntersectionRepairTests(unittest.TestCase):
 
 
 class FinalSISIntersectionTests(unittest.TestCase):
+	def test_ring_self_intersection_after_metric_projection_does_not_block_sis(self):
+		# The WGS84 source is valid; a simulated round-trip produces
+		# a ring self-touch in EPSG:31256, as encountered on Vienna data.
+		x,y=1260,333250
+		original=box(x,y,x+20,y+20)
+		spur=Polygon([(x,y),(x+20,y),(x+20,y+20),
+			(x+10,y+20),(x+10,y+10),
+			(x+10,y+20),(x,y+20)])
+		self.assertFalse(spur.is_valid)
+		source=_input_feature("ring-touch",original)
+		def metric_transform(xcoords,ycoords,z=None):
+			return TO_METRIC(xcoords,ycoords)
+		with patch("scripts.clip_cgal_with_sis.transform") as mocked:
+			from shapely.ops import transform as real_transform
+			calls=iter([spur])
+			def project(callback,geometry):
+				if callback is TO_METRIC:
+					return next(calls)
+				return real_transform(callback,geometry)
+			mocked.side_effect=project
+			with patch("scripts.clip_cgal_with_sis.sis_mask",return_value=box(x+1,y+1,x+19,y+19)):
+				from collections import Counter
+				result=_clip_feature(source,None,TO_METRIC,TO_WGS,Counter())
+		self.assertEqual(result["properties"]["edge_id"],"ring-touch")
+		self.assertTrue(result["properties"]["sis_clipped"])
+		self.assertTrue(result["properties"]["input_metric_projection_repaired"])
+		self.assertTrue(shape(result["geometry"]).is_valid)
+
 	def test_actual_wien_index_rtree_clips_to_all_sis_classes_and_keeps_edge_id(self):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
