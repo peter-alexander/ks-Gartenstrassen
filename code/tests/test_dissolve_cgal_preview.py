@@ -258,7 +258,9 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(debug["features"],[])
 			self.assertEqual(len(valid["features"]),1)
 			feature=valid["features"][0]
-			self.assertEqual(feature["geometry"]["type"],"Polygon")
+			# The original 0 m TURN_USE cut may leave two polygon parts,
+			# even though the buffered SELECTION candidate was one Polygon.
+			self.assertEqual(feature["geometry"]["type"],"MultiPolygon")
 			self.assertEqual(feature["properties"]["edge_id"],"rescued")
 			self.assertEqual(feature["properties"]["turn_use_buffer_m"],2)
 			self.assertTrue(feature["properties"]["recovered_by_buffer"])
