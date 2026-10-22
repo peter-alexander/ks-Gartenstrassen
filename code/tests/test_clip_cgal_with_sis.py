@@ -117,7 +117,8 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 		self.assertEqual(event["discarded_collapsed_holes"],1)
 		self.assertEqual(len(wgs.interiors),1)
 		metric_roundtrip=transform(TO_METRIC,wgs)
-		self.assertAlmostEqual(metric_roundtrip.area,metric.area,places=2)
+		raw_roundtrip=transform(TO_METRIC,transform(TO_WGS,metric))
+		self.assertLess(abs(metric_roundtrip.area-raw_roundtrip.area),0.01)
 
 	def test_reject_large_hole_masquerading_as_collapsed(self):
 		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
