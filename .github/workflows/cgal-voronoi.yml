@@ -9,6 +9,10 @@ on:
       - "code/scripts/build_cgal_pre_sis.py"
       - "code/scripts/cgal_site_ownership.py"
       - "code/scripts/cgal_segment_input.py"
+      - "code/scripts/cgal_original_vertices.py"
+      - "code/scripts/cgal_native_faces.py"
+      - "code/scripts/cgal_native_face_preview.py"
+      - "code/scripts/build_cgal_native_faces_pre_sis.py"
       - ".github/workflows/cgal-voronoi.yml"
   pull_request:
     paths:
@@ -54,3 +58,10 @@ jobs:
           grep -q '^H ' /tmp/cgal-native-faces.txt
           grep -q '^Z' /tmp/cgal-native-faces.txt
           PYTHONPATH=code python code/tests/cgal_native_face_smoke.py /tmp/cgal-native-faces.txt
+      - name: Originaler innerer Stützpunkt als native CGAL-Punkt-Face
+        run: |
+          printf '0 0 10000 0\n10000 0 15000 12000\n-40000 -40000 60000 -40000\n60000 -40000 60000 60000\n60000 60000 -40000 60000\n-40000 60000 -40000 -40000\n' | \
+            build/cgal/cgal_voronoi_faces --faces /tmp/cgal-native-inner-points.txt
+          grep -q '^P 10000 0
+ /tmp/cgal-native-inner-points.txt
+          PYTHONPATH=code python code/tests/cgal_original_inner_point_face_smoke.py /tmp/cgal-native-inner-points.txt
