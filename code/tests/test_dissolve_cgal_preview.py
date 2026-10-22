@@ -10,6 +10,8 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from shapely.geometry import Polygon,LineString,box,mapping,shape
+from shapely.ops import transform
+from pyproj import Transformer
 
 from scripts.dissolve_cgal_preview import dissolve
 
@@ -39,14 +41,15 @@ def _square(x0,y0,x1,y1):
 
 
 class PreviewDissolveTests(unittest.TestCase):
-	def _run(self,root,features):
+	def _run(self,root,features,*,hulls=None,replace_existing=False):
 		root=Path(root)
 		preview=root/"source__preview.geojson"
 		_write_source(preview,features)
 		out=root/"dissolved.geojson"
 		debug=root/"debug.geojson"
 		report=root/"report.json"
-		summary=dissolve(preview,out,debug,report)
+		summary=dissolve(preview,out,debug,report,
+			junction_hulls=hulls,replace_existing=replace_existing)
 		return (json.loads(out.read_text()),
 			json.loads(debug.read_text()),json.loads(report.read_text()),
 			summary,preview,out,debug,report)
@@ -130,6 +133,84 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertFalse(report["geometrically_assured"])
 			self.assertEqual(stats["accepted_fallback_source_faces"],1)
 			self.assertEqual(debug["features"],[])
+
+	def test_turn_use_convex_hull_is_cut_from_individual_faces_before_union(self):
+		with TemporaryDirectory() as root:
+			a=_square(16.300,48.200,16.302,48.202)
+			b=_square(16.302,48.200,16.304,48.202)
+			# Local convex intersection envelope covers the shared
+			# boundary at its upper side, leaving a connected polygon.
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			hull=transform(to_metric,_square(
+				16.3015,48.2014,16.3025,48.2021))
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("a",1,a),
+				_feature("a",2,b,kind="inner_point")],
+				hulls=[("node-1",hull)])
+			self.assertEqual(len(valid["features"]),1)
+			self.assertEqual(valid["features"][0]["geometry"]["type"],"Polygon")
+			self.assertEqual(debug["features"],[])
+			self.assertTrue(valid["features"][0]["properties"][
+				"turn_use_hulls_removed"])
+			self.assertEqual(report["turn_use_junctions"]["hull_count"],1)
+			self.assertEqual(stats["statistics"]["faces_cut_by_turn_use"],2)
+			self.assertGreater(stats["statistics"][
+				"turn_use_removed_area_sum_m2"],0)
+			joined=shape(valid["features"][0]["geometry"])
+			self.assertLess(joined.area,a.area+b.area)
+
+	def test_mask_that_disconnects_one_edge_id_routes_original_faces_to_debug(self):
+		with TemporaryDirectory() as root:
+			whole=_square(16.300,48.200,16.304,48.202)
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			# A rectangular TURN_USE hull makes two disjoint islands.
+			cut=transform(to_metric,_square(
+				16.3015,48.1995,16.3025,48.2025))
+			valid,debug,report,*_=self._run(root,[
+				_feature("split",12,whole)],
+				hulls=[("node-1",cut)])
+			self.assertEqual(valid["features"],[])
+			self.assertEqual(len(debug["features"]),1)
+			self.assertEqual(debug["features"][0]["properties"]["edge_id"],
+				"split")
+			self.assertEqual(debug["features"][0]["properties"][
+				"dissolve_error"],"not_contiguous")
+			# Debug retains the original source geometry before mask.
+			self.assertTrue(shape(debug["features"][0]["geometry"]).equals(whole))
+			self.assertEqual(report["failures"][0]["face_numbers"],[12])
+
+	def test_mask_can_remove_whole_source_face_without_crashing(self):
+		with TemporaryDirectory() as root:
+			whole=_square(16.30,48.20,16.301,48.201)
+			to_metric=__import__("pyproj",fromlist=["Transformer"]).Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			from shapely.ops import transform
+			cut=transform(to_metric,_square(16.29,48.19,16.31,48.21))
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("masked",5,whole)],hulls=[("node-5",cut)])
+			self.assertEqual(valid["features"],[])
+			self.assertEqual(len(debug["features"]),1)
+			self.assertEqual(report["failures"][0]["reason"],"empty_union")
+			self.assertEqual(stats["statistics"][
+				"faces_entirely_removed_by_turn_use"],1)
+
+	def test_existing_previous_outputs_may_be_replaced_explicitly(self):
+		with TemporaryDirectory() as root:
+			root=Path(root)
+			preview=root/"source__preview.geojson"
+			a=_square(16.300,48.200,16.301,48.201)
+			_write_source(preview,[_feature("a",1,a)])
+			out=root/"result.geojson"
+			debug=root/"debug.geojson"
+			report=root/"report.json"
+			for path in (out,debug,report):
+				path.write_text("obsolete")
+			result=dissolve(preview,out,debug,report,replace_existing=True)
+			self.assertEqual(len(json.loads(out.read_text())["features"]),1)
+			self.assertEqual(json.loads(debug.read_text())["features"],[])
+			self.assertEqual(result["statistics"]["merged_polygons"],1)
 
 	def test_no_silent_acceptance_of_older_segment_only_preview(self):
 		with TemporaryDirectory() as root:

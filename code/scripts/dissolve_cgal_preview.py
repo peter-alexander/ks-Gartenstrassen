@@ -1,8 +1,11 @@
-"""Union preview CGAL segment and selected original-inner-point Faces by edge_id.
+"""Cut historic TURN_USE node convex hulls from CGAL Faces BEFORE edge_id union.
 
 Inputs are the EXISTING precheck-preview GeoJSON features with native
 CGAL site provenance. Do not rerun CGAL, alter ownership, clip to SIS,
 repair polygons or silently turn disconnected pieces into MultiPolygon.
+
+Historically used GIP2 node TURN_USE convex hulls are subtracted from each
+source Face in EPSG:31256. The original source Face is retained in debug.
 
 One valid contiguous Polygon per edge_id is written to the regular
 GeoJSON. If any source polygon is invalid, the union fails, or the
@@ -31,10 +34,14 @@ from pyproj import Transformer
 from shapely import union_all
 from shapely.geometry import Polygon, mapping, shape
 from shapely.ops import transform
+from shapely.strtree import STRtree
+
+from scripts.cgal_turn_use_hulls import load_turn_use_hulls
+from scripts.wienwide_grid import load_aoi
 from shapely.validation import explain_validity
 
 
-SCHEMA="cgal-original-edge-id-preview-dissolve-v1"
+SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v2"
 
 
 def _json_line_features(path):
@@ -131,12 +138,15 @@ def _write_feature(stream,feature,first):
 	return False
 
 
-def dissolve(preview,out,debug,report,*,progress=None):
+def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
+		junction_metadata=None,replace_existing=False):
 	preview,out,debug,report=map(Path,(preview,out,debug,report))
 	if not preview.is_file() or preview.is_symlink():
 		raise FileNotFoundError(f"CGAL-Vorschau fehlt: {preview}")
 	for target in (out,debug,report):
-		if target.exists() or target.is_symlink():
+		if target.is_symlink():
+			raise ValueError(f"Ausgabedatei darf kein Symlink sein: {target}")
+		if target.exists() and not replace_existing:
 			raise FileExistsError(f"Vorhandene Ausgabe wird nicht überschrieben: {target}")
 		target.parent.mkdir(parents=True,exist_ok=True)
 	if len({str(path.resolve()) for path in (preview,out,debug,report)})!=4:
@@ -147,6 +157,17 @@ def dissolve(preview,out,debug,report,*,progress=None):
 	stats=Counter()
 	failures=[]
 	accepted_fallbacks=0
+	# Use the same all-TURN_USE convex hull geometry as the historic
+	# GIP2 SIS-V2 pipeline. A face is cut BEFORE it is united with
+	# neighbouring faces that carry the same original edge_id.
+	if junction_hulls is None:
+		junction_hulls=[]
+	hull_geometries=[geom for _,geom in junction_hulls]
+	if any(geom.is_empty or not geom.is_valid or
+			geom.geom_type not in ("Polygon","MultiPolygon")
+			for geom in hull_geometries):
+		raise ValueError("TURN_USE-Ausschluss enthält ungültige Hüllengeometrie")
+	hull_tree=STRtree(hull_geometries) if hull_geometries else None
 	with tempfile.TemporaryDirectory(
 			prefix="cgal-dissolve-",dir=out.parent) as staging:
 		stage=Path(staging)
@@ -190,10 +211,33 @@ def dissolve(preview,out,debug,report,*,progress=None):
 								reason="projection_invalid"
 								detail=f"Face {number}: {explain_validity(metric)}"
 								break
+							# Historical TURN_USE convex junction cut goes HERE,
+							# strictly before union_all(parts) by edge_id.
+							if hull_tree is not None:
+								indices=hull_tree.query(metric,predicate="intersects")
+								if len(indices):
+									local_mask=union_all([hull_geometries[int(i)]
+										for i in indices])
+									cut=metric.difference(local_mask)
+									if not cut.is_empty and not cut.is_valid:
+										raise ValueError("TURN_USE-Differenz ungültig")
+									if not cut.is_empty and cut.geom_type not in (
+											"Polygon","MultiPolygon"):
+										raise ValueError("TURN_USE-Differenz ist "
+												+cut.geom_type+" statt Polygon/MultiPolygon")
+									removed=max(0.,metric.area-cut.area)
+									if removed>1e-8:
+										stats["faces_cut_by_turn_use"]+=1
+										stats["turn_use_removed_area_sum_m2"]+=removed
+									if cut.is_empty:
+										stats["faces_entirely_removed_by_turn_use"]+=1
+										continue
+									metric=cut
 							parts.append(metric)
 							area_sum+=metric.area
 						except Exception as exc:
-							reason="source_geometry_error"
+							reason=("turn_use_cut_error"
+								if "TURN_USE" in str(exc) else "source_geometry_error")
 							detail=f"Face {number}: {type(exc).__name__}: {exc}"
 							break
 					joined=None
@@ -232,7 +276,8 @@ def dissolve(preview,out,debug,report,*,progress=None):
 									"fallback_face_count":fallback_count,
 									"area_m2":joined.area,
 									"preview_based":True,
-									"sis_clipped":False},
+									"sis_clipped":False,
+									"turn_use_hulls_removed":bool(hull_geometries)},
 								"geometry":mapping(wgs)}
 							first_good=_write_feature(good,new_feature,first_good)
 							stats["merged_polygons"]+=1
@@ -254,6 +299,7 @@ def dissolve(preview,out,debug,report,*,progress=None):
 							"segment_face_count":types["segment"],
 							"inner_point_face_count":types["inner_point"],
 							"fallback_face_count":fallback_count,
+							"turn_use_cut_before_union":True,
 							"face_numbers":[number for number,_,_,_ in rows]})
 						for _,_,_,raw in rows:
 							feature=json.loads(raw)
@@ -270,12 +316,19 @@ def dissolve(preview,out,debug,report,*,progress=None):
 				good.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
 					'"preview_based":true,"polygon_only":true,'
 					'"point_faces":"original_inner_vertices_only",'
-					'"dissolved_by":"edge_id","sis_clipped":false}}\n')
+					'"dissolved_by":"edge_id","sis_clipped":false,'
+					'"turn_use_hull_cut_before_union":true}}\n')
 				bad.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
 					'"debug_source_geometries":true}}\n')
 		overview={
 			"schema":SCHEMA,
 			"source_preview":str(preview),
+			"turn_use_junctions":{
+				"rule":"all_TURN_USE_vertices_convex_hull_by_via_node_id",
+				"hull_count":len(hull_geometries),
+				"applied_before_edge_id_union":True,
+				"source":junction_metadata or {},
+			},
 			"merged_geojson":str(out),
 			"debug_geojson":str(debug),
 			"preview_based":True,
@@ -305,8 +358,25 @@ def main():
 	parser.add_argument("--out",type=Path,required=True)
 	parser.add_argument("--debug",type=Path,required=True)
 	parser.add_argument("--report",type=Path,required=True)
+	parser.add_argument("--turn-use-source",type=Path,required=True,
+		help="Originales GIP2 GeoPackage mit NODE/TURN_USE und RTree")
+	parser.add_argument("--aoi",type=Path,required=True,
+		help="Bestehende Wiener AOI für die historischen Kreuzungshüllen")
+	parser.add_argument("--replace-existing",action="store_true",
+		help="Bestehende reguläre und Debug-Ausgaben erst nach erfolgreicher "
+		"neuer Verarbeitung atomar ersetzen")
 	args=parser.parse_args()
+	aoi=load_aoi(args.aoi)
+	hulls,details=load_turn_use_hulls(args.turn_use_source,aoi,
+		progress=lambda message:print(message,flush=True))
+	if not hulls:
+		raise ValueError("Keine polygonalen TURN_USE-Hüllen erzeugt; "
+			"Abbruch statt Voronoi-Dissolve ohne Kreuzungsausschluss")
+	print(f"TURN_USE: {len(hulls):,} konvexe NODE-Hüllen "
+		"für den Vor-Dissolve-Ausschluss",flush=True)
 	dissolve(args.preview,args.out,args.debug,args.report,
+		junction_hulls=hulls,junction_metadata=details,
+		replace_existing=args.replace_existing,
 		progress=lambda message:print(message,flush=True))
 
 
