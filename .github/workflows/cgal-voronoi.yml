@@ -42,5 +42,5 @@ jobs:
           grep -q "^P " /tmp/cgal-sites.txt
       - name: Native sites to Voronoi cells to edge_id
         run: |
-          python -m pip install -q shapely numpy pyproj
+          python -m pip install -q -r code/requirements-analysis.txt numpy
           PYTHONPATH=code python code/tests/cgal_native_pre_sis_smoke.py /tmp/cgal-dual.txt /tmp/cgal-sites.txt
