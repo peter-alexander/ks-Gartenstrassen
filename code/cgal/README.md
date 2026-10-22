@@ -1,28 +1,25 @@
-# CGAL Segment-Voronoi – originale LINEAR_USE-Linien
-
-Installation:
+# CGAL Segment-Voronoi-Exporter
 
 ```bash
-sudo apt-get update
 sudo apt-get install -y build-essential cmake libcgal-dev libgmp-dev libmpfr-dev
+bash code/scripts/run-gartenstrassen-wien.sh
 ```
 
-Wiener Berechnung:
+Der native C++-Exporter gibt mit `--edges` Voronoi-Dualgrenzen
+und mit `--sites` zusätzlich die tatsächlichen Generator-Sites aus.
 
-```bash
-GIP_NETWORK_SOURCE=/pfad/gip_network_ogd.gpkg bash code/scripts/run-gartenstrassen-wien.sh
-```
+Format `--sites`:
 
-CGAL-Konstruktion: ursprüngliche LINEAR_USE-Linien, nur Segmentnoding und
-Millimeterraster. Die Zellzuordnung erfolgt *nach der Polygonisierung*
-mit direktem räumlichem LineString-Polygon-Schnitt, bevor SIS geschnitten
-wird. Bei 0 oder mehr als 1 Treffern wird die Linie diagnostiziert und
-nicht zugeordnet; bei unterschiedlichen edge_ids für dieselbe Fläche
-wird die Fläche separat ausgegeben.
+- `S sx1 sy1 sx2 sy2 x1 y1 x2 y2`: Segment-Site, wobei
+  `s*` das ursprüngliche unterstützende CGAL-Eingabesegment bezeichnet,
+  `x*` das aktuelle Segment der Site nach CGAL-Aufteilung.
+- `P x y`: Punktgenerator. Wird ausschließlich gezählt,
+  **nicht** zugeordnet.
 
-Unter `output/cgal_original_line_intersections_sis_wien__*` liegen vier GeoJSON-Diagnoselayer und ein
-JSON-Bericht. Erst bei eindeutiger Zuordnung erfolgt der SIS-Verschnitt.
-Dann entstehen `output/cgal_original_line_intersections_sis_wien.geojson` und optional PMTiles.
+Alle Koordinaten sind im lokalen CGAL-Millimeterraster relativ zum
+Projektionsursprung. Die Zuordnung erfolgt über den exakten Schlüssel
+des ursprünglichen Eingabesegments und die tatsächliche Segment-Site,
+ohne Stichprobenpunkte oder Nearest-Heuristik.
 
-Wichtig: Auch reine Punktberührungen zählen im Schnitt. Die
-Linien/Polygon-Schnittzuordnung wird auf echten Wiener Daten noch validiert.
+Aktueller Export ohne SIS:
+`output/cgal_original_segment_sites_pre_sis_wien.geojson`.
