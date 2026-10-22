@@ -96,10 +96,10 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 			metric,TO_METRIC,TO_WGS,"collapsed-7m")
 		self.assertTrue(repaired.is_valid)
 		self.assertEqual(event["repair"],
-			"remove_only_projection_collapsed_interior_rings")
+			"remove_only_projection_collapsed_negligible_rings")
 		self.assertEqual(event["discarded_collapsed_holes"],1)
 		self.assertGreater(event["boundary_shift_m"],6)
-		self.assertLess(event["discarded_metric_hole_area_m2"],1e-8)
+		self.assertLess(event["discarded_metric_component_area_m2"],1e-8)
 		converted=transform(TO_METRIC,repaired)
 		self.assertLess(abs(converted.area-metric.area),0.01)
 
@@ -119,6 +119,34 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 		metric_roundtrip=transform(TO_METRIC,wgs)
 		raw_roundtrip=transform(TO_METRIC,transform(TO_WGS,metric))
 		self.assertLess(abs(metric_roundtrip.area-raw_roundtrip.area),0.01)
+
+	def test_collapsed_tiny_multipolygon_component_is_not_misreported_as_area(self):
+		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
+		big=box(x,y,x+20,y+20)
+		tiny=box(x+30,y+2,x+30+1e-10,y+9)
+		metric=MultiPolygon([big,tiny])
+		self.assertTrue(metric.is_valid)
+		wgs=transform(TO_WGS,metric)
+		self.assertTrue(explain_validity(wgs).startswith(
+			"Too few points in geometry component"))
+		repaired,event=_export_valid_wgs84(
+			metric,TO_METRIC,TO_WGS,"tiny-component")
+		self.assertTrue(repaired.is_valid)
+		self.assertEqual(event["discarded_collapsed_polygon_components"],1)
+		self.assertEqual(event["discarded_collapsed_holes"],0)
+		self.assertLess(event["discarded_metric_component_area_m2"],1e-8)
+		self.assertEqual(repaired.geom_type,"Polygon")
+		self.assertLess(abs(transform(TO_METRIC,repaired).area-
+			transform(TO_METRIC,wgs).area),0.01)
+
+	def test_tiny_component_cannot_be_only_output_polygon(self):
+		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
+		metric=box(x,y,x+1e-10,y+7)
+		raw=transform(TO_WGS,metric)
+		self.assertFalse(raw.is_valid)
+		self.assertIsNone(_strip_projection_collapsed_holes(
+			metric,raw,TO_METRIC))
+
 
 	def test_reject_large_hole_masquerading_as_collapsed(self):
 		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
@@ -150,7 +178,7 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 		self.assertEqual(result["properties"]["edge_id"],"collapsed-hole-edge")
 		self.assertTrue(result["properties"]["wgs84_projection_repaired"])
 		self.assertEqual(result["properties"]["wgs84_repair_method"],
-			"remove_only_projection_collapsed_interior_rings")
+			"remove_only_projection_collapsed_negligible_rings")
 		self.assertTrue(shape(result["geometry"]).is_valid)
 		self.assertEqual(stats["wgs84_collapsed_holes_removed"],1)
 
