@@ -522,7 +522,9 @@ in **EPSG:31256** verschnitten. Die SIS-Maske umfasst alle
 `TYPE`- und `BELAG`-Werte, ohne Klassenselektion.
 Das vorhandene RTree in `cache/sis-wien.sqlite` beschränkt
 die Abfragen auf relevante SIS-Flächen. Nur **flächenhafte**
-Überdeckungen gelangen ins GeoJSON. Dadurch können aus einem zuvor
+Überdeckungen von mehr als **0,01 m²** gelangen ins GeoJSON;
+kleinere numerische Randsplitter aus der Umrechnung WGS84/31256
+werden verworfen. Dadurch können aus einem zuvor
 zusammenhängenden Polygon getrennte `MultiPolygon`-Teile
 entstehen; die originale `edge_id` bleibt unverändert.
 
