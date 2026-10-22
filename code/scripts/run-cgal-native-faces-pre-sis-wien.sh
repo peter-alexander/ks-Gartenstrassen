@@ -10,7 +10,7 @@ CACHE="$REPO/cache/wien/linear_use_original.sqlite"
 AOI="$REPO/cache/wien/aoi.geojson"
 BUILD="$REPO/build/cgal"
 BIN="$BUILD/cgal_voronoi_faces"
-PREVIEW_BASE="$REPO/output/cgal_native_faces_inner_points_pre_sis_wien.geojson"
+PREVIEW_BASE="$REPO/cache/wien/cgal_native_faces_inner_points_pre_sis_wien.geojson"
 OUT="$REPO/output/cgal_native_faces_sis_wien.geojson"
 SIS_DB="${SIS_V2_INDEX:-$REPO/cache/sis-wien.sqlite}"
 TURN_SOURCE="${GIP_NETWORK_SOURCE:-/mnt/c/Users/peter/Downloads/gip_network_ogd.gpkg}"
@@ -23,6 +23,40 @@ TURN_SOURCE="${GIP_NETWORK_SOURCE:-/mnt/c/Users/peter/Downloads/gip_network_ogd.
 [[ ! -L "$OUT" ]] || {
 	echo "SIS-Ausgabe darf kein Symlink sein: $OUT" >&2; exit 1;
 }
+# Bestehende große CGAL-Caches aus output/ einmalig nach cache/wien/
+# verschieben, OHNE sie erneut zu berechnen. Weder bestehende neue
+# Caches überschreiben noch unvollständige Cache-Paare verschleiern.
+[[ ! -L "$REPO/cache/wien" ]] || {
+	echo "CGAL-Cacheordner darf kein Symlink sein" >&2; exit 1;
+}
+for cache_pair in "__native_faces.txt __native_faces_meta.json" \
+		"__preview.geojson __preview_report.json"; do
+	read -r suffix_a suffix_b <<<"$cache_pair"
+	legacy_a="$REPO/output/cgal_native_faces_inner_points_pre_sis_wien$suffix_a"
+	legacy_b="$REPO/output/cgal_native_faces_inner_points_pre_sis_wien$suffix_b"
+	new_a="$REPO/cache/wien/cgal_native_faces_inner_points_pre_sis_wien$suffix_a"
+	new_b="$REPO/cache/wien/cgal_native_faces_inner_points_pre_sis_wien$suffix_b"
+	for target in "$legacy_a" "$legacy_b" "$new_a" "$new_b"; do
+		[[ ! -L "$target" ]] || {
+			echo "CGAL-Cache-Datei darf kein Symlink sein: $target" >&2
+			exit 1
+		}
+	done
+	if [[ -f "$legacy_a" || -f "$legacy_b" ]]; then
+		[[ -f "$legacy_a" && -f "$legacy_b" ]] || {
+			echo "Unvollständiges ursprüngliches CGAL-Cache-Paar" >&2
+			exit 1
+		}
+		[[ ! -e "$new_a" && ! -e "$new_b" ]] || {
+			echo "CGAL-Cache existiert bereits unter output/ und cache/wien/; "
+			echo "bitte den doppelten Bestand manuell abgleichen." >&2
+			exit 1
+		}
+		mv -- "$legacy_a" "$new_a"
+		mv -- "$legacy_b" "$new_b"
+		echo "CGAL-Cache von output/ nach cache/wien/ übernommen: $suffix_a"
+	fi
+done
 command -v cmake >/dev/null || { echo "cmake fehlt" >&2; exit 1; }
 cmake -S "$REPO/code/cgal" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD" --parallel 2
@@ -62,7 +96,7 @@ done
 # Das reguläre output/ erhält nur das fertige SIS-Ergebnis und Debug.
 WORK="$(mktemp -d "$REPO/cache/wien/.cgal-sis-stage-XXXXXXXX")"
 trap 'rm -rf -- "$WORK"' EXIT
-PREVIEW="$REPO/output/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson"
+PREVIEW="$REPO/cache/wien/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson"
 PRE_SIS="$WORK/cgal_dissolved_before_sis.geojson"
 DEBUG_STAGE="$WORK/debug_before_sis.geojson"
 REPORT_STAGE="$WORK/dissolve_report.json"
