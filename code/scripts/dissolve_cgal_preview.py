@@ -200,6 +200,20 @@ def _restore_original_faces(candidate,original_faces,to_wgs):
 	}
 
 
+def _cut_final_turn_use(geometry,hull_tree,hull_geometries):
+	"""Subtract ORIGINAL unbuffered TURN_USE from every published result."""
+	if hull_tree is None:
+		return geometry
+	indices=hull_tree.query(geometry,predicate="intersects")
+	if not len(indices):
+		return geometry
+	mask=union_all([hull_geometries[int(i)] for i in indices])
+	cut=geometry.difference(mask)
+	if cut.is_empty or not isinstance(cut,(Polygon,MultiPolygon)) or not cut.is_valid:
+		raise ValueError("Finaler ungepufferter TURN_USE-Abzug ohne gültige Polygonfläche")
+	return cut
+
+
 def _retry_buffered_hulls(
 		debug_surfaces,initial_reason,initial_detail,hull_geometries,
 		buffer_cache,original_faces,to_wgs,stats):
@@ -604,6 +618,10 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 								if face_no in restored_original["matched_face_numbers"])
 					if reason is None:
 						try:
+							# Buffer radii only select original Faces. The
+							# published polygon excludes unbuffered TURN_USE.
+							joined=_cut_final_turn_use(
+								joined,hull_tree,hull_geometries)
 							wgs=transform(to_wgs,joined)
 							if (not isinstance(wgs,(Polygon,MultiPolygon))
 									or (recovered_at_m==0 and not isinstance(wgs,Polygon))
@@ -625,6 +643,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 									"turn_use_buffer_m":recovered_at_m,
 									"recovered_by_buffer":recovered_at_m>0,
 									"geometry_from_original_faces":recovered_at_m>0,
+									"final_turn_use_cut_buffer_m":0,
 									"matched_original_face_count":(
 										restored_original["matched_face_count"] if restored_original else 0),
 									"buffer_candidate_area_m2":(
@@ -673,6 +692,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 						if final_geom is not None:
 							try:
 								last_buffer=attempted[-1] if attempted else 0
+								final_geom=_cut_final_turn_use(
+									final_geom,hull_tree,hull_geometries)
 								new_feature={
 									"type":"Feature",
 									"properties":{
@@ -689,6 +710,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 										"recovered_by_buffer":False,
 										"geometry_from_original_faces":False,
 										"recovered_by_debug_area_filter":True,
+										"final_turn_use_cut_buffer_m":0,
 										"debug_area_threshold_m2":250,
 										"debug_kept_components":final_filter_info[
 											"kept_components"],
@@ -799,7 +821,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 					'"dissolved_by":"edge_id","sis_clipped":false,'
 					'"turn_use_hull_cut_before_union":true,'
 					'"failed_edges_buffered_m":[1,2,3,4],'
-					'"buffer_recovered_output":"union_of_positive_area_matched_original_faces",'
+					'"buffer_recovered_output":"matched_original_faces_minus_unbuffered_turn_use",'
 					'"buffer_recovered_allows_multipolygon":true,'
 					'"final_debug_area_min_m2":250,'
 					'"final_debug_union_allows_multipolygon":true}}\n')
@@ -837,7 +859,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 				"output_geometry_types":["Polygon","MultiPolygon"],
 				"successful_edge_ids":final_debug_salvaged,
 				"fully_discarded_edge_ids":final_debug_discarded},
-			"buffer_recovery_output":"uncut_original_native_faces_selected_by_positive_area_overlap_same_edge_id",
+			"buffer_recovery_output":"original_native_faces_selected_by_positive_area_overlap_then_unbuffered_turn_use_difference",
 			"failures":failures,
 		}
 		(stage/"report.json").write_text(json.dumps(
