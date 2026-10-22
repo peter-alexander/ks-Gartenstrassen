@@ -71,7 +71,7 @@ class NativeVoronoiFaceTests(unittest.TestCase):
 			self.assertEqual(len(list(_dissolve(groups))),2)
 
 	def test_broken_face_halfedge_is_rejected(self):
-		with self.assertRaisesRegex(ValueError,"abweicht"):
+		with self.assertRaisesRegex(ValueError,"weicht"):
 			_join_halfedge([((0,0),(1,0))],(0,0),(5,0),
 				face_number=1,halfedge_number=1)
 
