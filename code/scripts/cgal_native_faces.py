@@ -6,7 +6,8 @@ exported in native counterclockwise order. CGAL linearizes parabolic
 bisectors while drawing each edge; we reassemble those chord chains
 using the endpoints CGAL supplies for the *same* halfedge.
 
-Point-site cells are absent from the stream by design.
+Only original interior-vertex point-site cells have an owner; all other
+native point-site cells stay excluded.
 """
 from collections import Counter, defaultdict
 import math
@@ -57,18 +58,21 @@ def _join_halfedge(chords,start,end,*,face_number,halfedge_number):
 	return coords
 
 
-def read_native_faces(path,owners,origin,aoi,*,progress=None):
+def read_native_faces(path,owners,origin,aoi,*,progress=None,point_owners=None):
 	"""Return native segment polygons grouped by their original edge_id.
 
 	The owner key comes strictly from a CGAL face's supporting original
 	segment. No STRtree lookup, invented query point, or nearest-site rule.
 	"""
+	if point_owners is None:
+		point_owners={}
 	if aoi.is_empty or not aoi.is_valid:
 		raise ValueError("CGAL-Face-Prüfgebiet muss gültig und nicht leer sein")
 	minx,miny,maxx,maxy=aoi.bounds
 	groups=defaultdict(list)
 	stats=Counter()
 	face_number=0
+	generator_type=None
 	edge_number=0
 	face_owner=None
 	face_ring=None
@@ -83,21 +87,29 @@ def read_native_faces(path,owners,origin,aoi,*,progress=None):
 			if not fields:
 				continue
 			kind=fields[0]
-			if kind=="F":
-				if state!="outside" or len(fields)!=5:
-					raise ValueError(f"CGAL-Faces Zeile {lineno}: F unerwartet")
+			if kind in ("F","P"):
+				if state!="outside":
+					raise ValueError(f"CGAL-Faces Zeile {lineno}: {kind} unerwartet")
+				generator_type="segment" if kind=="F" else "inner_point"
 				values=list(map(float,fields[1:]))
+				if len(values)!=(4 if kind=="F" else 2):
+					raise ValueError(f"CGAL-Faces Zeile {lineno}: ungültiger {kind}-Generator")
 				if not all(math.isfinite(x) for x in values):
 					raise ValueError(f"CGAL-Faces Zeile {lineno}: ungültiger Site-Schlüssel")
-				pairs=[(int(round(values[0])),int(round(values[1]))),
-					(int(round(values[2])),int(round(values[3])))]
-				for i,value in enumerate(values):
-					if abs(value-round(value))>1e-5:
-						raise ValueError(f"CGAL-Faces Zeile {lineno}: "
-							"Support-Segment nicht im Millimeterraster")
-				key=tuple(sorted(pairs))
-				face_owner=owners.get(key)
+				if any(abs(v-round(v))>1e-5 for v in values):
+					raise ValueError(f"CGAL-Faces Zeile {lineno}: "
+						"Site nicht im Millimeterraster")
+				if kind=="F":
+					pairs=[(int(round(values[0])),int(round(values[1]))),
+						(int(round(values[2])),int(round(values[3])))]
+					key=tuple(sorted(pairs))
+					face_owner=owners.get(key)
+				else:
+					face_owner=point_owners.get(
+						(int(round(values[0])),int(round(values[1]))))
 				excluded=face_owner is None
+				if excluded and kind=="P":
+					stats["point_faces_without_inner_original_vertex_omitted"]+=1
 				face_ring=[]
 				state="face"
 				face_number+=1
@@ -151,7 +163,8 @@ def read_native_faces(path,owners,origin,aoi,*,progress=None):
 				if state!="face" or len(fields)!=1 or edge_number<2:
 					raise ValueError(f"CGAL-Faces Zeile {lineno}: Z unerwartet")
 				if excluded:
-					stats["frame_faces_omitted"]+=1
+					if generator_type=="segment":
+						stats["frame_faces_omitted"]+=1
 				else:
 					gap=_distance(face_ring[0],face_ring[-1])
 					if gap>MAX_JOIN_ERROR_M:
@@ -187,7 +200,7 @@ def read_native_faces(path,owners,origin,aoi,*,progress=None):
 							raise ValueError(f"Face {face_number}: "
 								"Clipping der nativen CGAL-Face ungültig")
 						groups[face_owner].append(clipped)
-						stats["segment_faces_inside_window"]+=1
+						stats["point_faces_inside_window" if generator_type=="inner_point" else "segment_faces_inside_window"]+=1
 					else:
 						stats["segment_faces_outside_window"]+=1
 				if progress and face_number%20000==0:
