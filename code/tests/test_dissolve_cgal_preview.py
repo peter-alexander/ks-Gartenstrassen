@@ -382,7 +382,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			to_wgs=Transformer.from_crs(
 				31256,4326,always_xy=True).transform
 			x,y=to_metric(16.35,48.2)
-			good=transform(to_wgs,box(x,y,x+20,y+12))
+			good=transform(to_wgs,box(x,y,x+24,y+12)) # 288 m², survives 250 m²
 			bowtie=Polygon([
 				(16.3,48.2),(16.302,48.202),
 				(16.3,48.202),(16.302,48.2)])
