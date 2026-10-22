@@ -13,7 +13,8 @@ from shapely.validation import explain_validity
 from shapely.wkb import dumps
 
 from scripts.clip_cgal_with_sis import (
-	clip,_export_valid_wgs84,_clip_feature,_strip_projection_collapsed_holes)
+	clip,_export_valid_wgs84,_clip_feature,_strip_projection_collapsed_holes,
+	_recover_collapsed_metric_input)
 
 
 TO_WGS=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -235,6 +236,40 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 		self.assertEqual(result["properties"]["edge_id"],"problem-edge")
 		self.assertTrue(shape(result["geometry"]).is_valid)
 		self.assertEqual(stats["wgs84_repaired_features"],1)
+
+
+class InputMetricProjectionTests(unittest.TestCase):
+	def test_tiny_original_hole_collapsed_in_metric_is_restored(self):
+		x,y=16.34,48.21
+		original=Polygon([(x,y),(x+.01,y),(x+.01,y+.01),(x,y+.01)],
+			holes=[[(x+.004,y+.003),(x+.0040000000001,y+.003),
+				(x+.0040000000001,y+.006),(x+.004,y+.006)]])
+		self.assertTrue(original.is_valid)
+		outer=transform(TO_METRIC,Polygon(original.exterior))
+		q=outer.bounds
+		projected=Polygon(outer.exterior,holes=[[
+			(q[0]+20,q[1]+20),(q[0]+20,q[1]+20),
+			(q[0]+20,q[1]+50),(q[0]+20,q[1]+50)]])
+		self.assertFalse(projected.is_valid)
+		result=_recover_collapsed_metric_input(original,projected)
+		self.assertIsNotNone(result)
+		fixed,details=result
+		self.assertTrue(fixed.is_valid)
+		self.assertEqual(details["removed_holes"],1)
+		self.assertLess(details["removed_source_geodesic_area_m2"],0.01)
+
+	def test_significant_source_hole_is_never_removed(self):
+		x,y=16.34,48.21
+		original=Polygon([(x,y),(x+.01,y),(x+.01,y+.01),(x,y+.01)],
+			holes=[[(x+.003,y+.003),(x+.005,y+.003),
+				(x+.005,y+.006),(x+.003,y+.006)]])
+		self.assertTrue(original.is_valid)
+		outer=transform(TO_METRIC,Polygon(original.exterior))
+		q=outer.bounds
+		projected=Polygon(outer.exterior,holes=[[
+			(q[0]+20,q[1]+20),(q[0]+20,q[1]+20),
+			(q[0]+20,q[1]+50),(q[0]+20,q[1]+50)]])
+		self.assertIsNone(_recover_collapsed_metric_input(original,projected))
 
 
 class FinalSISIntersectionTests(unittest.TestCase):

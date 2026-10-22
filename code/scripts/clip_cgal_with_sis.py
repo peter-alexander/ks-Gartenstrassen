@@ -20,7 +20,7 @@ import sqlite3
 import tempfile
 from urllib.parse import quote
 
-from pyproj import Transformer
+from pyproj import Transformer, Geod
 from shapely import make_valid,union_all
 from shapely.geometry import Polygon,MultiPolygon,shape,mapping
 from shapely.ops import transform
@@ -176,6 +176,55 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 	}
 
 
+def _recover_collapsed_metric_input(source_wgs,projected_metric):
+	"""Remove only EPSG:31256-collapsed rings of negligible source geodesic area."""
+	source=(source_wgs.geoms if isinstance(source_wgs,MultiPolygon) else (source_wgs,))
+	projected=(projected_metric.geoms if isinstance(projected_metric,MultiPolygon)
+		else (projected_metric,))
+	if len(source)!=len(projected):
+		return None
+	geod=Geod(ellps="WGS84")
+	budget=0.01
+	removed_area=0.
+	removed_holes=0
+	removed_parts=0
+	out=[]
+	for original,metric in zip(source,projected):
+		if len(original.interiors)!=len(metric.interiors):
+			return None
+		if len(set(metric.exterior.coords[:-1]))<3:
+			lost=abs(geod.geometry_area_perimeter(original)[0])
+			if lost>budget-removed_area:
+				return None
+			removed_area+=lost
+			removed_parts+=1
+			continue
+		interiors=[]
+		for hole_source,hole_metric in zip(original.interiors,metric.interiors):
+			if len(set(hole_metric.coords[:-1]))>=3:
+				interiors.append(hole_metric.coords)
+				continue
+			lost=abs(geod.geometry_area_perimeter(Polygon(hole_source))[0])
+			if lost>budget-removed_area:
+				return None
+			removed_area+=lost
+			removed_holes+=1
+		out.append(Polygon(metric.exterior,interiors))
+	if not out or not (removed_holes or removed_parts):
+		return None
+	candidate=out[0] if len(out)==1 else MultiPolygon(out)
+	if candidate.is_empty or not candidate.is_valid or candidate.area<=0:
+		return None
+	if abs(candidate.area-projected_metric.area)>budget:
+		return None
+	return candidate,{
+		"removed_holes":removed_holes,
+		"removed_polygon_parts":removed_parts,
+		"removed_source_geodesic_area_m2":removed_area,
+		"method":"drop_only_projection_collapsed_wgs84_tiny_rings",
+	}
+
+
 def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 	"""Repair ONLY invalidity introduced by reprojection, with safeguards.
 
@@ -258,8 +307,22 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	if not isinstance(geom,(Polygon,MultiPolygon)) or geom.is_empty or not geom.is_valid:
 		raise ValueError(f"{props['edge_id']}: ungültige polygonale CGAL-Eingabe")
 	metric=transform(to_metric,geom)
+	metric_repair=None
+	if (isinstance(metric,(Polygon,MultiPolygon)) and
+			not metric.is_empty and not metric.is_valid and
+			explain_validity(metric).startswith(
+				"Too few points in geometry component")):
+		fixed=_recover_collapsed_metric_input(geom,metric)
+		if fixed is not None:
+			metric,metric_repair=fixed
+			stats["input_metric_repaired_features"]+=1
+			stats["input_metric_collapsed_holes"]+=metric_repair["removed_holes"]
+			stats["input_metric_collapsed_parts"]+=metric_repair["removed_polygon_parts"]
 	if not isinstance(metric,(Polygon,MultiPolygon)) or metric.is_empty or not metric.is_valid or metric.area<=0:
-		raise ValueError(f"{props['edge_id']}: ungültige metrische CGAL-Eingabe")
+		raise ValueError(
+			f"{props['edge_id']}: ungültige metrische CGAL-Eingabe "
+			f"({explain_validity(metric)}); "
+			"nicht auf höchstens 0,01 m² kollabierte Komponenten reduzierbar")
 	stats["pre_sis_area_sum_m2"]+=metric.area
 	# Same proven SIS WFS-index RTree/geometry union used by the
 	# existing SIS-V2 street mask, including ALL BELAG and TYPE values.
@@ -290,6 +353,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 		"sis_min_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
 		"wgs84_projection_repaired":repair is not None,
 		"wgs84_repair_method":repair["repair"] if repair is not None else None,
+		"input_metric_projection_repaired":metric_repair is not None,
 	})
 	stats["features_with_sis_overlap"]+=1
 	stats["sis_overlap_area_sum_m2"]+=clip.area
@@ -350,6 +414,7 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 					"sis_mask":"all_belags_all_types",
 					"minimum_intersection_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
 					"wgs84_repair_method":"targeted_collapsed_tiny_holes_or_strict_make_valid",
+					"input_metric_repair_method":"drop_only_projection_collapsed_wgs84_tiny_rings",
 					"debug_stage":"after_turn_use_and_250m2_before_sis",
 					"pre_sis_intermediate_not_published":True,
 					"statistics":dict(stats),
