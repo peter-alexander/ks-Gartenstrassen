@@ -37,3 +37,27 @@ nicht überschrieben.
 
 Der SIS-Verschnitt wird erst nach Prüfung des Vor-SIS-Ergebnisses
 wieder aufgenommen.
+
+## Segment-Site-Prüfung und fortsetzbarer Lauf
+
+Die Zuordnung einer CGAL-Segment-Site zu einer polygonisierten Zelle
+verwendet die **positive Schnittdimension mit dem Polygoninneren**
+(DE-9IM), nicht die bloße Länge von `intersection()`: entlang
+von Polygonkanten liegende Segmentanteile zählen nicht als Eigentum.
+Echte Treffer in mehreren Polygoninnenflächen werden weiterhin
+abgelehnt. Punktzellen bleiben unzugeordnet.
+
+Nach der teuren Polygonisierung wird vor der Zuordnung ein geprüfter
+SQLite-Zwischenspeicher erzeugt:
+`output/cgal_original_segment_sites_pre_sis_wien__geometry_checkpoint.sqlite`.
+Er wird nur wiederverwendet, wenn Eingangsdaten, AOI, CGAL-Binary und
+Geometrieerzeugungscode identisch sind. Nach einem Fehler können so
+nur die Zuordnung und der Dissolve erneut ausgeführt werden.
+
+Ein Zuordnungsbericht und eine kleine, kartierbare Problemgeometrie
+werden auch bei einem Fehler gespeichert:
+
+- `output/cgal_original_segment_sites_pre_sis_wien__site_zuordnung.json`
+- `output/cgal_original_segment_sites_pre_sis_wien__site_konflikte.geojson`
+
+Ältere Berichte werden archiviert, nicht überschrieben.
