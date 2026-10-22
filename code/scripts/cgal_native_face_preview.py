@@ -1,7 +1,7 @@
 """Exploratory native CGAL Face GeoJSON BEFORE strict topology/GEOS checks.
 
-Reads the cached F/H/S/E/Z stream; no CGAL rerun, site/polygon spatial
-matching, SIS, polygon validity check, clipping, or dissolve. Faces are
+Reads the cached F/P/H/S/E/Z stream; no CGAL rerun, site/polygon spatial
+matching, SIS, polygon validity check, clipping, or dissolve. Segment Faces and selected original inner-vertex Point Faces are
 written individually with their original input edge_id. Curved halfedges
 retain CGAL's sampled points when their chain fits native endpoints.
 When a halfedge fails the strict join (e.g. Face 282), ONLY THAT halfedge
@@ -38,6 +38,14 @@ def _supporting_key(values,line_number):
 	a=(round(values[0]),round(values[1]))
 	b=(round(values[2]),round(values[3]))
 	return tuple(sorted((a,b)))
+
+
+def _point_key(values,line_number):
+	if len(values)!=2 or not all(math.isfinite(v) for v in values):
+		raise ValueError(f"Nativer Face-Stream Zeile {line_number}: ungültige Punkt-Site")
+	if any(abs(v-round(v))>1e-5 for v in values):
+		raise ValueError(f"Nativer Face-Stream Zeile {line_number}: Punkt-Site nicht im Millimeterraster")
+	return tuple(round(v) for v in values)
 
 
 def _envelope_overlaps(coords,bounds):
@@ -97,12 +105,14 @@ def _new_report_file(path,report):
 			temp.unlink(missing_ok=True)
 
 
-def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,identity=None):
+def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,identity=None,point_owners=None):
 	"""Write WGS84 GeoJSON for native segment Faces before geometry validation.
 
 	The resulting polygons are UNCHECKED and UNCLIPPED (bbox filtered
 	against the AOI only). Bad halfedge curves are rendered as marked
 	straight CCB chords; invalid polygons are intentionally retained.
+	Only native point Faces keyed to unique INNER vertices of original
+	LINEAR_USE features are included; original endpoints stay omitted.
 	Do not feed these polygons into SIS or later GIS calculations.
 	"""
 	stream_path=Path(stream_path)
@@ -117,7 +127,12 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 	report.parent.mkdir(parents=True,exist_ok=True)
 	to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 	bounds=aoi.bounds
+	if point_owners is None:
+		point_owners={}
 	stats=Counter({
+		"point_faces_exported":0,
+		"point_faces_without_inner_original_vertex_omitted":0,
+		"segment_faces_exported":0,
 		"faces_with_fallback":0,
 		"fallback_halfedges_or_seams":0,
 		"segment_faces_exported":0,
@@ -127,6 +142,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 	})
 	first_issues=[]
 	face_no=0
+	generator_type=None
 	state="outside"
 	owner=None
 	edges=[]
@@ -158,11 +174,20 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 					if not fields:
 						continue
 					kind=fields[0]
-					if kind=="F":
+					if kind in ("F","P"):
 						if state!="outside":
 							raise ValueError(f"CGAL-Vorschau Zeile {lineno}: verschachtelte Face")
 						face_no+=1
-						owner=owners.get(_supporting_key(_values(fields,lineno),lineno))
+						generator_type="segment" if kind=="F" else "inner_point"
+						if kind=="F":
+							owner=owners.get(_supporting_key(_values(fields,lineno),lineno))
+						else:
+							if len(fields)!=3:
+								raise ValueError(f"CGAL-Vorschau Zeile {lineno}: Punkt-Site ohne 2 Koordinaten")
+							point=_point_key([float(value) for value in fields[1:]],lineno)
+							owner=point_owners.get(point)
+							if owner is None:
+								stats["point_faces_without_inner_original_vertex_omitted"]+=1
 						edges=[]
 						envelope=None
 						state="face"
@@ -201,6 +226,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 							raise ValueError(f"CGAL-Vorschau Zeile {lineno}: unerwartetes Z")
 						state="outside"
 						if owner is None:
+							if generator_type=="segment":
 							stats["artificial_frame_faces_omitted"]+=1
 							continue
 						if envelope is None or not _envelope_overlaps(envelope,bounds):
@@ -226,6 +252,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 						feature={"type":"Feature",
 							"properties":{
 								"edge_id":owner,"face_number":face_no,
+								"generator_type":generator_type,
 								"preview_only":True,
 								"fallback":bool(issues),
 								"fallback_count":len(issues),
@@ -237,7 +264,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 						first=False
 						json.dump(feature,target,ensure_ascii=False,
 							separators=(",",":"),allow_nan=False)
-						stats["segment_faces_exported"]+=1
+						stats["point_faces_exported" if generator_type=="inner_point" else "segment_faces_exported"]+=1
 						if progress and face_no%20000==0:
 							progress(f"CGAL-Vorschau: {face_no:,} Faces gelesen, "
 								f"{stats['segment_faces_exported']:,} ausgegeben")
@@ -245,12 +272,12 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 						raise ValueError(f"CGAL-Vorschau Zeile {lineno}: unbekannter Typ {kind}")
 			if state!="outside":
 				raise ValueError("CGAL-Vorschau: nativer Face-Stream unvollständig")
-			if not stats["segment_faces_exported"]:
+			if not (stats["segment_faces_exported"]+stats["point_faces_exported"]):
 				raise ValueError("CGAL-Vorschau enthielt keine darstellbaren Segment-Faces")
 			target.write('\n],"metadata":{"schema":"native-cgal-faces-raw-preview-v1",'
 				'"geometry_validated":false,"dissolved":false,'
 				'"clipped_to_aoi":false,"bbox_filtered":true,'
-				'"point_faces_assigned":false,'
+				'"point_faces_assigned":"original_inner_only",'
 				'"fallback_geometry":"CCB endpoint chord where needed"}}\n')
 			target.flush()
 			os.replace(temp,out)
@@ -274,7 +301,8 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 			"Die Datei ist ausschließlich zur Darstellung in QGIS gedacht."
 	}
 	_new_report_file(report,summary)
-	print(f"CGAL-Vorschau: {stats['segment_faces_exported']:,} Einzel-Faces "
-		f"nach edge_id, {stats['faces_with_fallback']:,} Faces mit "
+	print(f"CGAL-Vorschau: {stats['segment_faces_exported']:,} Segment-Faces, "
+		f"{stats['point_faces_exported']:,} innere Punkt-Faces, "
+		f"{stats['faces_with_fallback']:,} Faces mit "
 		f"markierten Ersatz-Sehnen; {out}",flush=True)
 	return summary
