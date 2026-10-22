@@ -541,8 +541,9 @@ Das Pre-SIS-Dissolve-GeoJSON und sein Diagnosebericht werden nur noch
 im **temporären Arbeitsverzeichnis** erzeugt und anschließend entfernt.
 Vorhandene gleichnamige alte Vor-SIS-Ergebnisdateien werden **nach
 erfolgreichem Lauf** gelöscht. Die zuvor gecachte native CGAL-Vorschau
-und ihr Stream bleiben dagegen zur Wiederverwendung erhalten, um
-keine neue, teure CGAL-Berechnung auszulösen.
+und ihr Stream werden bei Bedarf einmalig **aus `output/` nach
+`cache/wien/` verschoben** und dort zur Wiederverwendung erhalten,
+ohne neue, teure CGAL-Berechnung.
 
 **Ausführen:**
 
