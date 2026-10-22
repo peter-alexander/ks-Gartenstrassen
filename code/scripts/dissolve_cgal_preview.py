@@ -445,6 +445,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 	buffer_cache={}
 	recovered_edge_ids=[]
 	final_debug_salvaged=[]
+	final_debug_discarded=[]
 	with tempfile.TemporaryDirectory(
 			prefix="cgal-dissolve-",dir=out.parent) as staging:
 		stage=Path(staging)
@@ -720,6 +721,13 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 								debug_surfaces=filtered_debug
 						if not final_area_salvaged:
 							stats["final_debug_unsalvaged_edge_ids"]+=1
+							if not debug_surfaces and final_filter_info["discarded_components"]:
+								stats["final_debug_fully_discarded_edge_ids"]+=1
+								final_debug_discarded.append({
+									"edge_id":edge_id,
+									"reason":"all_remaining_components_below_250m2",
+									"last_buffer_m":attempted[-1] if attempted else 0,
+									**final_filter_info})
 							if final_filter_error:
 								detail=(f"{detail}; final_debug_filter="
 									f"{final_filter_error}: "
@@ -786,7 +794,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							f"{stats['merged_polygons']:,} Polygon-Ergebnisse, "
 							f"{stats['rejected_edge_ids']:,} Debug-Fälle")
 				good.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
-					'"preview_based":true,"polygon_only":true,'
+					'"preview_based":true,"polygon_or_multipolygon":true,'
 					'"point_faces":"original_inner_vertices_only",'
 					'"dissolved_by":"edge_id","sis_clipped":false,'
 					'"turn_use_hull_cut_before_union":true,'
@@ -827,7 +835,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 				"discard_rule":"component_area_m2 < 250",
 				"metric_crs":"EPSG:31256",
 				"output_geometry_types":["Polygon","MultiPolygon"],
-				"successful_edge_ids":final_debug_salvaged},
+				"successful_edge_ids":final_debug_salvaged,
+				"fully_discarded_edge_ids":final_debug_discarded},
 			"buffer_recovery_output":"uncut_original_native_faces_selected_by_positive_area_overlap_same_edge_id",
 			"failures":failures,
 		}
