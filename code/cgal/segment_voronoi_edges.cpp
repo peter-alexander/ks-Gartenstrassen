@@ -120,11 +120,11 @@ int main(int argc,char** argv) {
 					sites << "S " << a.x() << " " << a.y() << " "
 						<< b.x() << " " << b.y() << " "
 						<< c.x() << " " << c.y() << " "
-						<< d.x() << " " << d.y() << "\\n";
+						<< d.x() << " " << d.y() << "\n";
 				} else if (site.is_point()) {
 					// Deliberately do not attribute point cells.
 					const auto p=site.point();
-					sites << "P " << p.x() << " " << p.y() << "\\n";
+					sites << "P " << p.x() << " " << p.y() << "\n";
 				} else {
 					throw std::runtime_error("Unknown CGAL site type");
 				}
