@@ -141,12 +141,13 @@ def build(cache,aoi_path,binary,out,*,timeout=900):
 	face_stream,cgal_stats=_read_or_compute_faces(
 		owners,frame,binary,bounds,out,
 		_identity(cache,aoi_path,binary),timeout)
-	groups,stats=read_native_faces(face_stream,owners,origin,window,
+	groups,stats=read_native_faces(face_stream,owners,origin,aoi,
 		progress=lambda message:print(message,flush=True))
 	if not groups:
 		raise ValueError("Keine nativen CGAL-Segmentflächen im Stadtfenster")
 	print(f"CGAL vor SIS: {stats['segment_faces_inside_window']:,} "
-		f"native Segment-Faces, {stats['original_edge_ids']:,} edge_ids",
+		f"native Segment-Faces, {stats['original_edge_ids']:,} edge_ids; "
+		f"{stats.get('segment_faces_outside_aoi_bbox',0):,} außerhalb AOI-Hülle übersprungen",
 		flush=True)
 	to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 	to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
@@ -180,6 +181,7 @@ def build(cache,aoi_path,binary,out,*,timeout=900):
 			"export_geometry_repairs":repairs,
 			"site_ownership_method":"direct_native_voronoi_face_dual_site",
 			"point_site_cells_assigned":False,
+			"clipped_to_existing_aoi":True,
 			"sis_clipped":False,"experimental":True}}
 	_write_json_atomic(out,collection)
 	print(f"CGAL vor SIS: {len(features):,} zusammenhängende "
