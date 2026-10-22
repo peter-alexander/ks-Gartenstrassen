@@ -258,7 +258,9 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(debug["features"],[])
 			self.assertEqual(len(valid["features"]),1)
 			feature=valid["features"][0]
-			self.assertEqual(feature["geometry"]["type"],"Polygon")
+			# The original 0 m TURN_USE cut may leave two polygon parts,
+			# even though the buffered SELECTION candidate was one Polygon.
+			self.assertEqual(feature["geometry"]["type"],"MultiPolygon")
 			self.assertEqual(feature["properties"]["edge_id"],"rescued")
 			self.assertEqual(feature["properties"]["turn_use_buffer_m"],2)
 			self.assertTrue(feature["properties"]["recovered_by_buffer"])
@@ -271,11 +273,14 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertNotIn("buffer_3m_attempted_edge_ids",stats["statistics"])
 			joined=shape(feature["geometry"])
 			self.assertTrue(joined.is_valid)
-			# Only the clipped residual selected the source; the output
-			# is the ORIGINAL pre-TURN_USE Face, including the region
-			# which had been removed by the buffered mask.
-			self.assertLess(joined.symmetric_difference(original).area,
+			# The buffered candidate selects the original Face, but
+			# the published result excludes the ORIGINAL 0 m hull.
+			expected=original.difference(transform(to_wgs,hull))
+			self.assertLess(joined.symmetric_difference(expected).area,
 				original.area*0.005)
+			self.assertLess(joined.intersection(transform(to_wgs,hull)).area,
+				original.area*1e-5)
+			self.assertEqual(feature["properties"]["final_turn_use_cut_buffer_m"],0)
 			self.assertTrue(feature["properties"]["geometry_from_original_faces"])
 			self.assertEqual(feature["properties"]["matched_original_face_count"],1)
 			self.assertLess(feature["properties"]["buffer_candidate_area_m2"],
@@ -322,8 +327,10 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(feature["properties"]["matched_original_face_count"],1)
 			self.assertEqual(report["recovered_edge_ids"][0][
 				"matched_original_face_numbers"],[1])
-			self.assertLess(shape(feature["geometry"]).symmetric_difference(original).area,
+			expected=original.difference(transform(to_wgs,hull))
+			self.assertLess(shape(feature["geometry"]).symmetric_difference(expected).area,
 				original.area*0.005)
+			self.assertEqual(feature["properties"]["final_turn_use_cut_buffer_m"],0)
 			self.assertEqual(stats["statistics"]["restored_original_face_matches"],1)
 
 	def test_restore_rejects_candidate_with_only_boundary_contact(self):
