@@ -29,6 +29,10 @@ from scripts.sis_wien_source import mask as sis_mask
 
 SCHEMA="cgal-native-faces-sis-belagsflaechen-wien-v1"
 SIS_SCHEMAS=frozenset(("sis-wien-index-v4","sis-wien-index-v5"))
+# The source WFS geometries and inverse WGS84 <-> MGI/31256 transform
+# can create sub-centimetre-wide boundary slivers on an exact boundary
+# touch. Below 0.01 m² these are far below source-map precision.
+SIS_MIN_INTERSECTION_AREA_M2=0.01
 
 
 def _features(path):
@@ -97,7 +101,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	# Same proven SIS WFS-index RTree/geometry union used by the
 	# existing SIS-V2 street mask, including ALL BELAG and TYPE values.
 	clip=sis_mask(db,metric)
-	if clip is None or clip.is_empty or clip.area<=0:
+	if clip is None or clip.is_empty or clip.area<=SIS_MIN_INTERSECTION_AREA_M2:
 		stats["without_sis_overlap"]+=1
 		return None
 	if not isinstance(clip,(Polygon,MultiPolygon)) or not clip.is_valid:
@@ -115,6 +119,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 		"sis_clipped":True,
 		"sis_provider":"SISBELAGOGD",
 		"sis_mask":"all_belags_all_types",
+		"sis_min_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
 	})
 	stats["features_with_sis_overlap"]+=1
 	stats["sis_overlap_area_sum_m2"]+=clip.area
@@ -173,6 +178,7 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 					"sis_schema":meta["schema"],
 					"sis_sha256":meta["sha256"],
 					"sis_mask":"all_belags_all_types",
+					"minimum_intersection_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
 					"debug_stage":"after_turn_use_and_250m2_before_sis",
 					"pre_sis_intermediate_not_published":True,
 					"statistics":dict(stats),
