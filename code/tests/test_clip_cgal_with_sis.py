@@ -43,7 +43,7 @@ def _sis_database(path,polygons,*,schema="sis-wien-index-v5",with_digest=True):
 			CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 			CREATE TABLE features(
 				id INTEGER PRIMARY KEY,source_id TEXT NOT NULL,
-				geom BLOB NOT NULL);
+				belag TEXT NOT NULL,geom BLOB NOT NULL);
 			CREATE VIRTUAL TABLE feature_index USING rtree(
 				id,minx,maxx,miny,maxy);
 		""")
@@ -51,8 +51,8 @@ def _sis_database(path,polygons,*,schema="sis-wien-index-v5",with_digest=True):
 				("crs","EPSG:31256"),("sha256","synthetic-test-sha" if with_digest else "")):
 			db.execute("INSERT INTO metadata VALUES(?,?)",(k,v))
 		for i,geom in enumerate(polygons,1):
-			db.execute("INSERT INTO features VALUES(?,?,?)",(
-				i,f"SIS-{i}",dumps(geom)))
+			db.execute("INSERT INTO features VALUES(?,?,?,?)",(
+				i,f"SIS-{i}","BL" if i%2 else "AS",dumps(geom)))
 			x0,y0,x1,y1=geom.bounds
 			db.execute("INSERT INTO feature_index VALUES(?,?,?,?,?)",
 				(i,x0,x1,y0,y1))
