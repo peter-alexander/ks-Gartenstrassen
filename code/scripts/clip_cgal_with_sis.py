@@ -361,7 +361,7 @@ def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 							visit_linear(child)
 				visit_linear(repaired)
 				audit["make_valid_discarded_line_length_degrees"]=sum(linear_parts)
-			audit["make_valid_discarded_line_count"]=len(linear_parts)
+				audit["make_valid_discarded_line_count"]=len(linear_parts)
 			except Exception as audit_exc:
 				audit["linear_audit_error"]=str(audit_exc)
 			raise ValueError(
