@@ -139,12 +139,14 @@ def _write_feature(stream,feature,first):
 
 
 def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
-		junction_metadata=None):
+		junction_metadata=None,replace_existing=False):
 	preview,out,debug,report=map(Path,(preview,out,debug,report))
 	if not preview.is_file() or preview.is_symlink():
 		raise FileNotFoundError(f"CGAL-Vorschau fehlt: {preview}")
 	for target in (out,debug,report):
-		if target.exists() or target.is_symlink():
+		if target.is_symlink():
+			raise ValueError(f"Ausgabedatei darf kein Symlink sein: {target}")
+		if target.exists() and not replace_existing:
 			raise FileExistsError(f"Vorhandene Ausgabe wird nicht überschrieben: {target}")
 		target.parent.mkdir(parents=True,exist_ok=True)
 	if len({str(path.resolve()) for path in (preview,out,debug,report)})!=4:
@@ -275,7 +277,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 									"area_m2":joined.area,
 									"preview_based":True,
 									"sis_clipped":False,
-									"turn_use_hulls_removed":True},
+									"turn_use_hulls_removed":bool(hull_geometries)},
 								"geometry":mapping(wgs)}
 							first_good=_write_feature(good,new_feature,first_good)
 							stats["merged_polygons"]+=1
@@ -360,6 +362,9 @@ def main():
 		help="Originales GIP2 GeoPackage mit NODE/TURN_USE und RTree")
 	parser.add_argument("--aoi",type=Path,required=True,
 		help="Bestehende Wiener AOI für die historischen Kreuzungshüllen")
+	parser.add_argument("--replace-existing",action="store_true",
+		help="Bestehende reguläre und Debug-Ausgaben erst nach erfolgreicher "
+		"neuer Verarbeitung atomar ersetzen")
 	args=parser.parse_args()
 	aoi=load_aoi(args.aoi)
 	hulls,details=load_turn_use_hulls(args.turn_use_source,aoi,
@@ -371,6 +376,7 @@ def main():
 		"für den Vor-Dissolve-Ausschluss",flush=True)
 	dissolve(args.preview,args.out,args.debug,args.report,
 		junction_hulls=hulls,junction_metadata=details,
+		replace_existing=args.replace_existing,
 		progress=lambda message:print(message,flush=True))
 
 
