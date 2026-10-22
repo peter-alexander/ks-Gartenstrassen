@@ -107,8 +107,9 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 	Hausdorff threshold therefore rejects an almost identical *area*.
 
 	Instead compare each source hole with its own projected ring.
-	Only non-ring holes with a combined metric area <= 0.01 m² (or
-	1e-6 of feature area) may be dropped, never an ordinary hole.
+	Only non-ring holes or wholly collapsed MultiPolygon parts with
+	combined metric area <= 0.01 m² may be dropped, never an ordinary
+	hole or material Polygon. The last remaining Polygon is never dropped.
 	All retained coordinate sequences are left exactly unchanged;
 	any other invalidity must still use the strict existing path.
 	"""
@@ -116,11 +117,18 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 	projected=(wgs.geoms if isinstance(wgs,MultiPolygon) else (wgs,))
 	if len(source)!=len(projected):
 		return None
-	budget=max(0.01,metric.area*1e-6)
+	budget=0.01
 	lost_area=0.
 	discarded=0
+	discarded_polygons=0
 	new_polys=[]
 	for original,converted in zip(source,projected):
+		if len(set(converted.exterior.coords[:-1]))<3:
+			if original.area>budget-lost_area:
+				return None
+			lost_area+=original.area
+			discarded_polygons+=1
+			continue
 		if len(original.interiors)!=len(converted.interiors):
 			return None
 		interiors=[]
@@ -139,7 +147,7 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 			lost_area+=metric_hole_area
 			discarded+=1
 		new_polys.append(Polygon(converted.exterior,interiors))
-	if not discarded:
+	if not (discarded or discarded_polygons) or not new_polys:
 		return None
 	candidate=new_polys[0] if len(new_polys)==1 else MultiPolygon(new_polys)
 	if candidate.is_empty or not candidate.is_valid:
@@ -155,10 +163,11 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 	boundary_shift=transform(to_metric,wgs).boundary.hausdorff_distance(
 		verified.boundary)
 	return candidate,{
-		"repair":"remove_only_projection_collapsed_interior_rings",
+		"repair":"remove_only_projection_collapsed_negligible_rings",
 		"repair_result_type":candidate.geom_type,
 		"discarded_collapsed_holes":discarded,
-		"discarded_metric_hole_area_m2":lost_area,
+		"discarded_collapsed_polygon_components":discarded_polygons,
+		"discarded_metric_component_area_m2":lost_area,
 		"area_shift_m2":area_shift,
 		"area_tolerance_m2":budget,
 		"boundary_shift_m":boundary_shift,
@@ -267,9 +276,10 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	if repair is not None:
 		stats["wgs84_repaired_features"]+=1
 		stats["wgs84_repair_area_shift_m2"]+=repair["area_shift_m2"]
-		if repair["repair"]=="remove_only_projection_collapsed_interior_rings":
+		if repair["repair"]=="remove_only_projection_collapsed_negligible_rings":
 			stats["wgs84_collapsed_holes_removed"]+=repair["discarded_collapsed_holes"]
-			stats["wgs84_collapsed_hole_area_m2"]+=repair["discarded_metric_hole_area_m2"]
+			stats["wgs84_collapsed_polygon_parts_removed"]+=repair["discarded_collapsed_polygon_components"]
+			stats["wgs84_collapsed_metric_area_m2"]+=repair["discarded_metric_component_area_m2"]
 	outprops=dict(props)
 	outprops.update({
 		"pre_sis_area_m2":metric.area,
@@ -356,7 +366,8 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 		f"{stats['without_sis_overlap']:,} ohne Überdeckung, "
 		f"{stats['sis_multipolygon_features']:,} MultiPolygone, "
 		f"{stats['wgs84_repaired_features']:,} konservative WGS84-Korrekturen, "
-		f"{stats['wgs84_collapsed_holes_removed']:,} kollabierte Kleinst-Innenlöcher; "
+		f"{stats['wgs84_collapsed_holes_removed']:,} kollabierte Kleinst-Innenlöcher, "
+		f"{stats['wgs84_collapsed_polygon_parts_removed']:,} kollabierte Kleinstpolygone; "
 		f"Ausgabe: {out}",flush=True)
 	return dict(stats)
 
