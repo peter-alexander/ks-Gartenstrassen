@@ -421,3 +421,43 @@ Die bestehenden drei Ergebnisdateien werden vom normalen
 ersetzt, die native CGAL-Vorschau und der CGAL-Face-Stream
 unverändert wiederverwendet. Dies ist weiterhin eine experimentelle
 Vorschau- und Diagnosepipeline, **kein** SIS-Verschnitt.
+
+
+## Original-Faces statt gepufferter Restfläche bei erfolgreicher Rettung
+
+Die 1–4-m-TURN_USE-Pufferschleife dient bei fehlgeschlagenen
+`edge_id`-Dissolves ab sofort **nur zur Auswahl der
+ursprünglichen CGAL-Faces**, nicht mehr zur endgültigen Ausgabe der
+stark gekürzten Restgeometrie:
+
+1. Für eine problematische `edge_id` werden die bereits
+   verbliebenen Flächen nacheinander um die absoluten
+   TURN_USE-Puffer von 1, 2, 3 und 4 m weiter ausgeschnitten.
+2. Liefert eine Stufe genau **ein gültiges, zusammenhängendes Polygon**,
+   ist dies nur ein **räumlicher Auswahlkandidat**.
+3. Der Kandidat wird gegen die **ursprünglichen ungepufferten und nicht
+   um TURN_USE gekürzten CGAL-Segment-/inneren Punkt-Faces derselben
+   originalen `edge_id`** gematcht. Nur ein
+   **Flächenschnitt größer als null** zählt; reine Randberührung nicht.
+   Andere `edge_id` werden niemals räumlich neu zugeordnet.
+4. Die getroffenen **Original-Faces** werden ohne neue Clipping-Maske
+   vereinigt. Das reguläre Ergebnis darf nun `Polygon`
+   **oder `MultiPolygon`** sein. Unmögliche bzw. ungültige
+   Original-Vereinigungen bleiben im Diagnosemodus; der nächste
+   Pufferdurchgang wird versucht, statt den gepufferten Kandidaten als
+   Ersatz auszugeben.
+
+Die **bei 0 m bereits regulär erfolgreichen** Einzelpolygone bleiben
+weiterhin wie bisher nach dem ersten TURN_USE-Abzug bestehen.
+Nur **neu durch 1–4 m gerettete** `edge_id` erhalten im
+regulären Output die vollständige Original-Face-Vereinigung.
+
+Die bisherigen Ergebnis- und Debugdateien werden auf derselben
+Position **ersetzt**, der native CGAL-Face-Stream und die Vorschau
+weiterverwendet. Neue reguläre Attribute sind
+`geometry_from_original_faces`,
+`matched_original_face_count`,
+`buffer_candidate_area_m2` und wie bisher
+`turn_use_buffer_m`. Der JSON-Bericht protokolliert
+die `matched_original_face_numbers`, die Größe des
+Auswahlkandidaten und die Fläche der wiederhergestellten Originalunion.
