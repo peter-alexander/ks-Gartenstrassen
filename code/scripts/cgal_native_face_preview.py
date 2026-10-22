@@ -117,7 +117,14 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 	report.parent.mkdir(parents=True,exist_ok=True)
 	to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 	bounds=aoi.bounds
-	stats=Counter()
+	stats=Counter({
+		"faces_with_fallback":0,
+		"fallback_halfedges_or_seams":0,
+		"segment_faces_exported":0,
+		"segment_faces_outside_aoi_bbox":0,
+		"artificial_frame_faces_omitted":0,
+		"degenerate_faces_omitted":0,
+	})
 	first_issues=[]
 	face_no=0
 	state="outside"
