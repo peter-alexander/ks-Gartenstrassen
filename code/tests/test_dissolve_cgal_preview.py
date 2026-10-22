@@ -353,7 +353,8 @@ class PreviewDissolveTests(unittest.TestCase):
 				"fully_discarded_edge_ids"][0]["edge_id"],"small-islands")
 			self.assertEqual(stats["statistics"]["final_debug_discarded_components"],2)
 			self.assertEqual(stats["statistics"]["final_debug_fully_discarded_edge_ids"],1)
-			self.assertEqual(stats["statistics"]["final_debug_discarded_area_m2"],200)
+			self.assertAlmostEqual(stats["statistics"][
+				"final_debug_discarded_area_m2"],200,places=2)
 
 	def test_previously_valid_polygon_remains_unbuffered(self):
 		with TemporaryDirectory() as root:
@@ -406,9 +407,10 @@ class PreviewDissolveTests(unittest.TestCase):
 		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
 		# Separate components: one 249.9 m2, one exactly 250 m2,
 		# and one 300 m2. Filtering is per polygon, not sum per Face.
-		small=box(0,0,24.99,10)
-		equal=box(40,0,65,10)
-		large=box(80,0,110,10)
+		x,y=500000,300000
+		small=box(x,y,x+24.99,y+10)
+		equal=box(x+40,y,x+65,y+10)
+		large=box(x+80,y,x+110,y+10)
 		merged,remaining,info,error=_filter_final_debug_components([
 			(1,MultiPolygon(
 				[small,equal,large]),"buffer_cut",None)],
