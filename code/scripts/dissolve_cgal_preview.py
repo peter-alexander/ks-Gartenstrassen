@@ -156,10 +156,12 @@ def _retry_buffered_hulls(
 	unavailable geometries stay null and block promotion to regular output.
 	"""
 	surfaces=list(debug_surfaces)
-	original_blocker=any(geom is None and status!="fully_removed"
-		or geom is not None and (
-			geom.is_empty is False and (
-				not geom.is_valid or geom.geom_type not in ("Polygon","MultiPolygon")))
+	# Do not allow an unprocessable Face to disappear from the
+	# completeness check merely because other Faces can form a polygon.
+	original_blocker=any(
+		(geom is None and status!="fully_removed")
+		or (geom is not None and not geom.is_empty and
+			(not geom.is_valid or geom.geom_type not in ("Polygon","MultiPolygon")))
 		for _,geom,status,_ in surfaces)
 	reason=initial_reason
 	detail=initial_detail
@@ -200,8 +202,9 @@ def _retry_buffered_hulls(
 						not residual.is_valid or residual.geom_type not in (
 							"Polygon","MultiPolygon")):
 					stage_error="invalid_after_buffer"
-					stage_detail=f"Face {number}, +{radius} m: "\
-						+explain_validity(residual)
+					stage_detail=(
+						f"Face {number}, +{radius} m: "
+						+explain_validity(residual))
 					next_surfaces.append((number,residual,"buffer_invalid",
 						stage_detail))
 					continue
@@ -227,9 +230,18 @@ def _retry_buffered_hulls(
 					stage_detail=msg
 				next_surfaces.append((number,None,"buffer_cut_failed",msg))
 		surfaces=next_surfaces
-		if original_blocker:
-			# Continue cutting the other Faces so the final debug is
-			# spatially correct, but never hide an unresolved source error.
+		stage_blocker=original_blocker or any(
+			(geom is None and status!="fully_removed")
+			or (geom is not None and not geom.is_empty and
+				(not geom.is_valid or geom.geom_type not in ("Polygon","MultiPolygon")))
+			for _,geom,status,_ in surfaces)
+		if stage_blocker:
+			# Continue cutting the other Faces so final debug is
+			# spatially correct. A failed cut must NEVER be silently
+			# dropped from the completeness check in later attempts.
+			if not original_blocker and stage_error is not None:
+				reason=stage_error
+				detail=stage_detail
 			stats[f"buffer_{radius}m_still_debug"]+=1
 			continue
 		if stage_error is not None:
