@@ -4,13 +4,15 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from pyproj import Transformer
-from shapely.geometry import MultiPolygon,box,mapping,shape
+from shapely.geometry import MultiPolygon,Polygon,box,mapping,shape
 from shapely.ops import transform
+from shapely.validation import explain_validity
 from shapely.wkb import dumps
 
-from scripts.clip_cgal_with_sis import clip
+from scripts.clip_cgal_with_sis import clip,_export_valid_wgs84,_clip_feature
 
 
 TO_WGS=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -56,6 +58,72 @@ def _sis_database(path,polygons,*,schema="sis-wien-index-v5",with_digest=True):
 			x0,y0,x1,y1=geom.bounds
 			db.execute("INSERT INTO feature_index VALUES(?,?,?,?,?)",
 				(i,x0,x1,y0,y1))
+
+
+class WGS84ProjectionRegressionTests(unittest.TestCase):
+	def _near_touching_valid_metric_polygon(self):
+		# An intact metric polygon with a hole only 1 nanometre from
+		# its outer shell. In EPSG:31256 it is valid, but during
+		# conversion to WGS84 the gap can collapse and self-intersect.
+		x,y=TO_METRIC(16.34,48.21)
+		return Polygon([
+			(x,y),(x+100,y),(x+100,y+20),(x,y+20)],
+			holes=[[
+				(x+1e-9,y+5),(x+4,y+5),
+				(x+4,y+10),(x+1e-9,y+10)]])
+
+	def test_valid_metric_sis_can_become_invalid_in_wgs84(self):
+		metric=self._near_touching_valid_metric_polygon()
+		self.assertTrue(metric.is_valid)
+		raw=transform(TO_WGS,metric)
+		self.assertFalse(raw.is_valid,explain_validity(raw))
+		self.assertIn("Self-intersection",explain_validity(raw))
+		repaired,event=_export_valid_wgs84(
+			metric,TO_METRIC,TO_WGS,"test-edge")
+		self.assertIsNotNone(event)
+		self.assertTrue(repaired.is_valid)
+		self.assertIn(repaired.geom_type,("Polygon","MultiPolygon"))
+		self.assertEqual(event["edge_id"],"test-edge")
+		self.assertLessEqual(event["area_shift_m2"],
+			event["area_tolerance_m2"])
+		self.assertLessEqual(event["boundary_shift_m"],0.02)
+		repaired_metric=transform(TO_METRIC,repaired)
+		self.assertLess(abs(repaired_metric.area-metric.area),0.01)
+
+	def test_healthy_wgs84_sis_polygon_is_never_repaired(self):
+		x,y=TO_METRIC(16.34,48.21)
+		metric=box(x,y,x+30,y+20)
+		self.assertTrue(metric.is_valid)
+		with patch("scripts.clip_cgal_with_sis.make_valid",
+				side_effect=AssertionError("make_valid must not run")):
+			geom,event=_export_valid_wgs84(
+				metric,TO_METRIC,TO_WGS,"healthy")
+		self.assertIsNone(event)
+		self.assertTrue(geom.is_valid)
+
+	def test_reject_non_equivalent_repair_instead_of_silently_changing_area(self):
+		metric=self._near_touching_valid_metric_polygon()
+		with patch("scripts.clip_cgal_with_sis.make_valid",
+				return_value=box(16.3,48.2,16.35,48.25)):
+			with self.assertRaisesRegex(ValueError,
+					"kontrollierte Reparatur abgelehnt"):
+				_export_valid_wgs84(metric,TO_METRIC,TO_WGS,"must-not-lose-area")
+
+	def test_sis_feature_records_conservative_projection_repair(self):
+		metric=self._near_touching_valid_metric_polygon()
+		x,y=metric.bounds[:2]
+		source=_input_feature("problem-edge",
+			box(x-1,y-1,x+101,y+21))
+		with patch("scripts.clip_cgal_with_sis.sis_mask",
+				return_value=metric):
+			from collections import Counter
+			stats=Counter()
+			result=_clip_feature(source,None,TO_METRIC,TO_WGS,stats)
+		self.assertTrue(result["properties"]["sis_clipped"])
+		self.assertTrue(result["properties"]["wgs84_projection_repaired"])
+		self.assertEqual(result["properties"]["edge_id"],"problem-edge")
+		self.assertTrue(shape(result["geometry"]).is_valid)
+		self.assertEqual(stats["wgs84_repaired_features"],1)
 
 
 class FinalSISIntersectionTests(unittest.TestCase):
