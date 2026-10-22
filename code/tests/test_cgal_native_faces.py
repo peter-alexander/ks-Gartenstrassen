@@ -75,14 +75,13 @@ class NativeVoronoiFaceTests(unittest.TestCase):
 		# wholly west of the AOI; validity must not block usable Vienna faces.
 		with TemporaryDirectory() as tmp:
 			path=Path(tmp)/"faces.txt"
-			invalid=square_site(0,0,10000,10000,1000,2000)
 			invalid="".join([
-				"F 1000 0 2000 0\\n",
-				"H 0 0 10000 10000\\nS 0 0 10000 10000\\nE\\n",
-				"H 10000 10000 0 10000\\nS 10000 10000 0 10000\\nE\\n",
-				"H 0 10000 10000 0\\nS 0 10000 10000 0\\nE\\n",
-				"H 10000 0 0 0\\nS 10000 0 0 0\\nE\\n",
-				"Z\\n",
+				"F 1000 0 2000 0\n",
+				"H 0 0 10000 10000\nS 0 0 10000 10000\nE\n",
+				"H 10000 10000 0 10000\nS 10000 10000 0 10000\nE\n",
+				"H 0 10000 10000 0\nS 0 10000 10000 0\nE\n",
+				"H 10000 0 0 0\nS 10000 0 0 0\nE\n",
+				"Z\n",
 			])
 			path.write_text(invalid+square_site(
 				20000,0,30000,10000,3000,4000),encoding="utf-8")
@@ -99,12 +98,12 @@ class NativeVoronoiFaceTests(unittest.TestCase):
 		with TemporaryDirectory() as tmp:
 			path=Path(tmp)/"faces.txt"
 			path.write_text(
-				"F 1000 0 2000 0\\n"
-				"H 0 0 10000 10000\\nS 0 0 10000 10000\\nE\\n"
-				"H 10000 10000 0 10000\\nS 10000 10000 0 10000\\nE\\n"
-				"H 0 10000 10000 0\\nS 0 10000 10000 0\\nE\\n"
-				"H 10000 0 0 0\\nS 10000 0 0 0\\nE\\n"
-				"Z\\n",encoding="utf-8")
+				"F 1000 0 2000 0\n"
+				"H 0 0 10000 10000\nS 0 0 10000 10000\nE\n"
+				"H 10000 10000 0 10000\nS 10000 10000 0 10000\nE\n"
+				"H 0 10000 10000 0\nS 0 10000 10000 0\nE\n"
+				"H 10000 0 0 0\nS 10000 0 0 0\nE\n"
+				"Z\n",encoding="utf-8")
 			with self.assertRaisesRegex(ValueError,"Self-intersection"):
 				read_native_faces(path,{((1000,0),(2000,0)):"invalid"},
 					(0,0),box(0,0,10,10))
