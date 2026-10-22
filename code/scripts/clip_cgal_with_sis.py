@@ -322,36 +322,23 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 		raise ValueError(f"{props['edge_id']}: ungültige polygonale CGAL-Eingabe")
 	metric=transform(to_metric,geom)
 	metric_repair=None
-	if (isinstance(metric,(Polygon,MultiPolygon)) and
-			not metric.is_empty and not metric.is_valid and
-			explain_validity(metric).startswith(
-				"Too few points in geometry component")):
-		fixed=_recover_collapsed_metric_input(geom,metric)
-		if fixed is not None:
-			metric,metric_repair=fixed
-			stats["input_metric_repaired_features"]+=1
-			stats["input_metric_collapsed_holes"]+=metric_repair["removed_holes"]
-			stats["input_metric_collapsed_parts"]+=metric_repair["removed_polygon_parts"]
-	if (isinstance(metric,(Polygon,MultiPolygon)) and
-			not metric.is_empty and not metric.is_valid and
-			explain_validity(metric).startswith("Self-intersection")):
-		candidate,report=_repair_metric_self_intersection(geom,metric,to_wgs)
-		if candidate is not None:
-			metric,metric_repair=candidate,report
-			stats["input_metric_self_intersections_repaired"]+=1
-			stats["input_metric_self_intersection_changed_area_m2"]+=report[
-				"changed_geodesic_area_m2"]
-		else:
-			raise ValueError(
-				f"{props['edge_id']}: metrische Selbstüberschneidung "
-				f"({explain_validity(metric)}), Reparaturprüfung: "
-				f"{json.dumps(report,ensure_ascii=False)}")
-	if not isinstance(metric,(Polygon,MultiPolygon)) or metric.is_empty or not metric.is_valid or metric.area<=0:
-		raise ValueError(
-			f"{props['edge_id']}: ungültige metrische CGAL-Eingabe "
-			f"({explain_validity(metric)}); "
-			"kontrollierte Korrektur mit höchstens 0,01 m² tatsächlicher "
-			"Flächenabweichung nicht möglich")
+	if not isinstance(metric,(Polygon,MultiPolygon)) or metric.is_empty:
+		raise ValueError(f"{props['edge_id']}: metrische CGAL-Geometrie fehlt")
+	if not metric.is_valid:
+		# Reprojection can make otherwise valid WGS84 rings self-touch.
+		# Keep the polygonal area; do not reject a usable SIS intersection
+		# for an unrequested centimetre-scale acceptance test.
+		invalidity=explain_validity(metric)
+		parts=_polygonal_parts(make_valid(metric))
+		if not parts:
+			raise ValueError(f"{props['edge_id']}: keine metrische Polygonfläche nach make_valid")
+		metric=parts[0] if len(parts)==1 else union_all(parts)
+		if not isinstance(metric,(Polygon,MultiPolygon)) or metric.is_empty or not metric.is_valid:
+			raise ValueError(f"{props['edge_id']}: metrische Polygonreparatur nicht möglich")
+		metric_repair={"method":"make_valid_polygonal_input","original_invalidity":invalidity}
+		stats["input_metric_repaired_features"]+=1
+	if metric.area<=0:
+		raise ValueError(f"{props['edge_id']}: metrische CGAL-Fläche ist leer")
 	stats["pre_sis_area_sum_m2"]+=metric.area
 	# Same proven SIS WFS-index RTree/geometry union used by the
 	# existing SIS-V2 street mask, including ALL BELAG and TYPE values.
