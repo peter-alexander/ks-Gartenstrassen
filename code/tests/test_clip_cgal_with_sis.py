@@ -123,7 +123,7 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 	def test_collapsed_tiny_multipolygon_component_is_not_misreported_as_area(self):
 		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
 		big=box(x,y,x+20,y+20)
-		tiny=box(x+30,y+2,x+30+1e-10,y+9)
+		tiny=box(x+30,y+2,x+30+5e-12,y+9)
 		metric=MultiPolygon([big,tiny])
 		self.assertTrue(metric.is_valid)
 		wgs=transform(TO_WGS,metric)
