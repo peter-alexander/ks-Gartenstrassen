@@ -24,6 +24,7 @@ from scripts.build_cgal_voronoi_geojson import (
 	_export_wgs84_polygon)
 from scripts.cgal_segment_input import SCALE, _noded_segments
 from scripts.cgal_native_faces import read_native_faces
+from scripts.cgal_native_face_preview import write_preview
 from scripts.wienwide_grid import checksum, load_aoi
 
 
@@ -121,9 +122,9 @@ def _dissolve(groups):
 			yield edge_id,connected
 
 
-def build(cache,aoi_path,binary,out,*,timeout=900):
+def build(cache,aoi_path,binary,out,*,timeout=900,preview_only=False):
 	out=Path(out)
-	if out.exists() or out.is_symlink():
+	if not preview_only and (out.exists() or out.is_symlink()):
 		raise FileExistsError(out)
 	if not Path(binary).is_file():
 		raise FileNotFoundError(binary)
@@ -141,6 +142,36 @@ def build(cache,aoi_path,binary,out,*,timeout=900):
 	face_stream,cgal_stats=_read_or_compute_faces(
 		owners,frame,binary,bounds,out,
 		_identity(cache,aoi_path,binary),timeout)
+	preview=out.with_name(out.stem+"__preview.geojson")
+	preview_report=out.with_name(out.stem+"__preview_report.json")
+	preview_identity={
+		"source":_identity(cache,aoi_path,binary),
+		"preview_implementation_sha256":checksum(
+			Path(__file__).with_name("cgal_native_face_preview.py")),
+	}
+	if preview.exists() != preview_report.exists():
+		raise ValueError("Unvollständiger CGAL-Vorschau-Cache: "
+			"Vorschau-GeoJSON und Bericht müssen gemeinsam vorhanden sein")
+	if preview.is_symlink() or preview_report.is_symlink():
+		raise ValueError("CGAL-Vorschau darf kein Symlink sein")
+	if preview.exists():
+		saved=json.loads(preview_report.read_text(encoding="utf-8"))
+		if saved.get("preview_input_identity")!=preview_identity:
+			raise ValueError("Vorhandene CGAL-Vorschau ist veraltet; "
+				"Dateien vor dem erneuten Export archivieren")
+		print(f"CGAL-Vorschau wiederverwenden: {preview}",flush=True)
+	else:
+		print("CGAL: schreibe ungeprüfte Segment-Faces als QGIS-Vorschau "
+			"vor allen strengen Polygonprüfungen",flush=True)
+		summary=write_preview(face_stream,owners,origin,aoi,
+			preview,preview_report,
+			progress=lambda message:print(message,flush=True),
+			identity=preview_identity)
+	if preview_only:
+		print(f"Nur Vorschau angefordert; strenge Geometrieprüfung "
+			f"und Dissolve bewusst nicht gestartet. Bericht: {preview_report}",
+			flush=True)
+		return 0
 	groups,stats=read_native_faces(face_stream,owners,origin,aoi,
 		progress=lambda message:print(message,flush=True))
 	if not groups:
@@ -196,8 +227,12 @@ def main():
 	parser.add_argument("--binary",type=Path,required=True)
 	parser.add_argument("--out",type=Path,required=True)
 	parser.add_argument("--timeout",type=float,default=900)
+	parser.add_argument("--preview-only",action="store_true",
+		help="nur ungeprüfte Einzel-Faces als GeoJSON ausgeben; keine "
+		"strengen Prüfungen, kein Dissolve")
 	args=parser.parse_args()
-	build(args.cache,args.aoi,args.binary,args.out,timeout=args.timeout)
+	build(args.cache,args.aoi,args.binary,args.out,
+		timeout=args.timeout,preview_only=args.preview_only)
 
 
 if __name__=="__main__":

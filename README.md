@@ -141,3 +141,47 @@ Der gespeicherte CGAL-Face-Stream
 (`__native_faces.txt` + `__native_faces_meta.json`) bleibt gültig:
 Bei erneutem Start des bestehenden Wiener Laufs wird nur die
 Vorverarbeitung/Polygonvereinigung wiederholt, nicht CGAL neu berechnet.
+
+
+## CGAL-Vorschau vor jeder Geometrieprüfung (QGIS)
+
+Für eine **reine visuelle Kontrolle** kann die gespeicherte native
+Voronoi-Face-Ausgabe ohne vollständigen GIS-Export dargestellt werden:
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh --preview-only
+```
+
+Der native CGAL-Face-Stream aus dem bereits erfolgten Lauf wird
+wiederverwendet; **kein neuer CGAL-Lauf** nötig. Ausgabe:
+
+- `output/cgal_native_faces_dissolved_pre_sis_wien__preview.geojson`
+- `output/cgal_native_faces_dissolved_pre_sis_wien__preview_report.json`
+
+Die Vorschau wird auch beim normalen Hauptlauf **vor** den strengen
+CGAL-Randkurven-/Polygon- und Dissolve-Prüfungen erstellt. Bei
+`--preview-only` endet die Verarbeitung nach dem GeoJSON
+erfolgreich; die spätere strenge Prüfung wird nicht gestartet.
+
+Jede **native Segment-Face** ist ein eigenes GeoJSON-Feature mit der
+ursprünglichen `edge_id` und `face_number`; die
+vorläufige Darstellung kann in QGIS nach `edge_id` eingefärbt
+werden. Punkt-Faces kommen weiterhin nicht vor.
+
+Die Vorschau ist **nicht** nach `edge_id` vereinigt und
+absichtlich **nicht** topologisch geprüft. Verbogene CGAL-Halfedge-Kurven,
+die sich nicht mit ihrem eigenen CCB-Endpunkt verbinden lassen (z. B.
+Face 282), werden **nur für die Darstellung** als gerade CCB-Sehne
+eingetragen. Die betroffenen Features erhalten `fallback: true`;
+Details stehen im JSON-Bericht. Selbstüberschneidende Polygone bleiben
+im Vorschau-Layer erhalten, ohne automatische `make_valid`-
+Reparatur. Der Vorschau-Layer wird nur anhand der AOI-Bounding-Box
+gefiltert, **nicht auf die Wiener Grenze geclippt**. Die ungeprüften
+Polygone sind ausdrücklich keine Grundlage für SIS oder PMTiles.
+
+Der strenge endgültige Export bleibt unverändert aktiv und bricht bei
+fehlerhafter Geometrie weiterhin ab. Beide Vorschau-Dateien werden
+bei unveränderter Eingabe wiederverwendet, bei abweichenden Prüfsummen
+aber nicht still überschrieben.
