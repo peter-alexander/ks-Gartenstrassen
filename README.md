@@ -93,3 +93,29 @@ CGAL-Version. Bestehende Dateien werden nicht still überschrieben.
 
 Die frühere `site_intersections`-Methode bleibt ausschließlich
 historische Diagnose und gehört **nicht** zum aktiven Lauf.
+
+## Fehlerhafte native CGAL-Face untersuchen (ohne erneuten CGAL-Lauf)
+
+Wenn der direkte Face-Export bei einer konkreten Face anhält, z. B.
+`Face 54 ... native Polygongeometrie ungültig`, ist der rohe
+CGAL-Face-Stream bereits gespeichert. Zur **reinen Untersuchung**:
+
+```bash
+cd /home/openclaw/.openclaw/workspace/ks-Gartenstrassen
+git pull --ff-only
+cd code
+../.venv/bin/python -m scripts.inspect_cgal_native_face \
+	--stream ../output/cgal_native_faces_dissolved_pre_sis_wien__native_faces.txt \
+	--cache ../cache/wien/linear_use_original.sqlite \
+	--face 54 \
+	--report ../output/cgal_face54_report.json \
+	--geojson ../output/cgal_face54_edges.geojson \
+	--raw ../output/cgal_face54_native.txt
+```
+
+Das erzeugt einen verständlichen Gültigkeitsbericht, einen in QGIS
+darstellbaren Linien-/Halfedge-Diagnoselayer und die exakten, nummerierten
+nativen Face-Records. Es wird **keine** Geometrie repariert, keine Face
+einer anderen `edge_id` zugeordnet und kein SIS-Verschnitt ausgeführt.
+Die Fehlerursache muss anhand dieser Geometrie geklärt werden, bevor der
+Vor-SIS-Export wieder freigegeben wird.
