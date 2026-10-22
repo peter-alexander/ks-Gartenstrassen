@@ -1,50 +1,39 @@
 # Gartenstraßen Wien
 
-GIS-Vorbereitung und experimentelle CGAL-Segment-Voronoi-Aufteilung des
-Wiener Straßenraums aus originalen GIP-LINEAR_USE-Geometrien und SIS.
+Aktuelle Forschungsstufe: Voronoi aus **originalen LINEAR_USE-Linien**
+(`base_type=1`) mit CGAL. Anders als bisher bleibt die Identität der
+Generatorsegmente im CGAL-Site-Export erhalten und wird auf die
+ursprüngliche `edge_id` zurückgeführt.
 
-## Methodik
+## Ablauf bis vor SIS
 
-1. Originale `LINEAR_USE`-LineStrings mit `base_type=1` einlesen;
-   `object_id` und `edge_id` bleiben erhalten (keine Mittelachsen).
-2. Originalgeometrie für CGAL in Teilsegmente zerlegen, auf ein
-   Millimeterraster runden und an Kreuzungen noden.
-3. Das vollständige Wiener Voronoi-Diagramm polygonisieren.
-4. **Jede originale Eingabelinie** gegen einen räumlichen Index aller
-   polygonisierten Flächen prüfen (`intersects`):
-   - keine Fläche: eigener GeoJSON-Layer
-   - mehrere Flächen: eigener GeoJSON-Layer
-   - genau eine Fläche: `edge_id` dieser Fläche vorschlagen
-   - widersprüchliche `edge_id` an einer Fläche: Konflikt-GeoJSON
-   - jede noch nicht eindeutig zugewiesene Fläche: weiterer GeoJSON-Layer
-5. Nur bei vollständig eindeutiger Zuordnung: mit SIS verschneiden,
-   je `edge_id` nur zusammenhängende Flächen vereinigen,
-   räumlich getrennte Gruppen als eigene GeoJSON-Features belassen.
+1. LINEAR_USE-Geometrien (EPSG:31256) ohne Mittelachsen laden.
+2. Originalsegmente für CGAL millimetergenau segmentieren/noden.
+3. CGAL: Dualgrenzen **und tatsächliche Sites** gemeinsam ausgeben.
+4. Für jede **Segment-Site** die `edge_id` ihres ursprünglichen
+   Eingabesegments bestimmen; polygonisierte Zelle anhand der positiven
+   Schnittlänge mit der tatsächlichen Site verbinden. Keine
+   künstlichen Prüfpunkte, keine Nearest-Heuristik.
+5. Zugeordnete Zellen derselben `edge_id` vereinigen; nur räumlich
+   zusammenhängende Teile zu einem Feature zusammenfassen.
+6. Ergebnis als GeoJSON **vor SIS** exportieren.
 
-Bei `intersects` zählt **auch die Berührung eines Polygonrandes an einem
-einzigen Punkt** als Treffer. Solche Mehrfachtreffer werden absichtlich
-sichtbar gemacht; es wird keine automatische Entfernungsheuristik eingesetzt.
-
-## Wien ausführen
+**Punktzellen werden nicht behandelt oder einer `edge_id` zugewiesen.**
+Im Zwischenergebnis verbleiben daher bewusst unbelegte Flächen.
+Ungültige oder widersprüchliche Segment-Site-Zuordnungen stoppen den
+Export. Das ist ein experimenteller Geometrieexport, keine vollständige
+Flächenpartition und noch kein SIS- oder PMTiles-Produkt.
 
 ```bash
-GIP_NETWORK_SOURCE=/pfad/gip_network_ogd.gpkg bash code/scripts/run-gartenstrassen-wien.sh
+git pull --ff-only
+bash code/scripts/run-gartenstrassen-wien.sh
 ```
 
-Vorhandene Wiener SIS-/GRM-Caches und `cache/wien/linear_use_original.sqlite`
-werden weiterverwendet; die früheren Voronoi-Zuordnungen nicht.
+Ausgabe: `output/cgal_original_segment_sites_pre_sis_wien.geojson`.
+Der bislang fehlerhafte vollständige LINEAR_USE-Linien/Polygon-
+Schnittansatz ist nicht mehr Bestandteil des aktiven Wiener Laufs.
+Vorhandene Eingabecaches werden wiederverwendet, alte GeoJSON-Ergebnisse
+nicht überschrieben.
 
-Ausgabedateien:
-
-- `output/linear_use_original.geojson`: originale LINEAR_USE-Linien
-- `output/cgal_original_line_intersections_sis_wien__linien_mehrere_flaechen.geojson`
-- `output/cgal_original_line_intersections_sis_wien__linien_ohne_flaeche.geojson`
-- `output/cgal_original_line_intersections_sis_wien__flaechen_edge_id_konflikt.geojson`
-- `output/cgal_original_line_intersections_sis_wien__flaechen_ohne_eindeutige_edge_id.geojson`
-- `output/cgal_original_line_intersections_sis_wien__zuordnungsbericht.json`
-- `output/cgal_original_line_intersections_sis_wien.geojson`: nur bei eindeutiger Zuordnung und SIS-QA
-- `output/cgal_original_line_intersections_sis_wien.pmtiles`: nur bei erfolgreichem Gesamtlauf
-
-Der gesamte Wien-Lauf wird bei einem ungeklärten Schnittfall vor dem
-SIS-Export gestoppt. Die vier Diagnoselayer werden trotzdem gespeichert.
-Unverändert gelten die geometrischen Validitäts- und Flächenbilanzprüfungen.
+Der SIS-Verschnitt wird erst nach Prüfung des Vor-SIS-Ergebnisses
+wieder aufgenommen.

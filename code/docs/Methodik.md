@@ -1,29 +1,21 @@
-# Methodik – Wiener Gartenstraßen
+# Methodik – vor dem SIS-Verschnitt
 
-## Quellen
+Die aktuelle Stufe berechnet CGAL-Segment-Voronoi aus originalen
+LINEAR_USE-Linien (`base_type=1`) in EPSG:31256.
 
-- Wiener SIS-Straßenraumflächen
-- GRM2023-Vegetation
-- GIP `LINEAR_USE`, ausschließlich `base_type=1`
-- EPSG:31256 als metrisches Berechnungssystem
+Die ursprüngliche `edge_id` wird bei der Segmentierung/Noding
+bewahrt. CGAL liefert nun sowohl die Voronoi-Grenzen als auch die
+tatsächlichen Sites. Nur Segment-Sites werden anhand des ursprünglichen
+Eingabesegments zugeordnet. Die Schnittlänge der Site in einer
+polygonisierten Zelle dient zur topologischen Verbindung. Mehrere
+Segment-Sites derselben `edge_id` dürfen eine gemeinsame Fläche bilden.
 
-## Voronoi und Straßenzuordnung
+**Punkt-Sites werden absichtlich nicht zugeordnet oder verteilt.**
+Die erhaltenen unbelegten Flächen sind daher keine Fehler, die
+automatisch mit einer benachbarten `edge_id` aufgefüllt werden.
+Nicht eindeutig zuordenbare Segment-Sites hingegen führen zum
+Abbruch statt zu einer heuristischen Korrektur.
 
-1. Original-Linien (`object_id`, `edge_id`) ohne Mitteln einlesen.
-2. Für CGAL segmentieren und an echten Kreuzungen noden.
-3. Wienweit Voronoi-Grenzen berechnen und polygonisieren.
-4. Original-Linien direkt mit den vollständigen Voronoi-Flächen schneiden.
-   Nur eine Linie mit **genau einem** Polygon-Treffer darf ihre `edge_id`
-   diesem Polygon vorschlagen.
-5. Nulltreffer, Mehrfachtreffer, widersprüchliche `edge_id` einer Fläche
-   und alle unzugeordneten Flächen als eigene Diagnoselayer ausgeben.
-6. Bei uneindeutiger Zuordnung vor SIS stoppen, andernfalls mit dem
-   SIS-Straßenraum verschneiden.
-7. Nur berührende Flächen derselben `edge_id` vereinigen;
-   getrennte Teilflächen bleiben eigene Features.
-8. Gültigkeit und Flächenbilanz prüfen.
-
-Das strikte `intersects` berücksichtigt auch eine bloße
-Randberührung. Diese Fälle werden nicht automatisch korrigiert.
-Die Rekonstruktion und Parabelapproximation der CGAL-Grenzen
-bleibt bis zur Prüfung auf echten Daten experimentell.
+Nach der Zellzuordnung erfolgt die Vereinigung nach `edge_id`
+und räumlichem Zusammenhang, anschließend ein GeoJSON-Export.
+**SIS kommt in diesem Schritt nicht vor.**

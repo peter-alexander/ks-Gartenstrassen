@@ -1,5 +1,5 @@
 // CGAL dual boundaries from original LINEAR_USE segments (integer millimetres).
-// stdin: x1 y1 x2 y2 per segment; output S / R / L Voronoi primitives.
+// stdin: x1 y1 x2 y2 per segment; edges and sites are separate outputs.
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Segment_Delaunay_graph_2.h>
 #include <CGAL/Segment_Delaunay_graph_filtered_traits_2.h>
@@ -56,12 +56,15 @@ struct Recorder {
 
 int main(int argc,char** argv) {
 	std::string path;
+	std::string sites_path;
 	double xmin=0,ymin=0,xmax=0,ymax=0;
 	bool has_bounds=false;
 	for (int i=1;i<argc;++i) {
 		const std::string option=argv[i];
 		if (option=="--edges" && i+1<argc) {
 			path=argv[++i];
+		} else if (option=="--sites" && i+1<argc) {
+			sites_path=argv[++i];
 		} else if (option=="--bounds" && i+4<argc) {
 			xmin=std::stod(argv[++i]);
 			ymin=std::stod(argv[++i]);
@@ -74,7 +77,7 @@ int main(int argc,char** argv) {
 		}
 	}
 	if (path.empty() || !has_bounds || !(xmin<xmax && ymin<ymax)) {
-		std::cerr << "Usage: --edges PATH --bounds XMIN YMIN XMAX YMAX (mm)\n";
+		std::cerr << "Usage: --edges PATH [--sites PATH] --bounds XMIN YMIN XMAX YMAX (mm)\n";
 		return 2;
 	}
 	try {
@@ -100,6 +103,36 @@ int main(int argc,char** argv) {
 		diagram.draw_dual(recorder);
 		if (!out.good())
 			throw std::runtime_error("Edge output write failed");
+		if (!sites_path.empty()) {
+			std::ofstream sites(sites_path);
+			if (!sites)
+				throw std::runtime_error("Cannot create site output");
+			sites << std::setprecision(17);
+			for (auto it=diagram.finite_vertices_begin();
+					it!=diagram.finite_vertices_end();++it) {
+				const auto site=it->site();
+				if (site.is_segment()) {
+					// The supporting site is the actual inserted input segment,
+					// even if CGAL split the segment internally.
+					const auto support=site.supporting_site();
+					const auto a=support.source(),b=support.target();
+					const auto c=site.source(),d=site.target();
+					sites << "S " << a.x() << " " << a.y() << " "
+						<< b.x() << " " << b.y() << " "
+						<< c.x() << " " << c.y() << " "
+						<< d.x() << " " << d.y() << "\n";
+				} else if (site.is_point()) {
+					// Deliberately do not attribute point cells.
+					const auto p=site.point();
+					sites << "P " << p.x() << " " << p.y() << "\n";
+				} else {
+					throw std::runtime_error("Unknown CGAL site type");
+				}
+			}
+			if (!sites.good())
+				throw std::runtime_error("Site output write failed");
+		}
+
 		std::cout << "{\"status\":\"ok\",\"input_segments\":" << n
 			<< ",\"segments\":" << recorder.segments
 			<< ",\"rays\":" << recorder.rays
