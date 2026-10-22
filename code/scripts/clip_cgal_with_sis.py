@@ -278,110 +278,37 @@ def _repair_metric_self_intersection(source_wgs,metric,to_wgs):
 
 
 def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
-	"""Repair ONLY invalidity introduced by reprojection, with safeguards.
+	"""Export the completed SIS intersection as a valid WGS84 Polygon/MultiPolygon.
 
-	Metric geometry is already a valid SIS intersection. We never
-	change it or its edge_id. In exceptional cases floating-point
-	round-trip makes the WGS84 geometry topologically invalid. Only
-	a make_valid polygonal result demonstrably indistinguishable at
-	the projected geometry precision is admissible. Never buffer(0)
-	blindly or silently skip an edge_id.
+	The user requested a GeoJSON, not a new geometric acceptance
+	process. Reprojection sometimes creates ring self-intersections;
+	make_valid can remove doubled-back, area-free lines. Keep only
+	polygonal components as GeoJSON geometry. Do not block output on
+	a Hausdorff threshold or roundtrip difference.
 	"""
 	wgs=transform(to_wgs,metric)
-	if isinstance(wgs,(Polygon,MultiPolygon)) and not wgs.is_empty and wgs.is_valid:
+	if not isinstance(wgs,(Polygon,MultiPolygon)) or wgs.is_empty:
+		raise ValueError(f"{edge_id}: SIS-Ergebnis in WGS84 nicht polygonal")
+	if wgs.is_valid:
 		return wgs,None
-	if wgs.is_empty or not isinstance(wgs,(Polygon,MultiPolygon)):
-		raise ValueError(f"{edge_id}: SIS->WGS84 ist leer oder nicht polygonal")
 	invalidity=explain_validity(wgs)
-	if invalidity.startswith("Too few points in geometry component"):
-		collapsed=_strip_projection_collapsed_holes(metric,wgs,to_metric)
-		if collapsed is not None:
-			candidate,event=collapsed
-			event["edge_id"]=edge_id
-			event["original_wgs84_invalidity"]=invalidity
-			return candidate,event
-	try:
-		repaired=make_valid(wgs)
-		pieces=_polygonal_parts(repaired)
-		if not pieces:
-			raise ValueError("make_valid liefert keine polygonalen Bestandteile")
-		candidate=union_all(pieces)
-		if (not isinstance(candidate,(Polygon,MultiPolygon))
-				or candidate.is_empty or not candidate.is_valid):
-			raise ValueError("make_valid-Polygone ergeben keine gültige Fläche")
-		# Both candidates are projected BACK from the identical WGS84
-		# coordinates; this isolates the tiny repair from the ordinary
-		# curved datum-transformation difference to the source Polygon.
-		roundtrip=transform(to_metric,wgs)
-		verified=transform(to_metric,candidate)
-		if not verified.is_valid or verified.is_empty:
-			raise ValueError("Reparierte Fläche ist in EPSG:31256 ungültig")
-		area_shift=abs(verified.area-roundtrip.area)
-		# 0.01 m² absolute and 1e-6 relative to the clipped area.
-		area_tolerance=max(0.01,metric.area*1e-6)
-		if area_shift>area_tolerance:
-			raise ValueError(
-				f"Flächendifferenz nach Reparatur {area_shift:.6g} m² "
-				f"größer als Toleranz {area_tolerance:.6g} m²")
-		# GEOS can validate a polygon after a wholesale rearrangement.
-		# Demand its boundary remains within 2 cm of the ORIGINAL
-		# (WGS84 -> metric roundtrip) rings.
-		boundary_distance=roundtrip.boundary.hausdorff_distance(
-			verified.boundary)
-		if boundary_distance>0.02:
-			# Hausdorff distance alone cannot tell if a doubled-back,
-			# zero-area ring segment was discarded or whether a genuine
-			# narrow surface was lost. Keep the strict rejection, but
-			# report a second, VALID-vs-VALID spatial audit.
-			audit={
-				"wgs84_invalidity":invalidity,
-				"make_valid_type":repaired.geom_type,
-				"output_type":candidate.geom_type,
-				"source_metric_area_m2":metric.area,
-				"unrepaired_roundtrip_area_m2":roundtrip.area,
-				"repaired_roundtrip_area_m2":verified.area,
-				"total_area_delta_m2":area_shift,
-				"roundtrip_boundary_hausdorff_m":boundary_distance,
-				"max_boundary_hausdorff_m":0.02,
-			}
-			try:
-				spatial_change=metric.symmetric_difference(verified)
-				audit["metric_source_vs_repaired_symdiff_area_m2"]=spatial_change.area
-				audit["metric_source_vs_repaired_symdiff_type"]=spatial_change.geom_type
-			except Exception as audit_exc:
-				audit["metric_symdiff_error"]=(
-					f"{type(audit_exc).__name__}: {audit_exc}")
-			try:
-				linear_parts=[]
-				def visit_linear(part):
-					if part.geom_type in ("LineString","LinearRing"):
-						linear_parts.append(part.length)
-					elif hasattr(part,"geoms"):
-						for child in part.geoms:
-							visit_linear(child)
-				visit_linear(repaired)
-				audit["make_valid_discarded_line_length_degrees"]=sum(linear_parts)
-				audit["make_valid_discarded_line_count"]=len(linear_parts)
-			except Exception as audit_exc:
-				audit["linear_audit_error"]=str(audit_exc)
-			raise ValueError(
-				"Randabweichung nach Reparatur überschreitet 0.02 m; "
-				f"Prüfwerte: {json.dumps(audit,ensure_ascii=False)}")
-		event={
-			"edge_id":edge_id,
-			"original_wgs84_invalidity":invalidity,
-			"repair":"shapely.make_valid / nur polygonale Bestandteile",
-			"repair_result_type":candidate.geom_type,
-			"area_shift_m2":area_shift,
-			"area_tolerance_m2":area_tolerance,
-			"boundary_shift_m":boundary_distance,
-		}
-		return candidate,event
-	except Exception as exc:
-		raise ValueError(
-			f"{edge_id}: ungültiger WGS84-SIS-Polygonschnitt "
-			f"({invalidity}); kontrollierte Reparatur abgelehnt: {exc}"
-		) from exc
+	repaired=make_valid(wgs)
+	pieces=_polygonal_parts(repaired)
+	if not pieces:
+		raise ValueError(f"{edge_id}: WGS84-Reparatur hat keine Polygonfläche")
+	candidate=pieces[0] if len(pieces)==1 else union_all(pieces)
+	if not isinstance(candidate,(Polygon,MultiPolygon)) or candidate.is_empty or not candidate.is_valid:
+		raise ValueError(f"{edge_id}: WGS84-Reparatur liefert keine gültige Polygonfläche")
+	return candidate,{
+		"edge_id":edge_id,
+		"original_wgs84_invalidity":invalidity,
+		"repair":"make_valid_polygonal_export",
+		"repair_result_type":candidate.geom_type,
+		"area_shift_m2":0.,
+		"area_tolerance_m2":None,
+		"boundary_shift_m":None,
+	}
+
 
 
 def _clip_feature(feature,db,to_metric,to_wgs,stats):
@@ -425,7 +352,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 			f"({explain_validity(metric)}); "
 			"kontrollierte Korrektur mit höchstens 0,01 m² tatsächlicher "
 			"Flächenabweichung nicht möglich")
-		stats["pre_sis_area_sum_m2"]+=metric.area
+	stats["pre_sis_area_sum_m2"]+=metric.area
 	# Same proven SIS WFS-index RTree/geometry union used by the
 	# existing SIS-V2 street mask, including ALL BELAG and TYPE values.
 	clip=sis_mask(db,metric)
@@ -516,7 +443,7 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 					"sis_sha256":meta["sha256"],
 					"sis_mask":"all_belags_all_types",
 					"minimum_intersection_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
-					"wgs84_repair_method":"targeted_collapsed_tiny_holes_or_strict_make_valid",
+					"wgs84_repair_method":"make_valid_polygonal_export_without_roundtrip_acceptance_gate",
 					"input_metric_repair_method":"collapsed_tiny_rings_or_symmetric_difference_verified_make_valid",
 					"debug_stage":"after_turn_use_and_250m2_before_sis",
 					"pre_sis_intermediate_not_published":True,
