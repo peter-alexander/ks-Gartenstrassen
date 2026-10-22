@@ -22,5 +22,5 @@ if [[ ! -f "$CACHE" ]]; then
 	bash "$REPO/code/scripts/run-linear-use-wien.sh"
 fi
 
-bash "$REPO/code/scripts/run-cgal-native-faces-pre-sis-wien.sh"
-echo "Zwischenstand vor SIS fertig. SIS-Verschnitt bleibt bis zur Prüfung ausgesetzt."
+bash "$REPO/code/scripts/run-cgal-native-faces-pre-sis-wien.sh" "$@"
+echo "CGAL-Schritt abgeschlossen. SIS-Verschnitt bleibt ausgesetzt."
