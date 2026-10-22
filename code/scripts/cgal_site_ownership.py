@@ -10,7 +10,10 @@ import math
 from pathlib import Path
 from collections import defaultdict
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, mapping
+from shapely.ops import transform
+import os
+import tempfile
 from shapely.strtree import STRtree
 
 from scripts.cgal_segment_input import SCALE
@@ -166,3 +169,63 @@ def require_sound_attribution(stats):
 			"polygons_with_conflicting_segment_edge_id"]:
 		raise ValueError("CGAL-Segment-Site-Zuordnung ist nicht eindeutig: "
 			+json.dumps(stats["provenance_errors"][:5],ensure_ascii=False))
+
+
+def write_site_diagnostics(output,faces,sites,stats,to_wgs):
+	"""Preserve inspectable native-site failures before rejecting the run.
+
+	Only the bounded example set is exported; counts are complete.
+	This output is independent of SIS, and never overwrites older files.
+	"""
+	path=Path(output)
+	report=path.with_name(path.stem+"__site_zuordnung.json")
+	geojson=path.with_name(path.stem+"__site_konflikte.geojson")
+	for target in (report,geojson):
+		if target.exists() or target.is_symlink():
+			raise FileExistsError(f"CGAL-Site-Diagnose bereits vorhanden: {target}")
+	by_line={line:(edge_id,geom) for line,edge_id,geom in sites}
+	features=[]
+	for error in stats["provenance_errors"]:
+		num=error.get("site_line")
+		if num is not None and num in by_line:
+			edge_id,segment=by_line[num]
+			features.append({"type":"Feature",
+				"properties":{"kind":"segment_site","site_line":num,
+					"edge_id":edge_id,"reason":error["reason"],
+					"interior_faces":error.get("interior_faces",0),
+					"boundary_faces":error.get("boundary_faces",0)},
+				"geometry":mapping(transform(to_wgs,segment))})
+			for status,key in (
+					("interior","interior_face_indices"),
+					("boundary","boundary_face_indices")):
+				for idx in error.get(key,[])[:12]:
+					features.append({"type":"Feature",
+						"properties":{"kind":"polygon_face",
+							"site_line":num,"polygon_index":idx,
+							"site_relation":status},
+						"geometry":mapping(transform(to_wgs,faces[idx]))})
+		elif "polygon_index" in error:
+			idx=error["polygon_index"]
+			features.append({"type":"Feature",
+				"properties":{"kind":"polygon_conflict",
+					"polygon_index":idx,
+					"edge_ids":error["edge_ids"]},
+				"geometry":mapping(transform(to_wgs,faces[idx]))})
+	diagnostic={"type":"FeatureCollection","features":features}
+	staged={}
+	try:
+		for target,document in ((report,stats),(geojson,diagnostic)):
+			target.parent.mkdir(parents=True,exist_ok=True)
+			with tempfile.NamedTemporaryFile(
+					mode="w",encoding="utf-8",dir=target.parent,
+					prefix=target.name+".",suffix=".tmp",delete=False) as handle:
+				staged[target]=Path(handle.name)
+				json.dump(document,handle,ensure_ascii=False,
+					indent=2 if target==report else None,allow_nan=False)
+				handle.write("\n")
+		for target in (report,geojson):
+			os.replace(staged.pop(target),target)
+	finally:
+		for tmp in staged.values():
+			tmp.unlink(missing_ok=True)
+	return report,geojson
