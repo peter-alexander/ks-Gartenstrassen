@@ -97,6 +97,85 @@ def _polygonal_parts(geom):
 	return []
 
 
+def _strip_projection_collapsed_holes(metric,wgs,to_metric):
+	"""Discard only genuine metric holes that become non-rings in WGS84.
+
+	For an otherwise valid EPSG:31256 Polygon, a near-zero-area
+	interior ring can project to two distinct longitude/latitude
+	coordinates. The invalid WGS84 ring then has no enclosed area,
+	but make_valid drops its metres-long boundary. A blanket boundary
+	Hausdorff threshold therefore rejects an almost identical *area*.
+
+	Instead compare each source hole with its own projected ring.
+	Only non-ring holes or wholly collapsed MultiPolygon parts with
+	combined metric area <= 0.01 m² may be dropped, never an ordinary
+	hole or material Polygon. The last remaining Polygon is never dropped.
+	All retained coordinate sequences are left exactly unchanged;
+	any other invalidity must still use the strict existing path.
+	"""
+	source=(metric.geoms if isinstance(metric,MultiPolygon) else (metric,))
+	projected=(wgs.geoms if isinstance(wgs,MultiPolygon) else (wgs,))
+	if len(source)!=len(projected):
+		return None
+	budget=0.01
+	lost_area=0.
+	discarded=0
+	discarded_polygons=0
+	new_polys=[]
+	for original,converted in zip(source,projected):
+		if len(set(converted.exterior.coords[:-1]))<3:
+			if original.area>budget-lost_area:
+				return None
+			lost_area+=original.area
+			discarded_polygons+=1
+			continue
+		if len(original.interiors)!=len(converted.interiors):
+			return None
+		interiors=[]
+		for source_hole,converted_hole in zip(
+				original.interiors,converted.interiors):
+			coords=converted_hole.coords
+			distinct=len(set(coords[:-1]))
+			if distinct>=3:
+				interiors.append(coords)
+				continue
+			# A collapsed WGS84 hole can only be removed when the
+			# original (valid!) metric interior carried negligible area.
+			metric_hole_area=Polygon(source_hole).area
+			if metric_hole_area>budget-lost_area:
+				return None
+			lost_area+=metric_hole_area
+			discarded+=1
+		new_polys.append(Polygon(converted.exterior,interiors))
+	if not (discarded or discarded_polygons) or not new_polys:
+		return None
+	candidate=new_polys[0] if len(new_polys)==1 else MultiPolygon(new_polys)
+	if candidate.is_empty or not candidate.is_valid:
+		return None
+	verified=transform(to_metric,candidate)
+	if verified.is_empty or not verified.is_valid:
+		return None
+	# The only intended topological change is filling the collapsed
+	# holes. The other rings have identical WGS84 coordinates.
+	area_shift=abs(verified.area-transform(to_metric,wgs).area)
+	if area_shift>budget:
+		return None
+	boundary_shift=transform(to_metric,wgs).boundary.hausdorff_distance(
+		verified.boundary)
+	return candidate,{
+		"repair":"remove_only_projection_collapsed_negligible_rings",
+		"repair_result_type":candidate.geom_type,
+		"discarded_collapsed_holes":discarded,
+		"discarded_collapsed_polygon_components":discarded_polygons,
+		"discarded_metric_component_area_m2":lost_area,
+		"area_shift_m2":area_shift,
+		"area_tolerance_m2":budget,
+		"boundary_shift_m":boundary_shift,
+		"boundary_shift_note":"Abweichung enthält bewusst entfernte flächenlose Innenringe; "
+			"alle anderen Koordinaten unverändert",
+	}
+
+
 def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 	"""Repair ONLY invalidity introduced by reprojection, with safeguards.
 
@@ -113,6 +192,13 @@ def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 	if wgs.is_empty or not isinstance(wgs,(Polygon,MultiPolygon)):
 		raise ValueError(f"{edge_id}: SIS->WGS84 ist leer oder nicht polygonal")
 	invalidity=explain_validity(wgs)
+	if invalidity.startswith("Too few points in geometry component"):
+		collapsed=_strip_projection_collapsed_holes(metric,wgs,to_metric)
+		if collapsed is not None:
+			candidate,event=collapsed
+			event["edge_id"]=edge_id
+			event["original_wgs84_invalidity"]=invalidity
+			return candidate,event
 	try:
 		repaired=make_valid(wgs)
 		pieces=_polygonal_parts(repaired)
@@ -190,6 +276,10 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 	if repair is not None:
 		stats["wgs84_repaired_features"]+=1
 		stats["wgs84_repair_area_shift_m2"]+=repair["area_shift_m2"]
+		if repair["repair"]=="remove_only_projection_collapsed_negligible_rings":
+			stats["wgs84_collapsed_holes_removed"]+=repair["discarded_collapsed_holes"]
+			stats["wgs84_collapsed_polygon_parts_removed"]+=repair["discarded_collapsed_polygon_components"]
+			stats["wgs84_collapsed_metric_area_m2"]+=repair["discarded_metric_component_area_m2"]
 	outprops=dict(props)
 	outprops.update({
 		"pre_sis_area_m2":metric.area,
@@ -199,6 +289,7 @@ def _clip_feature(feature,db,to_metric,to_wgs,stats):
 		"sis_mask":"all_belags_all_types",
 		"sis_min_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
 		"wgs84_projection_repaired":repair is not None,
+		"wgs84_repair_method":repair["repair"] if repair is not None else None,
 	})
 	stats["features_with_sis_overlap"]+=1
 	stats["sis_overlap_area_sum_m2"]+=clip.area
@@ -258,7 +349,7 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 					"sis_sha256":meta["sha256"],
 					"sis_mask":"all_belags_all_types",
 					"minimum_intersection_area_m2":SIS_MIN_INTERSECTION_AREA_M2,
-					"wgs84_repair_method":"make_valid_only_if_roundtrip_area_and_boundary_unchanged",
+					"wgs84_repair_method":"targeted_collapsed_tiny_holes_or_strict_make_valid",
 					"debug_stage":"after_turn_use_and_250m2_before_sis",
 					"pre_sis_intermediate_not_published":True,
 					"statistics":dict(stats),
@@ -274,7 +365,9 @@ def clip(pre_sis,sis_db,out,*,replace_existing=False,progress=None):
 		f"{stats['features_with_sis_overlap']:,} SIS-Flächen, "
 		f"{stats['without_sis_overlap']:,} ohne Überdeckung, "
 		f"{stats['sis_multipolygon_features']:,} MultiPolygone, "
-		f"{stats['wgs84_repaired_features']:,} konservative WGS84-Korrekturen; "
+		f"{stats['wgs84_repaired_features']:,} konservative WGS84-Korrekturen, "
+		f"{stats['wgs84_collapsed_holes_removed']:,} kollabierte Kleinst-Innenlöcher, "
+		f"{stats['wgs84_collapsed_polygon_parts_removed']:,} kollabierte Kleinstpolygone; "
 		f"Ausgabe: {out}",flush=True)
 	return dict(stats)
 
