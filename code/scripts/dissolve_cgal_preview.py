@@ -21,7 +21,15 @@ That restored output may be Polygon or MultiPolygon; never assign
 ownership across edge_ids or accept a boundary-touch-only match.
 
 For edge_ids already valid before the buffer loop, the previous
-post-TURN_USE-cut Polygon output remains unchanged. If any source polygon is invalid, the union fails, or the
+post-TURN_USE-cut Polygon output remains unchanged.
+
+As a FINAL stage for edge_ids still in debug after the buffer attempts:
+split residual MultiPolygons into polygon components; discard each
+component strictly smaller than 250 square metres (EPSG:31256);
+union the retained residual components of the same original edge_id
+into Polygon or MultiPolygon for regular output. This final stage
+DOES NOT restore original Faces. Unprocessable/null source Faces
+remain explicitly diagnosed, rather than silently claimed as solved. If any source polygon is invalid, the union fails, or the
 result is not a single valid Polygon, the entire edge_id is put into
 a JSON failure report and ALL its post-cut Face geometries into a separate
 debug GeoJSON. Other edge_ids continue processing.
@@ -54,7 +62,7 @@ from scripts.wienwide_grid import load_aoi
 from shapely.validation import explain_validity
 
 
-SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v5-original-face-restore"
+SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v6-final-debug-area-filter"
 
 
 def _json_line_features(path):
@@ -338,6 +346,72 @@ def _retry_buffered_hulls(
 	return surfaces,reason,detail,None,None,attempted,None
 
 
+def _filter_final_debug_components(surfaces,to_wgs,*,minimum_area_m2=250):
+	"""Select surviving post-cut POLYGON COMPONENTS by metric area.
+
+	Works on the final 0-to-4m residual geometry of one edge_id.
+	No rematching against original CGAL Faces here. Null source errors
+	stay in debug; fully removed Faces stay as null audit records.
+	"""
+	if minimum_area_m2<=0:
+		raise ValueError("Flächenschwelle muss positiv sein")
+	kept=[]
+	unprocessable=[]
+	info={
+		"threshold_m2":minimum_area_m2,
+		"kept_components":0,
+		"discarded_components":0,
+		"discarded_area_m2":0.,
+		"kept_area_sum_m2":0.,
+		"unavailable_faces":0,
+	}
+	for number,geom,status,note in surfaces:
+		if geom is None or geom.is_empty:
+			unprocessable.append((number,None,status,note))
+			if status!="fully_removed":
+				info["unavailable_faces"]+=1
+			continue
+		if not isinstance(geom,(Polygon,MultiPolygon)) or not geom.is_valid:
+			unprocessable.append((number,geom,status,note))
+			info["unavailable_faces"]+=1
+			continue
+		pieces=(geom.geoms if isinstance(geom,MultiPolygon) else (geom,))
+		selected=[]
+		for piece in pieces:
+			if piece.area<minimum_area_m2:
+				info["discarded_components"]+=1
+				info["discarded_area_m2"]+=piece.area
+				continue
+			selected.append(piece)
+			info["kept_components"]+=1
+			info["kept_area_sum_m2"]+=piece.area
+		if selected:
+			residual=selected[0] if len(selected)==1 else MultiPolygon(selected)
+			kept.append((number,residual,status,note))
+	info["kept_face_count"]=len(kept)
+	remaining=kept+unprocessable
+	if not kept:
+		return None,remaining,info,"no_components_at_or_above_250m2"
+	try:
+		merged=union_all([geom for _,geom,_,_ in kept])
+		if not isinstance(merged,(Polygon,MultiPolygon)) or merged.is_empty or not merged.is_valid:
+			raise ValueError("Endvereinigung ergibt kein gültiges Polygon/MultiPolygon")
+		wgs=transform(to_wgs,merged)
+		if not isinstance(wgs,(Polygon,MultiPolygon)) or wgs.is_empty or not wgs.is_valid:
+			raise ValueError("Endvereinigung ergibt kein gültiges WGS84 Polygon/MultiPolygon")
+		info["result_geometry_type"]=merged.geom_type
+		info["result_area_m2"]=merged.area
+		info["unresolved_source_errors"]=any(
+			geom is not None or status!="fully_removed"
+			for _,geom,status,_ in unprocessable)
+		# Geometrien in der regulären Ausgabe dürfen nicht zusätzlich
+		# im Debug auftauchen. Nicht bearbeitbare Quellen bleiben dort.
+		return merged,unprocessable,info,None
+	except Exception as exc:
+		info["union_error"]=f"{type(exc).__name__}: {exc}"
+		return None,remaining,info,"final_debug_union_error"
+
+
 def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 		junction_metadata=None,replace_existing=False):
 	preview,out,debug,report=map(Path,(preview,out,debug,report))
@@ -370,6 +444,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 	hull_tree=STRtree(hull_geometries) if hull_geometries else None
 	buffer_cache={}
 	recovered_edge_ids=[]
+	final_debug_salvaged=[]
+	final_debug_discarded=[]
 	with tempfile.TemporaryDirectory(
 			prefix="cgal-dissolve-",dir=out.parent) as staging:
 		stage=Path(staging)
@@ -576,9 +652,97 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 						except Exception as exc:
 							reason="output_geometry_error"
 							detail=f"{type(exc).__name__}: {exc}"
+					# Final stage: the remaining 0–4 m post-TURN_USE
+					# DEBUG geometries, NOT the originals, are filtered
+					# component by component in metric square metres.
+					# MultiPolygon is expressly valid at this stage.
+					final_filter_info=None
+					final_area_salvaged=False
 					if reason is not None:
-						stats["rejected_edge_ids"]+=1
-						stats["rejected_source_faces"]+=len(rows)
+						stats["final_debug_filter_attempted_edge_ids"]+=1
+						(final_geom,filtered_debug,final_filter_info,
+							final_filter_error)=_filter_final_debug_components(
+							debug_surfaces,to_wgs,minimum_area_m2=250)
+						debug_surfaces=filtered_debug
+						stats["final_debug_discarded_components"]+=final_filter_info[
+							"discarded_components"]
+						stats["final_debug_discarded_area_m2"]+=final_filter_info[
+							"discarded_area_m2"]
+						stats["final_debug_retained_components"]+=final_filter_info[
+							"kept_components"]
+						if final_geom is not None:
+							try:
+								last_buffer=attempted[-1] if attempted else 0
+								new_feature={
+									"type":"Feature",
+									"properties":{
+										"edge_id":edge_id,
+										"source_face_count":len(rows),
+										"segment_face_count":types["segment"],
+										"inner_point_face_count":types["inner_point"],
+										"fallback_face_count":fallback_count,
+										"area_m2":final_geom.area,
+										"preview_based":True,
+										"sis_clipped":False,
+										"turn_use_hulls_removed":bool(hull_geometries),
+										"turn_use_buffer_m":last_buffer,
+										"recovered_by_buffer":False,
+										"geometry_from_original_faces":False,
+										"recovered_by_debug_area_filter":True,
+										"debug_area_threshold_m2":250,
+										"debug_kept_components":final_filter_info[
+											"kept_components"],
+										"debug_discarded_components":final_filter_info[
+											"discarded_components"],
+										"partial_source_errors":final_filter_info[
+											"unresolved_source_errors"]},
+									"geometry":mapping(transform(to_wgs,final_geom))}
+								first_good=_write_feature(good,new_feature,first_good)
+								stats["merged_polygons"]+=1
+								if isinstance(final_geom,MultiPolygon):
+									stats["merged_multipolygon_features"]+=1
+								stats["final_debug_salvaged_edge_ids"]+=1
+								stats["final_debug_salvaged_area_m2"]+=final_geom.area
+								accepted_fallbacks+=fallback_count
+								final_area_salvaged=True
+								final_debug_salvaged.append({
+									"edge_id":edge_id,
+									"geometry_type":final_geom.geom_type,
+									"area_m2":final_geom.area,
+									"last_buffer_m":last_buffer,
+									"previous_reason":reason,
+									**final_filter_info})
+							except Exception as exc:
+								final_filter_error="final_debug_output_error"
+								final_filter_info["output_error"]=(
+									f"{type(exc).__name__}: {exc}")
+								# Keep geometries available for debug,
+								# never discard them after output failure.
+								debug_surfaces=filtered_debug
+						if not final_area_salvaged:
+							stats["final_debug_unsalvaged_edge_ids"]+=1
+							if not debug_surfaces and final_filter_info["discarded_components"]:
+								stats["final_debug_fully_discarded_edge_ids"]+=1
+								final_debug_discarded.append({
+									"edge_id":edge_id,
+									"reason":"all_remaining_components_below_250m2",
+									"last_buffer_m":attempted[-1] if attempted else 0,
+									**final_filter_info})
+							if final_filter_error:
+								detail=(f"{detail}; final_debug_filter="
+									f"{final_filter_error}: "
+									f"{final_filter_info.get('union_error') or final_filter_info.get('output_error') or 'keine Fläche >=250 m²'}")
+						elif not final_filter_info["unresolved_source_errors"]:
+							# Fully removed audit-null entries may remain;
+							# no unresolved geometry needs a debug feature.
+							reason=None
+							debug_surfaces=[]
+					if reason is not None and debug_surfaces:
+						if not final_area_salvaged:
+							stats["rejected_edge_ids"]+=1
+
+						if not final_area_salvaged:
+							stats["rejected_source_faces"]+=len(rows)
 						stats["reason_"+reason]+=1
 						failures.append({
 							"edge_id":edge_id,
@@ -592,10 +756,12 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							"initial_dissolve_reason":initial_reason,
 							"buffer_attempts_m":attempted,
 							"last_buffer_m":attempted[-1] if attempted else 0,
+							"partially_salvaged_to_output":final_area_salvaged,
+							"final_debug_filter":final_filter_info,
 							"face_numbers":[number for number,_,_,_ in rows]})
-						for (_,_,_,raw),(_,post_cut,cut_status,cut_note) in zip(
-								rows,debug_surfaces):
-							feature=json.loads(raw)
+						raw_by_number={number:raw for number,_,_,raw in rows}
+						for number,post_cut,cut_status,cut_note in debug_surfaces:
+							feature=json.loads(raw_by_number[number])
 							props=dict(feature["properties"])
 							props["dissolve_error"]=reason
 							props["dissolve_error_detail"]=detail
@@ -603,6 +769,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							props["turn_use_cut_status"]=cut_status
 							props["turn_use_cut_note"]=cut_note
 							props["last_turn_use_buffer_m"]=attempted[-1] if attempted else 0
+							props["debug_area_threshold_m2"]=250
+							props["partial_salvage_to_output"]=final_area_salvaged
 							# A fully removed or unprocessable Face has no
 							# remaining geometry. Keep its ID as an explicit
 							# null-geometry audit record, not an uncut polygon.
@@ -626,16 +794,19 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							f"{stats['merged_polygons']:,} Polygon-Ergebnisse, "
 							f"{stats['rejected_edge_ids']:,} Debug-Fälle")
 				good.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
-					'"preview_based":true,"polygon_only":true,'
+					'"preview_based":true,"polygon_or_multipolygon":true,'
 					'"point_faces":"original_inner_vertices_only",'
 					'"dissolved_by":"edge_id","sis_clipped":false,'
 					'"turn_use_hull_cut_before_union":true,'
 					'"failed_edges_buffered_m":[1,2,3,4],'
 					'"buffer_recovered_output":"union_of_positive_area_matched_original_faces",'
-					'"buffer_recovered_allows_multipolygon":true}}\n')
+					'"buffer_recovered_allows_multipolygon":true,'
+					'"final_debug_area_min_m2":250,'
+					'"final_debug_union_allows_multipolygon":true}}\n')
 				bad.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
 					'"debug_post_turn_use_cut":true,'
 					'"failed_edges_buffered_up_to_m":4,'
+					'"final_debug_components_min_m2":250,'
 					'"null_geometry_for_removed_or_unavailable_faces":true}}\n')
 		overview={
 			"schema":SCHEMA,
@@ -659,6 +830,13 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 			"statistics":dict(stats),
 			"accepted_fallback_source_faces":accepted_fallbacks,
 			"recovered_edge_ids":recovered_edge_ids,
+			"final_debug_area_filter":{
+				"min_component_area_m2":250,
+				"discard_rule":"component_area_m2 < 250",
+				"metric_crs":"EPSG:31256",
+				"output_geometry_types":["Polygon","MultiPolygon"],
+				"successful_edge_ids":final_debug_salvaged,
+				"fully_discarded_edge_ids":final_debug_discarded},
 			"buffer_recovery_output":"uncut_original_native_faces_selected_by_positive_area_overlap_same_edge_id",
 			"failures":failures,
 		}

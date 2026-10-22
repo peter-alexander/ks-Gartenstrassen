@@ -9,11 +9,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from shapely.geometry import Polygon,LineString,box,mapping,shape
+from shapely.geometry import Polygon,MultiPolygon,LineString,box,mapping,shape
 from shapely.ops import transform
 from pyproj import Transformer
 
-from scripts.dissolve_cgal_preview import dissolve,_restore_original_faces
+from scripts.dissolve_cgal_preview import (dissolve,_restore_original_faces,
+	_filter_final_debug_components)
 
 
 def _feature(edge_id,number,geometry,*,kind="segment",fallback=False):
@@ -90,14 +91,14 @@ class PreviewDissolveTests(unittest.TestCase):
 				_feature("disjoint",6,b,kind="inner_point"),
 				_feature("good",7,good)])
 			self.assertEqual([f["properties"]["edge_id"]
-				for f in valid["features"]],["good"])
-			self.assertEqual(len(debug["features"]),2)
-			self.assertEqual({f["properties"]["edge_id"]
-				for f in debug["features"]},{"disjoint"})
-			self.assertEqual({f["properties"]["dissolve_error"]
-				for f in debug["features"]},{"not_contiguous"})
-			self.assertEqual(report["failures"][0]["face_numbers"],[5,6])
-			self.assertIn("2 getrennte Polygone",report["failures"][0]["detail"])
+				for f in valid["features"]],["disjoint","good"])
+			self.assertEqual(debug["features"],[])
+			self.assertEqual(valid["features"][0]["geometry"]["type"],"MultiPolygon")
+			self.assertTrue(valid["features"][0]["properties"][
+				"recovered_by_debug_area_filter"])
+			self.assertEqual(report["failures"],[])
+			self.assertEqual(report["final_debug_area_filter"]["successful_edge_ids"][0][
+				"edge_id"],"disjoint")
 
 	def test_non_polygon_source_goes_to_debug(self):
 		with TemporaryDirectory() as root:
@@ -165,37 +166,29 @@ class PreviewDissolveTests(unittest.TestCase):
 			joined=shape(valid["features"][0]["geometry"])
 			self.assertLess(joined.area,a.area+b.area)
 
-	def test_mask_that_disconnects_one_edge_id_routes_original_faces_to_debug(self):
+	def test_mask_that_disconnects_one_edge_id_is_finally_accepted_as_multipolygon(self):
 		with TemporaryDirectory() as root:
 			whole=_square(16.300,48.200,16.304,48.202)
-			to_metric=Transformer.from_crs(
-				4326,31256,always_xy=True).transform
-			# A rectangular TURN_USE hull makes two disjoint islands.
+			to_metric=Transformer.from_crs(4326,31256,
+				always_xy=True).transform
 			cut=transform(to_metric,_square(
 				16.3015,48.1995,16.3025,48.2025))
 			valid,debug,report,*_=self._run(root,[
-				_feature("split",12,whole)],
-				hulls=[("node-1",cut)])
-			self.assertEqual(valid["features"],[])
-			self.assertEqual(len(debug["features"]),1)
-			self.assertEqual(debug["features"][0]["properties"]["edge_id"],
-				"split")
-			self.assertEqual(debug["features"][0]["properties"][
-				"dissolve_error"],"not_contiguous")
-			# The actual *post-cut* disconnected MultiPolygon, not the
-			# original unmasked source Face, is written to debug.
-			debug_feature=debug["features"][0]
-			self.assertEqual(debug_feature["geometry"]["type"],"MultiPolygon")
-			self.assertEqual(debug_feature["properties"][
-				"turn_use_cut_status"],"buffer_cut")
-			self.assertTrue(debug_feature["properties"]["debug_after_turn_use"])
-			remaining=shape(debug_feature["geometry"])
+				_feature("split",12,whole)],hulls=[("node-1",cut)])
+			self.assertEqual(debug["features"],[])
+			self.assertEqual(len(valid["features"]),1)
+			feature=valid["features"][0]
+			self.assertEqual(feature["geometry"]["type"],"MultiPolygon")
+			self.assertTrue(feature["properties"]["recovered_by_debug_area_filter"])
+			self.assertEqual(feature["properties"]["debug_area_threshold_m2"],250)
+			self.assertFalse(feature["properties"]["geometry_from_original_faces"])
+			self.assertEqual(report["failures"],[])
+			self.assertEqual(report["final_debug_area_filter"]["successful_edge_ids"][0][
+				"geometry_type"],"MultiPolygon")
+			remaining=shape(feature["geometry"])
 			self.assertLess(remaining.area,whole.area)
-			self.assertGreater(whole.difference(remaining).area,0)
-			# The masked-out area must no longer be included.
 			self.assertLess(remaining.intersection(_square(
 				16.3016,48.2,16.3024,48.202)).area,1e-12)
-			self.assertEqual(report["failures"][0]["face_numbers"],[12])
 
 	def test_mask_can_remove_whole_source_face_without_crashing(self):
 		with TemporaryDirectory() as root:
@@ -232,25 +225,19 @@ class PreviewDissolveTests(unittest.TestCase):
 				_feature("broken",10,bowtie),
 				_feature("broken",11,good,kind="inner_point")],
 				hulls=[("node-1",turn_hull)])
-			self.assertEqual(valid["features"],[])
-			self.assertEqual(len(debug["features"]),2)
-			self.assertEqual([f["properties"]["face_number"]
-				for f in debug["features"]],[10,11])
+			self.assertEqual(len(valid["features"]),1)
+			self.assertTrue(valid["features"][0]["properties"][
+				"recovered_by_debug_area_filter"])
+			self.assertTrue(valid["features"][0]["properties"][
+				"partial_source_errors"])
+			self.assertEqual(len(debug["features"]),1)
+			self.assertEqual(debug["features"][0]["properties"]["face_number"],10)
 			self.assertIsNone(debug["features"][0]["geometry"])
 			self.assertEqual(debug["features"][0]["properties"][
 				"turn_use_cut_status"],"source_invalid")
-			cut=shape(debug["features"][1]["geometry"])
-			self.assertTrue(cut.is_valid)
-			self.assertEqual(debug["features"][1]["properties"][
-				"turn_use_cut_status"],"buffer_cut")
-			self.assertLess(cut.area,good.area)
-			self.assertAlmostEqual(
-				cut.intersection(_square(
-					16.3112,48.2012,16.3118,48.2018)).area,0,places=12)
-			self.assertEqual(report["failures"][0]["reason"],
-				"source_invalid_polygon")
+			self.assertEqual(report["failures"][0]["reason"],"source_invalid_polygon")
+			self.assertTrue(report["failures"][0]["partially_salvaged_to_output"])
 			self.assertEqual(stats["statistics"]["debug_null_geometries"],1)
-			self.assertEqual(stats["statistics"]["debug_post_cut_geometries"],1)
 
 	def test_second_buffer_removes_island_and_recovers_single_polygon(self):
 		with TemporaryDirectory() as root:
@@ -348,7 +335,7 @@ class PreviewDissolveTests(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError,"positiver Flächenüberschneidung"):
 			_restore_original_faces(candidate,[(15,source)],to_wgs)
 
-	def test_unresolved_debug_shows_post_four_metre_cut(self):
+	def test_debug_parts_smaller_than_250_m2_are_discarded(self):
 		with TemporaryDirectory() as root:
 			to_metric=Transformer.from_crs(
 				4326,31256,always_xy=True).transform
@@ -358,27 +345,16 @@ class PreviewDissolveTests(unittest.TestCase):
 			original=transform(to_wgs,box(x,y,x+30,y+10))
 			hull=box(x+14,y-5,x+16,y+15)
 			valid,debug,report,stats,*_=self._run(root,[
-				_feature("still-split",8,original)],
+				_feature("small-islands",8,original)],
 				hulls=[("junction",hull)])
 			self.assertEqual(valid["features"],[])
-			self.assertEqual(len(debug["features"]),1)
-			feature=debug["features"][0]
-			self.assertEqual(feature["geometry"]["type"],"MultiPolygon")
-			self.assertEqual(feature["properties"]["last_turn_use_buffer_m"],4)
-			self.assertEqual(feature["properties"]["turn_use_cut_status"],
-				"buffer_cut")
-			self.assertEqual(report["failures"][0]["buffer_attempts_m"],
-				[1,2,3,4])
-			self.assertEqual(report["failures"][0]["last_buffer_m"],4)
-			self.assertEqual(report["recovered_edge_ids"],[])
-			for radius in range(1,5):
-				self.assertEqual(stats["statistics"][
-					f"buffer_{radius}m_attempted_edge_ids"],1)
-			remaining_metric=transform(to_metric,shape(feature["geometry"]))
-			self.assertTrue(remaining_metric.is_valid)
-			self.assertLess(remaining_metric.intersection(
-				hull.buffer(3.9)).area,1e-7)
-			self.assertAlmostEqual(remaining_metric.area,200.,places=3)
+			self.assertEqual(debug["features"],[])
+			self.assertEqual(report["final_debug_area_filter"][
+				"fully_discarded_edge_ids"][0]["edge_id"],"small-islands")
+			self.assertEqual(stats["statistics"]["final_debug_discarded_components"],2)
+			self.assertEqual(stats["statistics"]["final_debug_fully_discarded_edge_ids"],1)
+			self.assertAlmostEqual(stats["statistics"][
+				"final_debug_discarded_area_m2"],200,places=2)
 
 	def test_previously_valid_polygon_remains_unbuffered(self):
 		with TemporaryDirectory() as root:
@@ -399,14 +375,14 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertNotIn("buffer_retry_edge_ids",stats["statistics"])
 			self.assertEqual(debug["features"],[])
 
-	def test_nonrecoverable_source_keeps_null_and_other_face_is_buffer_cut(self):
+	def test_invalid_source_retains_null_debug_but_salvages_large_residual(self):
 		with TemporaryDirectory() as root:
 			to_metric=Transformer.from_crs(
 				4326,31256,always_xy=True).transform
 			to_wgs=Transformer.from_crs(
 				31256,4326,always_xy=True).transform
 			x,y=to_metric(16.35,48.2)
-			good=transform(to_wgs,box(x,y,x+20,y+12))
+			good=transform(to_wgs,box(x,y,x+45,y+20)) # leaves >250 m² even after +4 m
 			bowtie=Polygon([
 				(16.3,48.2),(16.302,48.202),
 				(16.3,48.202),(16.302,48.2)])
@@ -415,22 +391,63 @@ class PreviewDissolveTests(unittest.TestCase):
 				_feature("source-bad",1,bowtie),
 				_feature("source-bad",2,good)],
 				hulls=[("node",hull)])
-			self.assertEqual(valid["features"],[])
-			self.assertEqual(len(debug["features"]),2)
+			self.assertEqual(len(valid["features"]),1)
+			self.assertTrue(valid["features"][0]["properties"][
+				"recovered_by_debug_area_filter"])
+			self.assertTrue(valid["features"][0]["properties"][
+				"partial_source_errors"])
+			self.assertEqual(len(debug["features"]),1)
 			self.assertIsNone(debug["features"][0]["geometry"])
-			self.assertEqual(debug["features"][0]["properties"][
-				"turn_use_cut_status"],"source_invalid")
-			self.assertEqual(debug["features"][1]["properties"][
-				"turn_use_cut_status"],"buffer_cut")
-			self.assertEqual(debug["features"][1]["properties"][
-				"last_turn_use_buffer_m"],4)
-			self.assertEqual(report["failures"][0]["reason"],
-				"source_invalid_polygon")
-			self.assertEqual(report["failures"][0]["buffer_attempts_m"],
-				[1,2,3,4])
-			remaining=transform(to_metric,shape(debug["features"][1]["geometry"]))
-			self.assertLess(remaining.intersection(hull.buffer(3.9)).area,1e-7)
-			self.assertEqual(stats["statistics"]["buffer_4m_still_debug"],1)
+			self.assertEqual(debug["features"][0]["properties"]["face_number"],1)
+			self.assertEqual(report["failures"][0]["reason"],"source_invalid_polygon")
+			self.assertTrue(report["failures"][0]["partially_salvaged_to_output"])
+			self.assertEqual(stats["statistics"]["final_debug_salvaged_edge_ids"],1)
+
+	def test_final_filter_checks_each_multipolygon_component_and_includes_exact_250(self):
+		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		# Separate components: one 249.9 m2, one exactly 250 m2,
+		# and one 300 m2. Filtering is per polygon, not sum per Face.
+		x,y=500000,300000
+		small=box(x,y,x+24.99,y+10)
+		equal=box(x+40,y,x+65,y+10)
+		large=box(x+80,y,x+110,y+10)
+		merged,remaining,info,error=_filter_final_debug_components([
+			(1,MultiPolygon(
+				[small,equal,large]),"buffer_cut",None)],
+			to_wgs,minimum_area_m2=250)
+		self.assertIsNone(error)
+		self.assertEqual(info["kept_components"],2)
+		self.assertEqual(info["discarded_components"],1)
+		self.assertAlmostEqual(info["discarded_area_m2"],249.9,places=7)
+		self.assertEqual(merged.geom_type,"MultiPolygon")
+		self.assertAlmostEqual(merged.area,550.,places=7)
+		self.assertEqual(remaining,[])
+
+	def test_end_to_end_final_salvage_filters_small_island_but_keeps_large_one(self):
+		with TemporaryDirectory() as root:
+			to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+			to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
+			x,y=to_metric(16.35,48.2)
+			# No TURN_USE hull, therefore the two source Faces are
+			# still disconnected at final filtering.
+			big=transform(to_wgs,box(x,y,x+30,y+11)) # 330 m²
+			small=transform(to_wgs,box(x+70,y,x+90,y+10)) # 200 m²
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("mixed",1,big),
+				_feature("mixed",2,small,kind="inner_point")])
+			self.assertEqual(len(valid["features"]),1)
+			result=valid["features"][0]
+			self.assertEqual(result["properties"]["edge_id"],"mixed")
+			self.assertEqual(result["geometry"]["type"],"Polygon")
+			self.assertTrue(result["properties"]["recovered_by_debug_area_filter"])
+			self.assertEqual(result["properties"]["debug_kept_components"],1)
+			self.assertEqual(result["properties"]["debug_discarded_components"],1)
+			self.assertEqual(debug["features"],[])
+			self.assertEqual(report["failures"],[])
+			self.assertEqual(stats["statistics"]["final_debug_discarded_components"],1)
+			self.assertEqual(stats["statistics"]["final_debug_salvaged_edge_ids"],1)
+			area=transform(to_metric,shape(result["geometry"])).area
+			self.assertAlmostEqual(area,330,places=2)
 
 	def test_existing_previous_outputs_may_be_replaced_explicitly(self):
 		with TemporaryDirectory() as root:
