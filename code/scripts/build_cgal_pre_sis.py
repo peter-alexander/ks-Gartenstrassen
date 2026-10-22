@@ -80,7 +80,7 @@ def build(cache,aoi_path,binary,out,*,timeout=900):
 		lines,dual_stats=_read_dual_lines(dual,window,origin)
 		polygons,topology=_polygon_candidates(lines,window)
 		segment_sites,site_stats=read_sites(sites,owners,origin)
-		labels,assignment=attribute_faces(polygons,segment_sites,site_stats)
+		labels,assignment=attribute_faces(polygons,segment_sites,site_stats,window=window)
 		require_sound_attribution(assignment)
 		print("CGAL-Sites: "
 			f"{assignment['native_segment_sites']:,} Segmentgeneratoren, "
