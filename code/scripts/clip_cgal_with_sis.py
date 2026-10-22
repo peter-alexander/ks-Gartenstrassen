@@ -242,15 +242,20 @@ def _repair_metric_self_intersection(source_wgs,metric,to_wgs):
 	compare=transform(to_wgs,candidate)
 	if not isinstance(compare,(Polygon,MultiPolygon)) or compare.is_empty or not compare.is_valid:
 		return None
-	changed=source_wgs.symmetric_difference(compare)
+	# Compare with the UNREPAIRED metric polygon after the SAME
+	# inverse projection. Comparing directly with source_wgs wrongly
+	# includes normal WGS84 -> EPSG:31256 -> WGS84 roundtrip drift.
+	unrepaired_roundtrip=transform(to_wgs,metric)
+	changed=unrepaired_roundtrip.symmetric_difference(compare)
 	geod=Geod(ellps="WGS84")
 	changed_area=sum(abs(geod.geometry_area_perimeter(part)[0])
 		for part in _polygonal_parts(changed))
 	if changed_area>0.01:
 		return None
 	return candidate,{
-		"method":"make_valid_metric_verified_by_geodesic_symmetric_difference",
+		"method":"make_valid_metric_verified_against_unrepaired_roundtrip",
 		"changed_geodesic_area_m2":changed_area,
+		"comparison":"unrepaired_metric_wgs84_roundtrip_vs_repaired_metric_wgs84",
 		"change_budget_m2":0.01,
 		"repaired_metric_type":candidate.geom_type,
 	}
