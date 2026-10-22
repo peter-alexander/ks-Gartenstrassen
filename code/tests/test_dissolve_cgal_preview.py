@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from shapely.geometry import Polygon,LineString,box,mapping,shape
+from shapely.geometry import Polygon,MultiPolygon,LineString,box,mapping,shape
 from shapely.ops import transform
 from pyproj import Transformer
 
@@ -401,6 +401,51 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(report["failures"][0]["reason"],"source_invalid_polygon")
 			self.assertTrue(report["failures"][0]["partially_salvaged_to_output"])
 			self.assertEqual(stats["statistics"]["final_debug_salvaged_edge_ids"],1)
+
+	def test_final_filter_checks_each_multipolygon_component_and_includes_exact_250(self):
+		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		# Separate components: one 249.9 m2, one exactly 250 m2,
+		# and one 300 m2. Filtering is per polygon, not sum per Face.
+		small=box(0,0,24.99,10)
+		equal=box(40,0,65,10)
+		large=box(80,0,110,10)
+		merged,remaining,info,error=_filter_final_debug_components([
+			(1,MultiPolygon(
+				[small,equal,large]),"buffer_cut",None)],
+			to_wgs,minimum_area_m2=250)
+		self.assertIsNone(error)
+		self.assertEqual(info["kept_components"],2)
+		self.assertEqual(info["discarded_components"],1)
+		self.assertAlmostEqual(info["discarded_area_m2"],249.9,places=7)
+		self.assertEqual(merged.geom_type,"MultiPolygon")
+		self.assertAlmostEqual(merged.area,550.,places=7)
+		self.assertEqual(remaining,[])
+
+	def test_end_to_end_final_salvage_filters_small_island_but_keeps_large_one(self):
+		with TemporaryDirectory() as root:
+			to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+			to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
+			x,y=to_metric(16.35,48.2)
+			# No TURN_USE hull, therefore the two source Faces are
+			# still disconnected at final filtering.
+			big=transform(to_wgs,box(x,y,x+30,y+11)) # 330 m²
+			small=transform(to_wgs,box(x+70,y,x+90,y+10)) # 200 m²
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("mixed",1,big),
+				_feature("mixed",2,small,kind="inner_point")])
+			self.assertEqual(len(valid["features"]),1)
+			result=valid["features"][0]
+			self.assertEqual(result["properties"]["edge_id"],"mixed")
+			self.assertEqual(result["geometry"]["type"],"Polygon")
+			self.assertTrue(result["properties"]["recovered_by_debug_area_filter"])
+			self.assertEqual(result["properties"]["debug_kept_components"],1)
+			self.assertEqual(result["properties"]["debug_discarded_components"],1)
+			self.assertEqual(debug["features"],[])
+			self.assertEqual(report["failures"],[])
+			self.assertEqual(stats["statistics"]["final_debug_discarded_components"],1)
+			self.assertEqual(stats["statistics"]["final_debug_salvaged_edge_ids"],1)
+			area=transform(to_metric,shape(result["geometry"])).area
+			self.assertAlmostEqual(area,330,places=2)
 
 	def test_existing_previous_outputs_may_be_replaced_explicitly(self):
 		with TemporaryDirectory() as root:
