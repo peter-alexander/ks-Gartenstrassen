@@ -44,3 +44,12 @@ jobs:
         run: |
           python -m pip install -q -r code/requirements-analysis.txt numpy
           PYTHONPATH=code python code/tests/cgal_native_pre_sis_smoke.py /tmp/cgal-dual.txt /tmp/cgal-sites.txt
+
+      - name: Native CGAL Voronoi face export
+        run: |
+          printf '0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n-40000 -40000 60000 -40000\n60000 -40000 60000 60000\n60000 60000 -40000 60000\n-40000 60000 -40000 -40000\n' | \
+            build/cgal/cgal_voronoi_faces --faces /tmp/cgal-native-faces.txt
+          test -s /tmp/cgal-native-faces.txt
+          grep -q '^F ' /tmp/cgal-native-faces.txt
+          grep -q '^H ' /tmp/cgal-native-faces.txt
+          grep -q '^Z$' /tmp/cgal-native-faces.txt
