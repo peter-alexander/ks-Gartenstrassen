@@ -273,20 +273,32 @@ class InputMetricProjectionTests(unittest.TestCase):
 
 
 class MetricSelfIntersectionRepairTests(unittest.TestCase):
-	def test_accept_only_geodesically_identical_source_area(self):
-		source=box(16.34,48.21,16.341,48.211)
-		bowtie=Polygon([
-			(16.34,48.21),(16.341,48.211),
-			(16.34,48.211),(16.341,48.21)])
-		self.assertFalse(bowtie.is_valid)
-		with patch("scripts.clip_cgal_with_sis.make_valid",return_value=source):
-			result=_repair_metric_self_intersection(
-				source,bowtie,lambda x,y:(x,y))
+	def test_accept_zero_area_repair_even_if_roundtrip_differs_from_source(self):
+		# A doubled-back narrow spike makes the ring invalid yet
+		# occupies no area. make_valid drops it without changing its
+		# footprint. Mock only GEOS's wording ("Ring Self-intersection"
+		# vs "Self-intersection") to reach the same production branch.
+		x,y=16.34,48.21
+		d=.001
+		original=box(x,y,x+d,y+d)
+		spike=Polygon([(x,y),(x+d,y),(x+d,y+d),
+			(x+d/2,y+d),(x+d/2,y+d/2),
+			(x+d/2,y+d),(x,y+d)])
+		self.assertFalse(spike.is_valid)
+		with patch("scripts.clip_cgal_with_sis.explain_validity",
+				return_value="Self-intersection[test]"):
+			with patch("scripts.clip_cgal_with_sis.make_valid",
+					return_value=original):
+				result=_repair_metric_self_intersection(
+						box(x+0.01,y,x+d+0.01,y+d),
+						spike,lambda x,y:(x,y))
 		self.assertIsNotNone(result)
 		repaired,details=result
-		self.assertTrue(repaired.equals(source))
-		self.assertEqual(details["changed_geodesic_area_m2"],0)
+		self.assertTrue(repaired.equals(original))
+		self.assertAlmostEqual(details["changed_geodesic_area_m2"],0,places=8)
 		self.assertEqual(details["change_budget_m2"],0.01)
+		self.assertEqual(details["comparison"],
+			"unrepaired_metric_wgs84_roundtrip_vs_repaired_metric_wgs84")
 
 	def test_reject_relocated_area_even_when_total_area_is_equal(self):
 		source=box(16.34,48.21,16.341,48.211)
