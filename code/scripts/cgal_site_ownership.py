@@ -69,7 +69,7 @@ def read_sites(path,owners,origin):
 	}
 
 
-def attribute_faces(faces,site_segments,site_stats):
+def attribute_faces(faces,site_segments,site_stats,*,window=None):
 	"""Attribute only polygons containing positive length of a CGAL segment site.
 
 	No source-line 1:1 assumption. Many distinct segment sites of the same
@@ -81,8 +81,15 @@ def attribute_faces(faces,site_segments,site_stats):
 	candidates=defaultdict(set)
 	errors=[]
 	failed_segment_sites=0
+	off_window_segment_sites=0
 	polygon_sites=defaultdict(int)
 	for site_number,edge_id,segment in site_segments:
+		# A source LINEAR_USE polyline can extend beyond the Vienna AOI.
+		# Sites wholly outside the clipped Voronoi window have no
+		# generator line inside the polygonized domain.
+		if window is not None and segment.intersection(window).length<=1e-8:
+			off_window_segment_sites+=1
+			continue
 		matches=tree.query(segment,predicate="intersects")
 		positive=[]
 		for idx in matches:
@@ -115,6 +122,7 @@ def attribute_faces(faces,site_segments,site_stats):
 	stats=dict(site_stats)
 	stats.update({
 		"candidate_polygons":len(faces),
+		"segment_sites_outside_window":off_window_segment_sites,
 		"polygons_with_segment_edge_id":sum(label is not None for label in labels),
 		"polygons_without_segment_edge_id":sum(label is None for label in labels),
 		"segment_sites_without_unique_face":failed_segment_sites,
