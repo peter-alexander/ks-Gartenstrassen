@@ -6,6 +6,8 @@ on:
     paths:
       - "code/cgal/**"
       - "code/scripts/build_cgal_voronoi_geojson.py"
+      - "code/scripts/build_cgal_pre_sis.py"
+      - "code/scripts/cgal_site_ownership.py"
       - "code/scripts/cgal_segment_input.py"
       - ".github/workflows/cgal-voronoi.yml"
   pull_request:
@@ -33,5 +35,8 @@ jobs:
       - name: Segment Voronoi smoke test
         run: |
           printf '0 0 20000 0\n0 10000 20000 10000\n0 20000 20000 20000\n' | \
-            build/cgal/cgal_voronoi_edges --edges /tmp/cgal-dual.txt --bounds -5000 -5000 25000 25000
+            build/cgal/cgal_voronoi_edges --edges /tmp/cgal-dual.txt --sites /tmp/cgal-sites.txt --bounds -5000 -5000 25000 25000
           test -s /tmp/cgal-dual.txt
+          test -s /tmp/cgal-sites.txt
+          grep -q "^S " /tmp/cgal-sites.txt
+          grep -q "^P " /tmp/cgal-sites.txt
