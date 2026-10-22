@@ -14,7 +14,7 @@ from shapely.wkb import dumps
 
 from scripts.clip_cgal_with_sis import (
 	clip,_export_valid_wgs84,_clip_feature,_strip_projection_collapsed_holes,
-	_recover_collapsed_metric_input)
+	_recover_collapsed_metric_input,_repair_metric_self_intersection)
 
 
 TO_WGS=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -270,6 +270,35 @@ class InputMetricProjectionTests(unittest.TestCase):
 			(q[0]+20,q[1]+20),(q[0]+20,q[1]+20),
 			(q[0]+20,q[1]+50),(q[0]+20,q[1]+50)]])
 		self.assertIsNone(_recover_collapsed_metric_input(original,projected))
+
+
+class MetricSelfIntersectionRepairTests(unittest.TestCase):
+	def test_accept_only_geodesically_identical_source_area(self):
+		source=box(16.34,48.21,16.341,48.211)
+		bowtie=Polygon([
+			(16.34,48.21),(16.341,48.211),
+			(16.34,48.211),(16.341,48.21)])
+		self.assertFalse(bowtie.is_valid)
+		with patch("scripts.clip_cgal_with_sis.make_valid",return_value=source):
+			result=_repair_metric_self_intersection(
+				source,bowtie,lambda x,y:(x,y))
+		self.assertIsNotNone(result)
+		repaired,details=result
+		self.assertTrue(repaired.equals(source))
+		self.assertEqual(details["changed_geodesic_area_m2"],0)
+		self.assertEqual(details["change_budget_m2"],0.01)
+
+	def test_reject_relocated_area_even_when_total_area_is_equal(self):
+		source=box(16.34,48.21,16.341,48.211)
+		shifted=box(16.345,48.21,16.346,48.211)
+		self.assertAlmostEqual(source.area,shifted.area,places=12)
+		bowtie=Polygon([
+			(16.34,48.21),(16.341,48.211),
+			(16.34,48.211),(16.341,48.21)])
+		with patch("scripts.clip_cgal_with_sis.make_valid",return_value=shifted):
+			result=_repair_metric_self_intersection(
+				source,bowtie,lambda x,y:(x,y))
+		self.assertIsNone(result)
 
 
 class FinalSISIntersectionTests(unittest.TestCase):
