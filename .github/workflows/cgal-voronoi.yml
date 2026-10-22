@@ -52,6 +52,5 @@ jobs:
           test -s /tmp/cgal-native-faces.txt
           grep -q '^F ' /tmp/cgal-native-faces.txt
           grep -q '^H ' /tmp/cgal-native-faces.txt
-          grep -q '^Z
- /tmp/cgal-native-faces.txt
+          grep -q '^Z' /tmp/cgal-native-faces.txt
           PYTHONPATH=code python code/tests/cgal_native_face_smoke.py /tmp/cgal-native-faces.txt
