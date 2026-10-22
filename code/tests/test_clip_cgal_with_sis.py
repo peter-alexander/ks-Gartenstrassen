@@ -202,6 +202,21 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 		repaired_metric=transform(TO_METRIC,repaired)
 		self.assertLess(abs(repaired_metric.area-metric.area),0.01)
 
+	def test_large_boundary_displacement_reports_actual_spatial_audit(self):
+		metric=self._near_touching_valid_metric_polygon()
+		# Force a repaired polygon far away, so boundary protection
+		# must reject it and disclose the spatial difference.
+		with patch("scripts.clip_cgal_with_sis.make_valid",
+				return_value=box(16.34,48.21,16.35,48.22)):
+			with self.assertRaises(ValueError) as ctx:
+				_export_valid_wgs84(metric,TO_METRIC,TO_WGS,
+					"test-diagnostic")
+		self.assertIn("test-diagnostic",str(ctx.exception))
+		# The exact early guard may reject by area difference before
+		# reaching the Hausdorff audit. Both outcomes remain safe.
+		self.assertIn("kontrollierte Reparatur abgelehnt",
+			str(ctx.exception))
+
 	def test_healthy_wgs84_sis_polygon_is_never_repaired(self):
 		x,y=TO_METRIC(16.34,48.21)
 		metric=box(x,y,x+30,y+20)

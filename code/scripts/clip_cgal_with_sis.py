@@ -329,9 +329,44 @@ def _export_valid_wgs84(metric,to_metric,to_wgs,edge_id):
 		boundary_distance=roundtrip.boundary.hausdorff_distance(
 			verified.boundary)
 		if boundary_distance>0.02:
+			# Hausdorff distance alone cannot tell if a doubled-back,
+			# zero-area ring segment was discarded or whether a genuine
+			# narrow surface was lost. Keep the strict rejection, but
+			# report a second, VALID-vs-VALID spatial audit.
+			audit={
+				"wgs84_invalidity":invalidity,
+				"make_valid_type":repaired.geom_type,
+				"output_type":candidate.geom_type,
+				"source_metric_area_m2":metric.area,
+				"unrepaired_roundtrip_area_m2":roundtrip.area,
+				"repaired_roundtrip_area_m2":verified.area,
+				"total_area_delta_m2":area_shift,
+				"roundtrip_boundary_hausdorff_m":boundary_distance,
+				"max_boundary_hausdorff_m":0.02,
+			}
+			try:
+				spatial_change=metric.symmetric_difference(verified)
+				audit["metric_source_vs_repaired_symdiff_area_m2"]=spatial_change.area
+				audit["metric_source_vs_repaired_symdiff_type"]=spatial_change.geom_type
+			except Exception as audit_exc:
+				audit["metric_symdiff_error"]=(
+					f"{type(audit_exc).__name__}: {audit_exc}")
+			try:
+				linear_parts=[]
+				def visit_linear(part):
+					if part.geom_type in ("LineString","LinearRing"):
+						linear_parts.append(part.length)
+					elif hasattr(part,"geoms"):
+						for child in part.geoms:
+							visit_linear(child)
+				visit_linear(repaired)
+				audit["make_valid_discarded_line_length_degrees"]=sum(linear_parts)
+				audit["make_valid_discarded_line_count"]=len(linear_parts)
+			except Exception as audit_exc:
+				audit["linear_audit_error"]=str(audit_exc)
 			raise ValueError(
-				f"Randabweichung nach Reparatur {boundary_distance:.6g} m "
-				"überschreitet 0.02 m")
+				"Randabweichung nach Reparatur überschreitet 0.02 m; "
+				f"Prüfwerte: {json.dumps(audit,ensure_ascii=False)}")
 		event={
 			"edge_id":edge_id,
 			"original_wgs84_invalidity":invalidity,
