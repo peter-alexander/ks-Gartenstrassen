@@ -378,3 +378,46 @@ Quellfläche statt.
 Der normale Wiener Lauf regeneriert bei vorhandenem CGAL-Stream und
 Vorschau die bisher benannte reguläre Ausgabe, die beschnittene
 Debug-Ausgabe und den Fehlerbericht. CGAL muss nicht erneut laufen.
+
+
+## Automatische Rettungsversuche durch TURN_USE-Hüllenpuffer (1–4 m)
+
+Nachdem alle originalen CGAL-Faces einer `edge_id` zunächst
+um die **ungepufferten** TURN_USE-Hüllen gekürzt und vereinigt wurden,
+bleiben **bereits erfolgreiche Einzelpolygone unverändert**.
+
+Nur für verbleibende problematische `edge_id` erfolgen
+vier zusätzliche Versuche in EPSG:31256:
+
+1. Originale TURN_USE-Hüllen um **1 m** puffern, den aktuellen
+   Restflächen abziehen, erneut nach `edge_id` vereinigen.
+2. Falls immer noch nicht genau ein gültiges Polygon:
+   **2 m** Puffer und erneut ausschneiden/vereinigen.
+3. Falls weiterhin erfolglos: **3 m**.
+4. Letzter Versuch: **4 m**.
+
+Die angegebenen Puffer sind **absolute Abstände um die ursprünglichen
+Hüllen**, nicht 1+2+3+4 = 10 m. Die zusätzlichen Zuschnitte werden
+auf die jeweils schon **verbliebenen Restgeometrien** angewandt.
+
+Sobald eine `edge_id` als gültiges, zusammenhängendes
+Einzelpolygon vereinigt werden kann, landet sie in der **normalen**
+Ausgabe (mit `recovered_by_buffer=true` und
+`turn_use_buffer_m` = erfolgreicher Wert).
+Ohne Rettungsbedarf bleibt `turn_use_buffer_m=0`.
+
+Nach erfolglosem vierten Versuch verbleibt die `edge_id`
+in `__dissolve_debug.geojson`. Die Debug-Geometrien
+zeigen die **tatsächlich nach bis zu 4 m ausgeschnittenen Restflächen**;
+vollständig entfernte Faces und nicht sicher auswertbare
+Quellen bleiben `geometry:null`. Das Debug-Attribut
+`last_turn_use_buffer_m` und die Fehlerliste im
+`__dissolve_report.json` bezeichnen die zuletzt
+versuchte Stufe. Der Bericht enthält pro Stufe Versuchszahlen
+und gerettete `edge_id` samt erfolgreichem Pufferabstand.
+
+Die bestehenden drei Ergebnisdateien werden vom normalen
+`run-gartenstrassen-wien.sh` nach erfolgreichem Lauf
+ersetzt, die native CGAL-Vorschau und der CGAL-Face-Stream
+unverändert wiederverwendet. Dies ist weiterhin eine experimentelle
+Vorschau- und Diagnosepipeline, **kein** SIS-Verschnitt.
