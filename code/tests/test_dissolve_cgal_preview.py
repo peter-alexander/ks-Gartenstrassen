@@ -13,7 +13,7 @@ from shapely.geometry import Polygon,LineString,box,mapping,shape
 from shapely.ops import transform
 from pyproj import Transformer
 
-from scripts.dissolve_cgal_preview import dissolve
+from scripts.dissolve_cgal_preview import dissolve,_restore_original_faces
 
 
 def _feature(edge_id,number,geometry,*,kind="segment",fallback=False):
@@ -284,8 +284,69 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertNotIn("buffer_3m_attempted_edge_ids",stats["statistics"])
 			joined=shape(feature["geometry"])
 			self.assertTrue(joined.is_valid)
-			self.assertAlmostEqual(joined.area,
-				transform(to_wgs,box(x,y,x+5.5,y+4)).area,places=11)
+			# Only the clipped residual selected the source; the output
+			# is the ORIGINAL pre-TURN_USE Face, including the region
+			# which had been removed by the buffered mask.
+			self.assertLess(joined.symmetric_difference(original).area,
+				original.area*0.005)
+			self.assertTrue(feature["properties"]["geometry_from_original_faces"])
+			self.assertEqual(feature["properties"]["matched_original_face_count"],1)
+			self.assertLess(feature["properties"]["buffer_candidate_area_m2"],
+				feature["properties"]["area_m2"])
+			self.assertEqual(report["recovered_edge_ids"][0][
+				"matched_original_face_numbers"],[1])
+
+	def test_restore_allows_original_multipolygon_and_ignores_touch_only(self):
+		to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
+		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		x,y=to_metric(16.35,48.2)
+		original_a=box(x,y,x+4,y+4)
+		original_b=box(x+6,y,x+10,y+4)
+		touch_only=box(x,y+3,x+4,y+5)
+		# This synthetic candidate crosses the gap, so original
+		# selection yields a valid MultiPolygon (not the candidate).
+		candidate=box(x+1,y+1,x+9,y+3)
+		result=_restore_original_faces(candidate,[
+			(11,original_a),(12,original_b),(13,touch_only)],to_wgs)
+		self.assertEqual(result["matched_face_numbers"],[11,12])
+		self.assertEqual(result["geometry"].geom_type,"MultiPolygon")
+		self.assertEqual(len(result["geometry"].geoms),2)
+		self.assertAlmostEqual(result["geometry"].area,32.,places=7)
+
+	def test_buffer_recovery_matches_only_original_faces_hit_by_candidate(self):
+		with TemporaryDirectory() as root:
+			to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
+			to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+			x,y=to_metric(16.35,48.2)
+			original=transform(to_wgs,box(x,y,x+10,y+4))
+			# An overlapping original inner-point Face is entirely
+			# inside the eventual TURN_USE buffer and must not be
+			# reselected simply for sharing the edge_id.
+			excluded=transform(to_wgs,box(x+8.7,y+1,x+9.4,y+2))
+			hull=box(x+7.5,y-5,x+8.5,y+9)
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("original-match",1,original),
+				_feature("original-match",2,excluded,kind="inner_point")],
+				hulls=[("node",hull)])
+			self.assertEqual(len(valid["features"]),1)
+			self.assertEqual(debug["features"],[])
+			feature=valid["features"][0]
+			self.assertEqual(feature["properties"]["turn_use_buffer_m"],2)
+			self.assertEqual(feature["properties"]["matched_original_face_count"],1)
+			self.assertEqual(report["recovered_edge_ids"][0][
+				"matched_original_face_numbers"],[1])
+			self.assertLess(shape(feature["geometry"]).symmetric_difference(original).area,
+				original.area*0.005)
+			self.assertEqual(stats["statistics"]["restored_original_face_matches"],1)
+
+	def test_restore_rejects_candidate_with_only_boundary_contact(self):
+		to_metric=Transformer.from_crs(4326,31256,always_xy=True).transform
+		to_wgs=Transformer.from_crs(31256,4326,always_xy=True).transform
+		x,y=to_metric(16.35,48.2)
+		source=box(x,y,x+5,y+5)
+		candidate=box(x+5,y,x+9,y+5)
+		with self.assertRaisesRegex(ValueError,"positiver Flächenüberschneidung"):
+			_restore_original_faces(candidate,[(15,source)],to_wgs)
 
 	def test_unresolved_debug_shows_post_four_metre_cut(self):
 		with TemporaryDirectory() as root:
