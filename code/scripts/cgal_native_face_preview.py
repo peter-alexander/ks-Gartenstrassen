@@ -227,7 +227,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 						state="outside"
 						if owner is None:
 							if generator_type=="segment":
-							stats["artificial_frame_faces_omitted"]+=1
+								stats["artificial_frame_faces_omitted"]+=1
 							continue
 						if envelope is None or not _envelope_overlaps(envelope,bounds):
 							stats["segment_faces_outside_aoi_bbox"]+=1
