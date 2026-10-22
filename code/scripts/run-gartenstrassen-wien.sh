@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Current stage: LINEAR_USE -> native CGAL Voronoi faces -> edge_id dissolve, BEFORE SIS.
-# SIS overlay/PMTiles are intentionally not run until this stage is reviewed.
+# Current stage: LINEAR_USE -> CGAL Voronoi -> TURN_USE -> edge_id ->
+# 250 m² final debug filter -> SISBELAGOGD intersection. No PMTiles.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -23,4 +23,4 @@ if [[ ! -f "$CACHE" ]]; then
 fi
 
 bash "$REPO/code/scripts/run-cgal-native-faces-pre-sis-wien.sh" "$@"
-echo "CGAL-Schritt abgeschlossen. SIS-Verschnitt bleibt ausgesetzt."
+echo "Gartenstraßen: Wiener SIS-Verschnitt abgeschlossen; Debug vor SIS ausgegeben."
