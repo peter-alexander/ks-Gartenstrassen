@@ -152,6 +152,8 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 	area_shift=abs(verified.area-transform(to_metric,wgs).area)
 	if area_shift>budget:
 		return None
+	boundary_shift=transform(to_metric,wgs).boundary.hausdorff_distance(
+		verified.boundary)
 	return candidate,{
 		"repair":"remove_only_projection_collapsed_interior_rings",
 		"repair_result_type":candidate.geom_type,
@@ -159,8 +161,8 @@ def _strip_projection_collapsed_holes(metric,wgs,to_metric):
 		"discarded_metric_hole_area_m2":lost_area,
 		"area_shift_m2":area_shift,
 		"area_tolerance_m2":budget,
-		"boundary_shift_m":0.,
-		"boundary_shift_note":"Nur kollabierte, flächenmäßig vernachlässigbare Innenringe entfernt; "
+		"boundary_shift_m":boundary_shift,
+		"boundary_shift_note":"Abweichung enthält bewusst entfernte flächenlose Innenringe; "
 			"alle anderen Koordinaten unverändert",
 	}
 
