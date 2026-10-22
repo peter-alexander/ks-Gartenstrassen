@@ -326,8 +326,8 @@ def _retry_buffered_hulls(
 						restored=_restore_original_faces(
 							merged,original_faces,to_wgs)
 						except Exception as exc:
-						reason="original_face_restore_error"
-						detail=f"+{radius} m: {type(exc).__name__}: {exc}"
+							reason="original_face_restore_error"
+							detail=f"+{radius} m: {type(exc).__name__}: {exc}"
 					else:
 						stats[f"buffer_{radius}m_recovered_edge_ids"]+=1
 						return (surfaces,None,None,merged,radius,attempted,restored)
