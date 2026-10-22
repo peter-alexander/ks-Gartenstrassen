@@ -297,8 +297,7 @@ class MetricSelfIntersectionRepairTests(unittest.TestCase):
 		self.assertTrue(repaired.equals(original))
 		self.assertAlmostEqual(details["changed_geodesic_area_m2"],0,places=8)
 		self.assertEqual(details["change_budget_m2"],0.01)
-		self.assertEqual(details["comparison"],
-			"unrepaired_metric_wgs84_roundtrip_vs_repaired_metric_wgs84")
+		self.assertIsNone(details["failure"])
 
 	def test_reject_relocated_area_even_when_total_area_is_equal(self):
 		source=box(16.34,48.21,16.341,48.211)
@@ -310,7 +309,8 @@ class MetricSelfIntersectionRepairTests(unittest.TestCase):
 		with patch("scripts.clip_cgal_with_sis.make_valid",return_value=shifted):
 			result=_repair_metric_self_intersection(
 				source,bowtie,lambda x,y:(x,y))
-		self.assertIsNone(result)
+		self.assertIsNone(result[0])
+		self.assertEqual(result[1]["failure"],"changed_area_exceeds_budget")
 
 
 class FinalSISIntersectionTests(unittest.TestCase):
