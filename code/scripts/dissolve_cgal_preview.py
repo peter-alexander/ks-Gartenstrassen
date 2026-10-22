@@ -524,8 +524,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							# The valid residual is only used to MATCH originals.
 							joined=restored_original["geometry"]
 							recovered_at_m=recovered_radius
-							area_sum=sum(geom.area for _,geom in original_faces
-								if number in restored_original["matched_face_numbers"])
+							area_sum=sum(geom.area for face_no,geom in original_faces
+								if face_no in restored_original["matched_face_numbers"])
 					if reason is None:
 						try:
 							wgs=transform(to_wgs,joined)
@@ -568,6 +568,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 								if isinstance(joined,MultiPolygon):
 									stats["restored_multipolygon_outputs"]+=1
 							stats["merged_polygons"]+=1
+							if isinstance(joined,MultiPolygon):
+								stats["merged_multipolygon_features"]+=1
 							stats["accepted_source_faces"]+=len(rows)
 							accepted_fallbacks+=fallback_count
 							stats["source_overlap_area_m2"]+=max(0,area_sum-joined.area)
@@ -666,7 +668,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 		for temporary,output in (("merged.geojson",out),
 				("debug.geojson",debug),("report.json",report)):
 			os.replace(stage/temporary,output)
-	print(f"CGAL-Dissolve: {stats['merged_polygons']:,} einzelne Polygone, "
+	print(f"CGAL-Dissolve: {stats['merged_polygons']:,} reguläre Flächen-Features, "
 		f"{stats['rejected_edge_ids']:,} edge_ids mit Fehlern, "
 		f"{len(recovered_edge_ids):,} per 1–4 m Puffer gerettet, "
 		f"{accepted_fallbacks:,} Fallback-Quell-Faces in Ergebnissen",flush=True)
