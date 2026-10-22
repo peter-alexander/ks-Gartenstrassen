@@ -7,6 +7,12 @@ repair polygons or silently turn disconnected pieces into MultiPolygon.
 Historically used GIP2 node TURN_USE convex hulls are subtracted from each
 source Face in EPSG:31256. The post-TURN_USE-cut Face geometry is retained in debug.
 
+For initially failed edge_ids only, the original convex hulls are
+buffered successively by 1, 2, 3 and 4 metres. At each stage, remove
+that larger hull from the remaining post-cut Faces, then retry the union.
+A recovered edge_id is moved to regular output at the first successful
+stage; the final debug shows the geometry after the last attempted cut.
+
 One valid contiguous Polygon per edge_id is written to the regular
 GeoJSON. If any source polygon is invalid, the union fails, or the
 result is not a single valid Polygon, the entire edge_id is put into
@@ -41,7 +47,7 @@ from scripts.wienwide_grid import load_aoi
 from shapely.validation import explain_validity
 
 
-SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v3-debug-post-cut"
+SCHEMA="cgal-original-edge-id-turn-use-hull-dissolve-v4-buffer-retry"
 
 
 def _json_line_features(path):
@@ -138,6 +144,130 @@ def _write_feature(stream,feature,first):
 	return False
 
 
+def _retry_buffered_hulls(
+		debug_surfaces,initial_reason,initial_detail,hull_geometries,
+		buffer_cache,to_wgs,stats):
+	"""Progressively cut only FAILED edge_ids, in metric EPSG:31256.
+
+	Each stage buffers the ORIGINAL convex hull by an absolute radius
+	(1/2/3/4 metres), and differences the CURRENT residual geometries.
+	This is not an additional 1+2+3+4 metre cumulative buffer.
+	Source errors / cut failures cannot be turned into false successes:
+	unavailable geometries stay null and block promotion to regular output.
+	"""
+	surfaces=list(debug_surfaces)
+	original_blocker=any(geom is None and status!="fully_removed"
+		or geom is not None and (
+			geom.is_empty is False and (
+				not geom.is_valid or geom.geom_type not in ("Polygon","MultiPolygon")))
+		for _,geom,status,_ in surfaces)
+	reason=initial_reason
+	detail=initial_detail
+	attempted=[]
+	for radius in range(1,5):
+		if radius not in buffer_cache:
+			buffered=[geom.buffer(radius) for geom in hull_geometries]
+			if any(g.is_empty or not g.is_valid or
+					g.geom_type not in ("Polygon","MultiPolygon")
+					for g in buffered):
+				raise ValueError(f"TURN_USE +{radius} m: ungültige Puffer-Hülle")
+			buffer_cache[radius]=(buffered,STRtree(buffered))
+		buffered,tree=buffer_cache[radius]
+		attempted.append(radius)
+		stats[f"buffer_{radius}m_attempted_edge_ids"]+=1
+		next_surfaces=[]
+		stage_error=None
+		stage_detail=None
+		for number,current,status,note in surfaces:
+			if current is None or current.is_empty:
+				next_surfaces.append((number,current,status,note))
+				continue
+			if not current.is_valid or current.geom_type not in (
+					"Polygon","MultiPolygon"):
+				if stage_error is None:
+					stage_error="invalid_after_buffer"
+					stage_detail=f"Face {number}: {explain_validity(current)}"
+				next_surfaces.append((number,current,status,note))
+				continue
+			try:
+				indices=tree.query(current,predicate="intersects")
+				if not len(indices):
+					next_surfaces.append((number,current,status,note))
+					continue
+				mask=union_all([buffered[int(i)] for i in indices])
+				residual=current.difference(mask)
+				if not residual.is_empty and (
+						not residual.is_valid or residual.geom_type not in (
+							"Polygon","MultiPolygon")):
+					stage_error="invalid_after_buffer"
+					stage_detail=f"Face {number}, +{radius} m: "\
+						+explain_validity(residual)
+					next_surfaces.append((number,residual,"buffer_invalid",
+						stage_detail))
+					continue
+				removed=max(0.,current.area-residual.area)
+				stats["buffer_removed_area_sum_m2"]+=removed
+				if removed>1e-8:
+					stats[f"buffer_{radius}m_cut_faces"]+=1
+				if residual.is_empty:
+					stats[f"buffer_{radius}m_fully_removed_faces"]+=1
+					next_surfaces.append((number,residual,
+						"fully_removed",f"TURN_USE +{radius} m"))
+				elif removed>1e-8:
+					next_surfaces.append((number,residual,
+						"buffer_cut",f"TURN_USE +{radius} m"))
+				else:
+					next_surfaces.append((number,residual,status,note))
+			except Exception as exc:
+				# The current pre-cut geometry is NOT emitted as a
+				# post-buffer geometry when the operation fails.
+				msg=f"Face {number}, +{radius} m: {type(exc).__name__}: {exc}"
+				if stage_error is None:
+					stage_error="turn_use_buffer_cut_error"
+					stage_detail=msg
+				next_surfaces.append((number,None,"buffer_cut_failed",msg))
+		surfaces=next_surfaces
+		if original_blocker:
+			# Continue cutting the other Faces so the final debug is
+			# spatially correct, but never hide an unresolved source error.
+			stats[f"buffer_{radius}m_still_debug"]+=1
+			continue
+		if stage_error is not None:
+			reason=stage_error
+			detail=stage_detail
+			stats[f"buffer_{radius}m_still_debug"]+=1
+			continue
+		parts=[geom for _,geom,_,_ in surfaces
+			if geom is not None and not geom.is_empty]
+		try:
+			merged=union_all(parts)
+			if merged.is_empty:
+				reason="empty_union"
+				detail="TURN_USE-Puffer entfernte alle Restflächen"
+			elif merged.geom_type=="MultiPolygon":
+				reason="not_contiguous"
+				detail=f"{len(merged.geoms)} getrennte Polygone nach +{radius} m"
+			elif not isinstance(merged,Polygon):
+				reason="union_not_polygon"
+				detail=f"Union +{radius} m ergab {merged.geom_type}"
+			elif not merged.is_valid:
+				reason="invalid_union"
+				detail=f"+{radius} m: {explain_validity(merged)}"
+			else:
+				wgs=transform(to_wgs,merged)
+				if not isinstance(wgs,Polygon) or wgs.is_empty or not wgs.is_valid:
+					reason="output_geometry_error"
+					detail=f"+{radius} m: ungültiges WGS84-Polygon"
+				else:
+					stats[f"buffer_{radius}m_recovered_edge_ids"]+=1
+					return (surfaces,None,None,merged,radius,attempted)
+		except Exception as exc:
+			reason="union_error"
+			detail=f"+{radius} m: {type(exc).__name__}: {exc}"
+		stats[f"buffer_{radius}m_still_debug"]+=1
+	return surfaces,reason,detail,None,None,attempted
+
+
 def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 		junction_metadata=None,replace_existing=False):
 	preview,out,debug,report=map(Path,(preview,out,debug,report))
@@ -168,6 +298,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 			for geom in hull_geometries):
 		raise ValueError("TURN_USE-Ausschluss enthält ungültige Hüllengeometrie")
 	hull_tree=STRtree(hull_geometries) if hull_geometries else None
+	buffer_cache={}
+	recovered_edge_ids=[]
 	with tempfile.TemporaryDirectory(
 			prefix="cgal-dissolve-",dir=out.parent) as staging:
 		stage=Path(staging)
@@ -301,6 +433,26 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 						elif not joined.is_valid:
 							reason="invalid_union"
 							detail=explain_validity(joined)
+					# Only failed edge_ids are retried with 1–4 m
+					# expanded TURN_USE convex hulls. The final residuals
+					# replace the initial debug geometries.
+					initial_reason=reason
+					attempted=[]
+					recovered_at_m=0
+					if reason is not None and hull_tree is not None:
+						stats["buffer_retry_edge_ids"]+=1
+						(debug_surfaces,reason,detail,recovered_joined,
+							recovered_radius,attempted)=_retry_buffered_hulls(
+							debug_surfaces,reason,detail,hull_geometries,
+							buffer_cache,to_wgs,stats)
+						if recovered_radius is not None:
+							joined=recovered_joined
+							recovered_at_m=recovered_radius
+							area_sum=sum(geom.area for _,geom,_,_ in debug_surfaces
+								if geom is not None and not geom.is_empty)
+							recovered_edge_ids.append({
+								"edge_id":edge_id,"buffer_m":recovered_at_m,
+								"initial_reason":initial_reason})
 					if reason is None:
 						try:
 							wgs=transform(to_wgs,joined)
@@ -318,7 +470,9 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 									"area_m2":joined.area,
 									"preview_based":True,
 									"sis_clipped":False,
-									"turn_use_hulls_removed":bool(hull_geometries)},
+									"turn_use_hulls_removed":bool(hull_geometries),
+									"turn_use_buffer_m":recovered_at_m,
+									"recovered_by_buffer":recovered_at_m>0},
 								"geometry":mapping(wgs)}
 							first_good=_write_feature(good,new_feature,first_good)
 							stats["merged_polygons"]+=1
@@ -341,6 +495,9 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							"inner_point_face_count":types["inner_point"],
 							"fallback_face_count":fallback_count,
 							"turn_use_cut_before_union":True,
+							"initial_dissolve_reason":initial_reason,
+							"buffer_attempts_m":attempted,
+							"last_buffer_m":attempted[-1] if attempted else 0,
 							"face_numbers":[number for number,_,_,_ in rows]})
 						for (_,_,_,raw),(_,post_cut,cut_status,cut_note) in zip(
 								rows,debug_surfaces):
@@ -351,6 +508,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 							props["debug_after_turn_use"]=True
 							props["turn_use_cut_status"]=cut_status
 							props["turn_use_cut_note"]=cut_note
+							props["last_turn_use_buffer_m"]=attempted[-1] if attempted else 0
 							# A fully removed or unprocessable Face has no
 							# remaining geometry. Keep its ID as an explicit
 							# null-geometry audit record, not an uncut polygon.
@@ -377,9 +535,11 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 					'"preview_based":true,"polygon_only":true,'
 					'"point_faces":"original_inner_vertices_only",'
 					'"dissolved_by":"edge_id","sis_clipped":false,'
-					'"turn_use_hull_cut_before_union":true}}\n')
+					'"turn_use_hull_cut_before_union":true,'
+					'"failed_edges_buffered_m":[1,2,3,4]}}\n')
 				bad.write('\n],"metadata":{"schema":"'+SCHEMA+'",'
 					'"debug_post_turn_use_cut":true,'
+					'"failed_edges_buffered_up_to_m":4,'
 					'"null_geometry_for_removed_or_unavailable_faces":true}}\n')
 		overview={
 			"schema":SCHEMA,
@@ -388,6 +548,8 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 				"rule":"all_TURN_USE_vertices_convex_hull_by_via_node_id",
 				"hull_count":len(hull_geometries),
 				"applied_before_edge_id_union":True,
+				"retry_buffers_m":[1,2,3,4],
+				"buffer_radius_interpretation":"absolute_from_original_hull",
 				"source":junction_metadata or {},
 			},
 			"merged_geojson":str(out),
@@ -400,6 +562,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 			"source_face_counts":dict(sources),
 			"statistics":dict(stats),
 			"accepted_fallback_source_faces":accepted_fallbacks,
+			"recovered_edge_ids":recovered_edge_ids,
 			"failures":failures,
 		}
 		(stage/"report.json").write_text(json.dumps(
@@ -410,6 +573,7 @@ def dissolve(preview,out,debug,report,*,progress=None,junction_hulls=None,
 			os.replace(stage/temporary,output)
 	print(f"CGAL-Dissolve: {stats['merged_polygons']:,} einzelne Polygone, "
 		f"{stats['rejected_edge_ids']:,} edge_ids mit Fehlern, "
+		f"{len(recovered_edge_ids):,} per 1–4 m Puffer gerettet, "
 		f"{accepted_fallbacks:,} Fallback-Quell-Faces in Ergebnissen",flush=True)
 	print(f"Ausgabe: {out}\nDebug: {debug}\nBericht: {report}",flush=True)
 	return overview
