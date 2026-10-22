@@ -38,3 +38,24 @@ nur zur Wiederholung der Zuordnung ohne neue CGAL-Polygonisierung.
 Bei nicht eindeutigen Site-Zuordnungen erzeugen wir zusätzlich eine
 GeoJSON-Diagnose mit Segment-Sites und beteiligten Polygonflächen.
 Keine automatische Zuordnung aus bloßen Grenzkontakten.
+
+
+## Direkte native CGAL-Face-Topologie statt räumlicher Zuordnung
+
+Aktuell wird `CGAL::Voronoi_diagram_2` mit dem Segment-Delaunay-Graphen
+verwendet. Eine Voronoi-Face verweist selbst auf die originale
+Generator-Site. Bei Segment-Sites wird die `edge_id` über das während
+des Nodens unverändert gespeicherte unterstützende Eingabesegment
+zurückgewonnen. CGAL liefert die Halbkanten der zusammengehörigen
+Voronoi-Face; die kurvigen Randkanten werden beim Export geometrisch
+linearisiert und als geschlossene Fläche rekonstruiert.
+
+Die alte Nachprüfung „Schneidet die CGAL-Site ein oder mehrere
+polygonisierte Flächen?“ ist **keine** Quelle der Zugehörigkeit mehr.
+Die davor gemeldeten vermeintlichen `edge_id`-Konflikte erklären
+nicht die ursprüngliche Generatoridentität und werden im nativen
+Verfahren nicht verwendet.
+
+Ausdrücklich ausgeschlossen sind Punkt-Sites und deren Voronoi-Faces.
+Danach werden nur Flächen derselben `edge_id` vereinigt, getrennte
+Komponenten bleiben getrennt. Das Zwischenergebnis entsteht vor SIS.
