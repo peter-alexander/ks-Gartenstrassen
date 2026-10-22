@@ -12,7 +12,8 @@ from shapely.ops import transform
 from shapely.validation import explain_validity
 from shapely.wkb import dumps
 
-from scripts.clip_cgal_with_sis import clip,_export_valid_wgs84,_clip_feature
+from scripts.clip_cgal_with_sis import (
+	clip,_export_valid_wgs84,_clip_feature,_strip_projection_collapsed_holes)
 
 
 TO_WGS=Transformer.from_crs(31256,4326,always_xy=True).transform
@@ -71,6 +72,87 @@ class WGS84ProjectionRegressionTests(unittest.TestCase):
 			holes=[[
 				(x+1e-9,y+5),(x+4,y+5),
 				(x+4,y+10),(x+1e-9,y+10)]])
+
+	def _collapsed_seven_metre_hole(self):
+		# Reproduce the observed SIS failure mode: "Too few points
+		# in geometry component" with ~7-8 metres Hausdorff difference,
+		# but a genuine source hole of less than a billionth of m².
+		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
+		gap=1e-10
+		return Polygon([
+			(x,y),(x+20,y),(x+20,y+20),(x,y+20)],
+			holes=[[
+				(x+10,y+5),(x+10+gap,y+5),
+				(x+10+gap,y+12),(x+10,y+12)]])
+
+	def test_collapsed_seven_metre_wgs84_hole_keeps_all_real_area(self):
+		metric=self._collapsed_seven_metre_hole()
+		self.assertTrue(metric.is_valid)
+		raw=transform(TO_WGS,metric)
+		self.assertTrue(explain_validity(raw).startswith(
+			"Too few points in geometry component"))
+		self.assertLess(Polygon(metric.interiors[0]).area,1e-8)
+		repaired,event=_export_valid_wgs84(
+			metric,TO_METRIC,TO_WGS,"collapsed-7m")
+		self.assertTrue(repaired.is_valid)
+		self.assertEqual(event["repair"],
+			"remove_only_projection_collapsed_interior_rings")
+		self.assertEqual(event["discarded_collapsed_holes"],1)
+		self.assertGreater(event["boundary_shift_m"],6)
+		self.assertLess(event["discarded_metric_hole_area_m2"],1e-8)
+		converted=transform(TO_METRIC,repaired)
+		self.assertLess(abs(converted.area-metric.area),0.01)
+
+	def test_collapsed_hole_does_not_remove_other_valid_interior_rings(self):
+		metric=self._collapsed_seven_metre_hole()
+		x0,y0,x1,y1=metric.bounds
+		normally_sized=[(x0+3,y0+5),(x0+6,y0+5),
+			(x0+6,y0+8),(x0+3,y0+8)]
+		metric=Polygon(metric.exterior,[
+			list(metric.interiors[0].coords),normally_sized])
+		self.assertTrue(metric.is_valid)
+		wgs,event=_export_valid_wgs84(
+			metric,TO_METRIC,TO_WGS,"keep-ordinary-hole")
+		self.assertTrue(wgs.is_valid)
+		self.assertEqual(event["discarded_collapsed_holes"],1)
+		self.assertEqual(len(wgs.interiors),1)
+		metric_roundtrip=transform(TO_METRIC,wgs)
+		self.assertAlmostEqual(metric_roundtrip.area,metric.area,places=2)
+
+	def test_reject_large_hole_masquerading_as_collapsed(self):
+		x,y=TO_METRIC(16.4848255346621,48.2407774556703)
+		metric=Polygon([(x,y),(x+20,y),(x+20,y+20),(x,y+20)],
+			holes=[[(x+5,y+5),(x+9,y+5),
+				(x+9,y+12),(x+5,y+12)]])
+		exterior=transform(TO_WGS,metric).exterior
+		lon,lat=exterior.coords[0]
+		# Synthetic corrupt WGS84 ring with only two unique points:
+		# Do not allow it to replace a legitimate 28m² source hole.
+		corrupt=Polygon(exterior,holes=[[
+			(lon+1e-5,lat+1e-5),
+			(lon+1e-5,lat+1e-5),
+			(lon+2e-5,lat+2e-5),
+			(lon+2e-5,lat+2e-5)]])
+		self.assertIsNone(_strip_projection_collapsed_holes(
+			metric,corrupt,TO_METRIC))
+
+	def test_sis_feature_records_collapsed_hole_method(self):
+		metric=self._collapsed_seven_metre_hole()
+		x0,y0,x1,y1=metric.bounds
+		source=_input_feature("collapsed-hole-edge",
+			box(x0-2,y0-2,x1+2,y1+2))
+		with patch("scripts.clip_cgal_with_sis.sis_mask",
+				return_value=metric):
+			from collections import Counter
+			stats=Counter()
+			result=_clip_feature(source,None,TO_METRIC,TO_WGS,stats)
+		self.assertEqual(result["properties"]["edge_id"],"collapsed-hole-edge")
+		self.assertTrue(result["properties"]["wgs84_projection_repaired"])
+		self.assertEqual(result["properties"]["wgs84_repair_method"],
+			"remove_only_projection_collapsed_interior_rings")
+		self.assertTrue(shape(result["geometry"]).is_valid)
+		self.assertEqual(stats["wgs84_collapsed_holes_removed"],1)
+
 
 	def test_valid_metric_sis_can_become_invalid_in_wgs84(self):
 		metric=self._near_touching_valid_metric_polygon()
