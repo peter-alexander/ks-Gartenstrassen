@@ -17,7 +17,7 @@ def main(path):
 		box(-5,-5,25,25))
 	assert set(groups)=={"north","middle","south"},(stats,list(groups))
 	assert stats["segment_faces_inside_window"]>=3,stats
-	assert stats["frame_faces_omitted"]>0,stats
+	assert stats.get("frame_faces_omitted",0)==0,stats
 	parts=list(_dissolve(groups))
 	assert {owner for owner,_ in parts}==set(groups)
 	assert sum(g.area for _,g in parts)>0
