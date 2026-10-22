@@ -80,6 +80,7 @@ def attribute_faces(faces,site_segments,site_stats):
 	tree=STRtree(faces)
 	candidates=defaultdict(set)
 	errors=[]
+	failed_segment_sites=0
 	polygon_sites=defaultdict(int)
 	for site_number,edge_id,segment in site_segments:
 		matches=tree.query(segment,predicate="intersects")
@@ -90,6 +91,7 @@ def attribute_faces(faces,site_segments,site_stats):
 			if length>1e-8:
 				positive.append(idx)
 		if len(positive)!=1:
+			failed_segment_sites+=1
 			if len(errors)<30:
 				errors.append({"site_line":site_number,"edge_id":edge_id,
 					"reason":"site_crosses_multiple_faces" if positive
@@ -115,9 +117,7 @@ def attribute_faces(faces,site_segments,site_stats):
 		"candidate_polygons":len(faces),
 		"polygons_with_segment_edge_id":sum(label is not None for label in labels),
 		"polygons_without_segment_edge_id":sum(label is None for label in labels),
-		"segment_sites_without_unique_face":sum(
-			item["reason"] in ("site_has_no_face","site_crosses_multiple_faces")
-			for item in errors),
+		"segment_sites_without_unique_face":failed_segment_sites,
 		"polygons_with_conflicting_segment_edge_id":conflicts,
 		"attribution":"native_cgal_segment_sites_supporting_input",
 		"point_site_attribution":False,
