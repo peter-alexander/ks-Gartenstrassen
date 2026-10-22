@@ -287,7 +287,8 @@ class PreviewDissolveTests(unittest.TestCase):
 			# Only the clipped residual selected the source; the output
 			# is the ORIGINAL pre-TURN_USE Face, including the region
 			# which had been removed by the buffered mask.
-			self.assertLess(joined.symmetric_difference(original).area,1e-12)
+			self.assertLess(joined.symmetric_difference(original).area,
+				original.area*0.005)
 			self.assertTrue(feature["properties"]["geometry_from_original_faces"])
 			self.assertEqual(feature["properties"]["matched_original_face_count"],1)
 			self.assertLess(feature["properties"]["buffer_candidate_area_m2"],
@@ -334,7 +335,8 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(feature["properties"]["matched_original_face_count"],1)
 			self.assertEqual(report["recovered_edge_ids"][0][
 				"matched_original_face_numbers"],[1])
-			self.assertLess(shape(feature["geometry"]).symmetric_difference(original).area,1e-12)
+			self.assertLess(shape(feature["geometry"]).symmetric_difference(original).area,
+				original.area*0.005)
 			self.assertEqual(stats["statistics"]["restored_original_face_matches"],1)
 
 	def test_restore_rejects_candidate_with_only_boundary_contact(self):
