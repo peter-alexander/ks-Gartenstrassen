@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from shapely.geometry import box
+from shapely.geometry import box, LineString
 
 from scripts.cgal_site_ownership import (
 	read_sites,attribute_faces,require_sound_attribution)
@@ -54,6 +54,20 @@ class SiteOwnershipTests(unittest.TestCase):
 		parts=list(_group_before_sis(geoms,["a","a","a"]))
 		self.assertEqual(len(parts),2)
 		self.assertEqual(sorted(p.area for _,p in parts),[4,8])
+
+	def test_sites_completely_outside_window_are_not_false_failures(self):
+		site=(
+			51,"outside",
+			LineString(
+				[(30,5),(40,5)]))
+		labels,stats=attribute_faces([box(0,0,10,10)],[site],
+			{"native_segment_sites":1,
+				"native_point_sites_omitted":0,
+				"outer_frame_segment_sites_omitted":0},
+			window=box(0,0,10,10))
+		require_sound_attribution(stats)
+		self.assertEqual(labels,[None])
+		self.assertEqual(stats["segment_sites_outside_window"],1)
 
 	def test_distinct_edge_ids_are_not_merged(self):
 		parts=list(_group_before_sis(
