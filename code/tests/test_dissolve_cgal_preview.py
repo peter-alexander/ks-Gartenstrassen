@@ -187,7 +187,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			debug_feature=debug["features"][0]
 			self.assertEqual(debug_feature["geometry"]["type"],"MultiPolygon")
 			self.assertEqual(debug_feature["properties"][
-				"turn_use_cut_status"],"cut")
+				"turn_use_cut_status"],"buffer_cut")
 			self.assertTrue(debug_feature["properties"]["debug_after_turn_use"])
 			remaining=shape(debug_feature["geometry"])
 			self.assertLess(remaining.area,whole.area)
@@ -242,7 +242,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			cut=shape(debug["features"][1]["geometry"])
 			self.assertTrue(cut.is_valid)
 			self.assertEqual(debug["features"][1]["properties"][
-				"turn_use_cut_status"],"cut")
+				"turn_use_cut_status"],"buffer_cut")
 			self.assertLess(cut.area,good.area)
 			self.assertAlmostEqual(
 				cut.intersection(_square(
@@ -251,6 +251,125 @@ class PreviewDissolveTests(unittest.TestCase):
 				"source_invalid_polygon")
 			self.assertEqual(stats["statistics"]["debug_null_geometries"],1)
 			self.assertEqual(stats["statistics"]["debug_post_cut_geometries"],1)
+
+	def test_second_buffer_removes_island_and_recovers_single_polygon(self):
+		with TemporaryDirectory() as root:
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			to_wgs=Transformer.from_crs(
+				31256,4326,always_xy=True).transform
+			x,y=to_metric(16.35,48.2)
+			# A vertical mask divides the original 10 x 4 m Face.
+			# At +1 m a narrow 0.5-metre island remains.
+			# At +2 m it is wholly removed and the left-hand
+			# residual is exactly one Polygon.
+			original=transform(to_wgs,box(x,y,x+10,y+4))
+			hull=box(x+7.5,y-5,x+8.5,y+9)
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("rescued",1,original)],
+				hulls=[("junction",hull)])
+			self.assertEqual(debug["features"],[])
+			self.assertEqual(len(valid["features"]),1)
+			feature=valid["features"][0]
+			self.assertEqual(feature["geometry"]["type"],"Polygon")
+			self.assertEqual(feature["properties"]["edge_id"],"rescued")
+			self.assertEqual(feature["properties"]["turn_use_buffer_m"],2)
+			self.assertTrue(feature["properties"]["recovered_by_buffer"])
+			self.assertEqual(report["recovered_edge_ids"][0]["buffer_m"],2)
+			self.assertEqual(report["recovered_edge_ids"][0]["initial_reason"],
+				"not_contiguous")
+			self.assertEqual(stats["statistics"]["buffer_1m_attempted_edge_ids"],1)
+			self.assertEqual(stats["statistics"]["buffer_1m_still_debug"],1)
+			self.assertEqual(stats["statistics"]["buffer_2m_recovered_edge_ids"],1)
+			self.assertNotIn("buffer_3m_attempted_edge_ids",stats["statistics"])
+			joined=shape(feature["geometry"])
+			self.assertTrue(joined.is_valid)
+			self.assertAlmostEqual(joined.area,
+				transform(to_wgs,box(x,y,x+5.5,y+4)).area,places=11)
+
+	def test_unresolved_debug_shows_post_four_metre_cut(self):
+		with TemporaryDirectory() as root:
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			to_wgs=Transformer.from_crs(
+				31256,4326,always_xy=True).transform
+			x,y=to_metric(16.35,48.2)
+			original=transform(to_wgs,box(x,y,x+30,y+10))
+			hull=box(x+14,y-5,x+16,y+15)
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("still-split",8,original)],
+				hulls=[("junction",hull)])
+			self.assertEqual(valid["features"],[])
+			self.assertEqual(len(debug["features"]),1)
+			feature=debug["features"][0]
+			self.assertEqual(feature["geometry"]["type"],"MultiPolygon")
+			self.assertEqual(feature["properties"]["last_turn_use_buffer_m"],4)
+			self.assertEqual(feature["properties"]["turn_use_cut_status"],
+				"buffer_cut")
+			self.assertEqual(report["failures"][0]["buffer_attempts_m"],
+				[1,2,3,4])
+			self.assertEqual(report["failures"][0]["last_buffer_m"],4)
+			self.assertEqual(report["recovered_edge_ids"],[])
+			for radius in range(1,5):
+				self.assertEqual(stats["statistics"][
+					f"buffer_{radius}m_attempted_edge_ids"],1)
+			remaining_metric=transform(to_metric,shape(feature["geometry"]))
+			self.assertTrue(remaining_metric.is_valid)
+			self.assertLess(remaining_metric.intersection(
+				hull.buffer(3.9)).area,1e-7)
+			self.assertAlmostEqual(remaining_metric.area,200.,places=3)
+
+	def test_previously_valid_polygon_remains_unbuffered(self):
+		with TemporaryDirectory() as root:
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			geom=_square(16.30,48.20,16.31,48.21)
+			hull=transform(to_metric,_square(
+				16.305,48.205,16.306,48.206))
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("already-valid",2,geom)],
+				hulls=[("node",hull)])
+			self.assertEqual(len(valid["features"]),1)
+			self.assertEqual(valid["features"][0]["properties"][
+				"turn_use_buffer_m"],0)
+			self.assertFalse(valid["features"][0]["properties"][
+				"recovered_by_buffer"])
+			self.assertEqual(report["recovered_edge_ids"],[])
+			self.assertNotIn("buffer_retry_edge_ids",stats["statistics"])
+			self.assertEqual(debug["features"],[])
+
+	def test_nonrecoverable_source_keeps_null_and_other_face_is_buffer_cut(self):
+		with TemporaryDirectory() as root:
+			to_metric=Transformer.from_crs(
+				4326,31256,always_xy=True).transform
+			to_wgs=Transformer.from_crs(
+				31256,4326,always_xy=True).transform
+			x,y=to_metric(16.35,48.2)
+			good=transform(to_wgs,box(x,y,x+20,y+12))
+			bowtie=Polygon([
+				(16.3,48.2),(16.302,48.202),
+				(16.3,48.202),(16.302,48.2)])
+			hull=box(x+8,y+2,x+10,y+10)
+			valid,debug,report,stats,*_=self._run(root,[
+				_feature("source-bad",1,bowtie),
+				_feature("source-bad",2,good)],
+				hulls=[("node",hull)])
+			self.assertEqual(valid["features"],[])
+			self.assertEqual(len(debug["features"]),2)
+			self.assertIsNone(debug["features"][0]["geometry"])
+			self.assertEqual(debug["features"][0]["properties"][
+				"turn_use_cut_status"],"source_invalid")
+			self.assertEqual(debug["features"][1]["properties"][
+				"turn_use_cut_status"],"buffer_cut")
+			self.assertEqual(debug["features"][1]["properties"][
+				"last_turn_use_buffer_m"],4)
+			self.assertEqual(report["failures"][0]["reason"],
+				"source_invalid_polygon")
+			self.assertEqual(report["failures"][0]["buffer_attempts_m"],
+				[1,2,3,4])
+			remaining=transform(to_metric,shape(debug["features"][1]["geometry"]))
+			self.assertLess(remaining.intersection(hull.buffer(3.9)).area,1e-7)
+			self.assertEqual(stats["statistics"]["buffer_4m_still_debug"],1)
 
 	def test_existing_previous_outputs_may_be_replaced_explicitly(self):
 		with TemporaryDirectory() as root:
