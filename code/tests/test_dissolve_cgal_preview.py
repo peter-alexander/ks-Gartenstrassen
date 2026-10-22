@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from shapely.geometry import Polygon,box,mapping,shape
+from shapely.geometry import Polygon,LineString,box,mapping,shape
 
 from scripts.dissolve_cgal_preview import dissolve
 
@@ -100,8 +100,7 @@ class PreviewDissolveTests(unittest.TestCase):
 		with TemporaryDirectory() as root:
 			valid,debug,report,_,*_=self._run(root,[
 				_feature("bad",2,
-					__import__("shapely.geometry",fromlist=["LineString"]).LineString(
-						[(16.3,48.2),(16.31,48.21)])),
+					LineString([(16.3,48.2),(16.31,48.21)])),
 				_feature("good",3,_square(16.30,48.20,16.31,48.21))])
 			self.assertEqual(len(valid["features"]),1)
 			self.assertEqual(len(debug["features"]),1)
