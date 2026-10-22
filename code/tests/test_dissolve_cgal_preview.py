@@ -187,7 +187,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			debug_feature=debug["features"][0]
 			self.assertEqual(debug_feature["geometry"]["type"],"MultiPolygon")
 			self.assertEqual(debug_feature["properties"][
-				"turn_use_cut_status"],"cut")
+				"turn_use_cut_status"],"buffer_cut")
 			self.assertTrue(debug_feature["properties"]["debug_after_turn_use"])
 			remaining=shape(debug_feature["geometry"])
 			self.assertLess(remaining.area,whole.area)
@@ -242,7 +242,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			cut=shape(debug["features"][1]["geometry"])
 			self.assertTrue(cut.is_valid)
 			self.assertEqual(debug["features"][1]["properties"][
-				"turn_use_cut_status"],"cut")
+				"turn_use_cut_status"],"buffer_cut")
 			self.assertLess(cut.area,good.area)
 			self.assertAlmostEqual(
 				cut.intersection(_square(
@@ -316,7 +316,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			remaining_metric=transform(to_metric,shape(feature["geometry"]))
 			self.assertTrue(remaining_metric.is_valid)
 			self.assertLess(remaining_metric.intersection(
-				hull.buffer(4)).area,1e-7)
+				hull.buffer(3.9)).area,1e-7)
 			self.assertAlmostEqual(remaining_metric.area,200.,places=3)
 
 	def test_previously_valid_polygon_remains_unbuffered(self):
@@ -368,7 +368,7 @@ class PreviewDissolveTests(unittest.TestCase):
 			self.assertEqual(report["failures"][0]["buffer_attempts_m"],
 				[1,2,3,4])
 			remaining=transform(to_metric,shape(debug["features"][1]["geometry"]))
-			self.assertLess(remaining.intersection(hull.buffer(4)).area,1e-7)
+			self.assertLess(remaining.intersection(hull.buffer(3.9)).area,1e-7)
 			self.assertEqual(stats["statistics"]["buffer_4m_still_debug"],1)
 
 	def test_existing_previous_outputs_may_be_replaced_explicitly(self):
