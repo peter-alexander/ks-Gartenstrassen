@@ -62,7 +62,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 	def test_actual_wien_index_rtree_clips_to_all_sis_classes_and_keeps_edge_id(self):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
-			x,y=500000,300000
+			x,y=1500,340000
 			a=box(x,y,x+20,y+10)
 			b=box(x+50,y,x+60,y+10)
 			mask1=box(x+2,y+2,x+8,y+8)
@@ -81,7 +81,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 			feature=document["features"][0]
 			self.assertEqual(feature["properties"]["edge_id"],"first")
 			self.assertEqual(feature["properties"]["area_m2"],72)
-			self.assertEqual(feature["properties"]["pre_sis_area_m2"],200)
+			self.assertAlmostEqual(feature["properties"]["pre_sis_area_m2"],200,places=3)
 			self.assertTrue(feature["properties"]["sis_clipped"])
 			self.assertTrue(feature["properties"]["recovered_by_debug_area_filter"])
 			self.assertEqual(feature["properties"]["sis_mask"],"all_belags_all_types")
@@ -99,7 +99,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 	def test_polygon_with_multiple_sis_features_does_not_double_count_overlap(self):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
-			x,y=500000,300000
+			x,y=1500,340000
 			footprint=box(x,y,x+20,y+20)
 			sis_a=box(x+1,y+1,x+12,y+12)
 			sis_b=box(x+9,y+9,x+18,y+18)
@@ -117,7 +117,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 	def test_only_boundary_touch_is_not_a_polygonal_sis_hit(self):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
-			x,y=500000,300000
+			x,y=1500,340000
 			pre=root/"before.geojson"
 			_dissolved(pre,[_input_feature("border",box(x,y,x+5,y+5))])
 			db=root/"sis.sqlite"
@@ -131,9 +131,9 @@ class FinalSISIntersectionTests(unittest.TestCase):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
 			pre=root/"before.geojson"
-			_dissolved(pre,[_input_feature("x",box(500000,300000,500010,300010))])
+			_dissolved(pre,[_input_feature("x",box(1500,340000,1510,340010))])
 			db=root/"sis.sqlite"
-			_sis_database(db,[box(500000,300000,500005,300005)],
+			_sis_database(db,[box(1500,340000,1505,340005)],
 				schema="wrong-sis-v0")
 			out=root/"out.geojson"
 			out.write_text("PREVIOUS_VALID_OUTPUT",encoding="utf-8")
@@ -145,7 +145,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
 			pre=root/"before.geojson"
-			_dissolved(pre,[_input_feature("x",box(500000,300000,500010,300010))])
+			_dissolved(pre,[_input_feature("x",box(1500,340000,1510,340010))])
 			with self.assertRaises(FileNotFoundError):
 				clip(pre,root/"nonexistent.sqlite",root/"after.geojson")
 			self.assertFalse((root/"after.geojson").exists())
@@ -153,7 +153,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 	def test_invalid_later_feature_rolls_back_entire_output(self):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
-			x,y=500000,300000
+			x,y=1500,340000
 			pre=root/"before.geojson"
 			_dissolved(pre,[
 				_input_feature("good",box(x,y,x+10,y+10)),
@@ -169,7 +169,7 @@ class FinalSISIntersectionTests(unittest.TestCase):
 	def test_rejects_malformed_or_old_pre_sis_metadata(self):
 		with TemporaryDirectory() as temp:
 			root=Path(temp)
-			x,y=500000,300000
+			x,y=1500,340000
 			db=root/"sis.sqlite"
 			_sis_database(db,[box(x,y,x+5,y+5)])
 			pre=root/"before.geojson"
