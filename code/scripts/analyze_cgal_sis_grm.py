@@ -17,6 +17,7 @@ from urllib.parse import quote
 from pyproj import Transformer
 from shapely import union_all
 from shapely.geometry import box,shape
+from shapely.wkb import loads
 from shapely.ops import transform
 from shapely.strtree import STRtree
 
@@ -56,13 +57,25 @@ def _intersection_area(a,b):
 	return a.intersection(b).area
 
 
-def _get_canopy(tile,*,root,manifest_path,manifest,aoi,manifest_sha,raw_root,cache):
+def _get_canopy(tile,*,root,manifest_path,manifest,aoi,manifest_sha,raw_root,cache,validated):
 	key=tile["id"]
 	if key in cache:
 		cache.move_to_end(key)
 		return cache[key]
-	canopy,_=read_mask(root,tile,manifest=manifest_path,aoi=aoi,
-		manifest_sha256=manifest_sha,raw_root=raw_root)
+	if key not in validated:
+		# Verify source PNG checksums and mask provenance only once
+		# per tile; edge_ids are spatially unordered in the GeoJSON.
+		canopy,_=read_mask(root,tile,manifest=manifest_path,aoi=aoi,
+			manifest_sha256=manifest_sha,raw_root=raw_root)
+		validated.add(key)
+	else:
+		path=mask_path(root,tile)
+		uri="file:"+quote(str(path.resolve()),safe="/")+"?mode=ro"
+		with sqlite3.connect(uri,uri=True) as db:
+			record=db.execute("SELECT geom FROM canopy").fetchone()
+		if record is None:
+			raise ValueError(f"{key}: gespeicherte GRM-Maske fehlt")
+		canopy=loads(record[0])
 	cache[key]=canopy
 	if len(cache)>8:
 		cache.popitem(last=False)
@@ -99,6 +112,7 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 	with sqlite3.connect(uri,uri=True) as db:
 		sis_meta=_validate_index(db)
 		canopy_cache=OrderedDict()
+		validated_tiles=set()
 		try:
 			with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",
 					dir=out.parent,prefix=out.name+".",suffix=".tmp",
@@ -124,7 +138,7 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 						crown=_get_canopy(tile,root=grm_root,
 							manifest_path=manifest_path,manifest=manifest,aoi=aoi,
 							manifest_sha=manifest_sha,raw_root=raw_root,
-							cache=canopy_cache)
+							cache=canopy_cache,validated=validated_tiles)
 						if not crown.is_empty and crown.intersects(geom):
 							piece=crown.intersection(geom)
 							if piece.area>0:
