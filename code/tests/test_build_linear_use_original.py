@@ -91,30 +91,32 @@ class LinearUseOriginalImportTests(unittest.TestCase):
 			add(3,"lu-b1","edge-b",
 				LineString([(x,y+30),(x+120,y+30)]),
 				name="Fahrbahn Nebenstraße")
-			add(4,"lu-ignore-type","edge-ignore-type",
+			add(4,"lu-radweg","edge-radweg",
 				LineString([(x,y+40),(x+100,y+40)]),base_type=2)
+			add(6,"lu-ignore-type","edge-ignore-type",
+				LineString([(x,y+40),(x+100,y+40)]),base_type=4)
 			add(5,"lu-outside","edge-outside",
 				LineString([(x+10000,y),(x+10100,y)]))
 
 	def test_original_lines_not_averaged(self):
 		report=build(self.source,self.aoi,self.cache,self.geojson)
-		self.assertEqual(report["original_lines"],3)
-		self.assertEqual(report["edge_ids"],2)
+		self.assertEqual(report["original_lines"],4)
+		self.assertEqual(report["edge_ids"],3)
 		self.assertEqual(report["spatial_prefilter"],"gpkg_rtree")
 		with sqlite3.connect(self.cache) as db:
 			metadata={k:json.loads(v) for k,v in
 				db.execute("SELECT key,value FROM metadata")}
-			self.assertEqual(metadata["schema"],"linear-use-original-segments-v1")
-			self.assertEqual(metadata["base_type"],1)
+			self.assertEqual(metadata["schema"],"linear-use-original-segments-v2")
+			self.assertEqual(metadata["base_types"],[1,2,6,7,8,9,33,34,35,36,51])
 			rows=db.execute("SELECT object_id,edge_id,wkb FROM linear_use_segments ORDER BY object_id").fetchall()
-		self.assertEqual([row[0] for row in rows],["lu-a1","lu-a2","lu-b1"])
-		self.assertEqual([row[1] for row in rows],["edge-a","edge-a","edge-b"])
+		self.assertEqual([row[0] for row in rows],["lu-a1","lu-a2","lu-b1","lu-radweg"])
+		self.assertEqual([row[1] for row in rows],["edge-a","edge-a","edge-b","edge-radweg"])
 		y=[loads(row[2]).coords[0][1] for row in rows]
 		self.assertAlmostEqual(y[0],self.metric_origin[1],delta=.05)
 		self.assertAlmostEqual(y[1],self.metric_origin[1]+10,delta=.05)
 		self.assertAlmostEqual(y[2],self.metric_origin[1]+30,delta=.05)
 		doc=json.loads(self.geojson.read_text(encoding="utf-8"))
-		self.assertEqual(len(doc["features"]),3)
+		self.assertEqual(len(doc["features"]),4)
 		self.assertEqual([f["properties"]["object_id"] for f in doc["features"]],
 			["lu-a1","lu-a2","lu-b1"])
 
