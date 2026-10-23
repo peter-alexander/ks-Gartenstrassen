@@ -25,7 +25,8 @@ from scripts.analyze_cgal_sis_grm import (
 from scripts.wienwide_grid import checksum
 
 
-SCHEMA="gartenstrassen-wien-finalization-v1"
+SCHEMA="gartenstrassen-wien-finalization-v2"
+REQUIRED_PERCENT_FIELDS=("boden_begruent_pct","grm2023_baumkronen_pct","vegetation_boden_oder_krone_pct")
 LAYER="gartenstrassen_wien"
 MAX_NUMERIC_ID=(1<<53)-1
 
@@ -80,8 +81,9 @@ def _verify_pmtiles(path,*,expected_features):
 	if layer is None:
 		raise ValueError(f"PMTiles enthält keinen Layer {LAYER!r}")
 	fields=layer.get("fields",{})
-	if "edge_id" not in fields or "feature_id" not in fields:
-		raise ValueError("PMTiles-Layer verliert edge_id oder feature_id")
+	missing={"edge_id","feature_id",*REQUIRED_PERCENT_FIELDS}.difference(fields)
+	if missing:
+		raise ValueError(f"PMTiles-Layer verliert notwendige Properties: {sorted(missing)}")
 	if info["maxzoom"]<info["minzoom"]:
 		raise ValueError("PMTiles-Zoomgrenzen ungültig")
 	return {"bytes":Path(path).stat().st_size,"minzoom":info["minzoom"],
@@ -146,6 +148,13 @@ def _audit_and_write_ndjson(source,ndjson):
 				-props["baumkronen_ueber_begruentem_boden_m2"])
 			if abs(covered-props["vegetation_boden_oder_krone_m2"])>.1:
 				raise ValueError(f"{edge_id}: Vegetations-Überlappungsbilanz ungültig")
+			for pct_field,area_field in (("boden_begruent_pct","boden_begruent_m2"),
+					("grm2023_baumkronen_pct","grm2023_baumkronen_m2"),
+					("vegetation_boden_oder_krone_pct","vegetation_boden_oder_krone_m2")):
+				pct=props.get(pct_field)
+				expected=100*props[area_field]/area if area>0 else 0.
+				if not isinstance(pct,(int,float)) or not 0<=pct<=100.0001 or abs(pct-expected)>.01:
+					raise ValueError(f"{edge_id}: Prozentkennzahl fehlt oder ist falsch: {pct_field}")
 			report["features"]+=1
 			report["metric_area_m2"]+=area
 			geometries.append(metric)
@@ -184,7 +193,7 @@ def finalize(source,pmtiles,metadata,report,*,replace_existing=False):
 	if not source.is_file():
 		raise FileNotFoundError(source)
 	source_meta=_read_finished_metadata(source)
-	if source_meta.get("schema")!="cgal-sis-grm-ground-v1":
+	if source_meta.get("schema")!="cgal-sis-grm-ground-v2":
 		raise ValueError("Finalisierung benötigt CGAL/SIS/GRM-Statistik-GeoJSON")
 	source_sha=checksum(source)
 	if (not replace_existing and pmtiles.exists() and metadata.exists() and report.exists()
