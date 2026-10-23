@@ -24,9 +24,11 @@ class CgalSisGrmTests(unittest.TestCase):
 				"properties":{"edge_id":"first","sis_clipped":True},
 				"geometry":mapping(wgs)}
 			source=root/"sis.geojson"
-			source.write_text(json.dumps({
-				"type":"FeatureCollection","features":[feature]
-			}),encoding="utf-8")
+			source.write_text(
+				'{"type":"FeatureCollection","features":[\n'
+				+json.dumps(feature,separators=(",",":"))
+				+'\n],"metadata":{"sis_provider":"SISBELAGOGD"}}\n',
+				encoding="utf-8")
 			index=root/"sis.sqlite"
 			index.touch()
 			manifest=root/"raster.json"
