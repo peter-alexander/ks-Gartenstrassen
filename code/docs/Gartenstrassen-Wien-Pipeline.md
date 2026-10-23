@@ -70,7 +70,7 @@ werden.
 | `output/gartenstrassen_wien.quality.json` | vollständiger Abschluss- und Flächenbericht |
 | `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson` | Debug vor SIS, nicht als Endprodukt verwenden |
 
-Die PMTiles-Ausgabe nutzt Tippecanoe mit Zoom 12–16, `--full-detail=12`,\n`--low-detail=12`, `--simplify-only-low-zooms`, `--no-tiny-polygon-reduction`,\n`--no-feature-limit` und `--no-tile-size-limit`. Es werden keine Features\naufgrund von Kacheldichte absichtlich verworfen. Unterhalb Zoom 12 werden\nkeine Vektorkacheln erzeugt.\n\nDie PMTiles-Ausgabe hat eine kollisionsgeprüfte numerische `feature_id` für
+Die PMTiles-Ausgabe nutzt Tippecanoe mit Zoom 12–14, `--full-detail=12`,\n`--low-detail=12`, `--simplify-only-low-zooms`, `--no-tiny-polygon-reduction`,\n`--no-feature-limit` und `--no-tile-size-limit`. Es werden keine Features\naufgrund von Kacheldichte absichtlich verworfen. Unterhalb Zoom 12 werden\nkeine Vektorkacheln erzeugt.\n\nDie PMTiles-Ausgabe hat eine kollisionsgeprüfte numerische `feature_id` für
 Kacheln; die fachliche stabile Kennung bleibt stets die unveränderte
 `edge_id`-Eigenschaft.
 
