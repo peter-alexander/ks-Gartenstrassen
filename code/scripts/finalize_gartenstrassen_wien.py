@@ -193,7 +193,10 @@ def finalize(source,pmtiles,metadata,report,*,replace_existing=False):
 	if not source.is_file():
 		raise FileNotFoundError(source)
 	source_meta=_read_finished_metadata(source)
-	if source_meta.get("schema")!="cgal-sis-grm-ground-v2":
+	# The statistics phase currently publishes v1.  Finalization must consume
+	# that exact terminal contract; accepting a newer, unwritten schema here
+	# made every otherwise complete production run fail at the last stage.
+	if source_meta.get("schema")!="cgal-sis-grm-ground-v1":
 		raise ValueError("Finalisierung benötigt CGAL/SIS/GRM-Statistik-GeoJSON")
 	source_sha=checksum(source)
 	if (not replace_existing and pmtiles.exists() and metadata.exists() and report.exists()

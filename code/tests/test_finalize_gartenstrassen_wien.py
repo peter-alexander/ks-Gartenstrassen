@@ -31,7 +31,9 @@ class FinalizationAuditTests(unittest.TestCase):
 			source.write_text(
 				'{"type":"FeatureCollection","features":[\n'
 				+json.dumps(feature,separators=(",",":"))
-				+'\n],"metadata":{"schema":"cgal-sis-grm-ground-v1","sis_provider":"SISBELAGOGD"}}\n',
+				# Statistics v1 carries the SIS provenance in its input contract,
+				# not as a redundant terminal sis_provider field.
+				+'\n],"metadata":{"schema":"cgal-sis-grm-ground-v1"}}\n',
 				encoding="utf-8")
 			ndjson=root/"tiles.ndjson"
 			report=_audit_and_write_ndjson(source,ndjson)

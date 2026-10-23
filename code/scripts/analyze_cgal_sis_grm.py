@@ -52,8 +52,14 @@ def _sis_features(path):
 				continue
 			if raw.startswith('],"metadata":'):
 				meta=json.loads('{"type":"FeatureCollection","features":[]'+raw[1:]).get("metadata",{})
+				# A completed statistics product is itself valid input for the
+				# final audit.  Its terminal v1 contract records provenance hashes
+				# but not sis_provider, so recognize it explicitly.
 				if (meta.get("sis_provider")!="SISBELAGOGD"
-						and meta.get("schema")!="cgal-sis-grm-ground-v2"):
+						and meta.get("schema") not in {
+							"cgal-sis-grm-ground-v1",
+							"cgal-sis-grm-ground-v2",
+						}):
 					raise ValueError("Eingabe enthält keinen fertigen SIS-Verschnitt")
 				found_metadata=True
 				break
