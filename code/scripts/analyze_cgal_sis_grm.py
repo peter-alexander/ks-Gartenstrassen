@@ -15,7 +15,8 @@ import tempfile
 from urllib.parse import quote
 
 from pyproj import Transformer
-from shapely import union_all
+from shapely import union_all,make_valid
+from shapely.validation import explain_validity
 from shapely.geometry import box,shape
 from shapely.wkb import loads
 from shapely.ops import transform
@@ -50,6 +51,40 @@ def _sis_features(path):
 			yield feature
 		if not found_metadata:
 			raise ValueError("SIS-GeoJSON abgeschnitten, Metadaten fehlen")
+
+def _metric_geometry_for_statistics(feature, to_metric, edge_id):
+	"""Safeguard against tiny invalid rings created by inverse CRS projection.
+
+	Only a negligible topological adjustment is allowed for the statistics
+	geometry. The published source feature remains byte-for-byte equivalent
+	at the geometry-object level.
+	"""
+	source=shape(feature["geometry"])
+	if source.is_empty or not source.is_valid:
+		raise ValueError(f"{edge_id}: SIS-Quellgeometrie ungültig: {explain_validity(source)}")
+	metric=transform(to_metric,source)
+	if metric.is_empty:
+		raise ValueError(f"{edge_id}: metrische Eingabegeometrie leer")
+	if metric.is_valid:
+		return metric
+	reason=explain_validity(metric)
+	repaired=make_valid(metric)
+	if repaired.is_empty or not repaired.is_valid or repaired.geom_type not in ("Polygon","MultiPolygon"):
+		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
+			"keine rein polygonale Korrektur möglich")
+	# A self-intersecting shape may lose topology. Do not silently count a
+	# materially different surface; repair only extremely small CRS artefacts.
+	delta=abs(repaired.area-metric.area)
+	limit=max(.05,1e-6*max(metric.area,repaired.area))
+	if delta>limit:
+		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
+			f"make_valid verändert Fläche um {delta:.6f} m² (Limit {limit:.6f} m²)")
+	shift=metric.boundary.hausdorff_distance(repaired.boundary)
+	if shift>.02:
+		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
+			f"Randverschiebung {shift:.6f} m überschreitet 0.02 m")
+	return repaired
+
 
 def _intersection_area(a,b):
 	if b is None or b.is_empty:
@@ -125,9 +160,7 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 					edge_id=props.get("edge_id")
 					if not edge_id or not props.get("sis_clipped"):
 						raise ValueError("Eingabe benötigt SIS-verschnittene CGAL-edge_ids")
-					geom=transform(to_metric,shape(feature["geometry"]))
-					if geom.is_empty or not geom.is_valid:
-						raise ValueError(f"{edge_id}: ungültige Eingabegeometrie")
+					geom=_metric_geometry_for_statistics(feature,to_metric,edge_id)
 					area=geom.area
 					ground=vegetation_mask(db,geom,VEGETATION_CODES)
 					ground_area=_intersection_area(geom,ground)
