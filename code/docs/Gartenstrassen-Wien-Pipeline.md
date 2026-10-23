@@ -65,7 +65,7 @@ werden.
 | --- | --- |
 | `output/cgal_native_faces_sis_wien.geojson` | vollständige CGAL/TURN_USE/SIS-Geometrie |
 | `output/cgal_native_faces_sis_grm_wien.geojson` | vollständiges Analyse-GeoJSON mit Boden-, Kronen- und Kombinationskennzahlen |
-| `output/gartenstrassen.pmtiles` | Darstellungsarchiv, Layer `gartenstrassen_wien` |
+| `output/gartenstrassen.pmtiles` | Darstellungsarchiv, Layer `gartenstrassen` |
 | `output/gartenstrassen_wien.metadata.json` | Quellen-/Methoden-Prüfsummen und Exportvertrag |
 | `output/gartenstrassen_wien.quality.json` | vollständiger Abschluss- und Flächenbericht |
 | `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson` | Debug vor SIS, nicht als Endprodukt verwenden |
