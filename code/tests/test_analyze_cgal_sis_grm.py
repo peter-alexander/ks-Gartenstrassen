@@ -52,7 +52,7 @@ class CgalSisGrmTests(unittest.TestCase):
 			output=json.loads(out.read_text(encoding="utf-8"))
 			self.assertEqual(stats["features"],1)
 			result=output["features"][0]
-			self.assertEqual(result["geometry"],feature["geometry"])
+			self.assertEqual(result["geometry"],json.loads(json.dumps(feature["geometry"])))
 			self.assertEqual(result["properties"]["edge_id"],"first")
 			self.assertAlmostEqual(result["properties"]["boden_begruent_m2"],60,places=2)
 			self.assertAlmostEqual(result["properties"]["boden_sonstig_m2"],40,places=2)
