@@ -25,7 +25,7 @@ from scripts.analyze_cgal_sis_grm import (
 from scripts.wienwide_grid import checksum
 
 
-SCHEMA="gartenstrassen-wien-finalization-v2"
+SCHEMA="gartenstrassen-wien-finalization-v3"
 REQUIRED_PERCENT_FIELDS=("boden_begruent_pct","grm2023_baumkronen_pct","vegetation_boden_oder_krone_pct")
 LAYER="gartenstrassen_wien"
 MAX_NUMERIC_ID=(1<<53)-1
@@ -84,8 +84,8 @@ def _verify_pmtiles(path,*,expected_features):
 	missing={"edge_id","feature_id",*REQUIRED_PERCENT_FIELDS}.difference(fields)
 	if missing:
 		raise ValueError(f"PMTiles-Layer verliert notwendige Properties: {sorted(missing)}")
-	if info["maxzoom"]<info["minzoom"]:
-		raise ValueError("PMTiles-Zoomgrenzen ungültig")
+	if info["minzoom"]!=12 or info["maxzoom"]!=16:
+		raise ValueError(f"PMTiles-Zoomgrenzen nicht 12–16: {info['minzoom']}–{info['maxzoom']}")
 	return {"bytes":Path(path).stat().st_size,"minzoom":info["minzoom"],
 		"maxzoom":info["maxzoom"],"layer":LAYER,
 		"expected_features":expected_features,"fields":sorted(fields)}
@@ -209,8 +209,11 @@ def finalize(source,pmtiles,metadata,report,*,replace_existing=False):
 		qa=_audit_and_write_ndjson(source,ndjson)
 		stage_pmtiles=folder/pmtiles.name
 		command=["tippecanoe","-o",str(stage_pmtiles),"--force","-l",LAYER,
-			"--minimum-zoom=0","--maximum-zoom=14","--extend-zooms-if-still-dropping",
-			"--drop-densest-as-needed",str(ndjson)]
+			"--minimum-zoom=12","--maximum-zoom=16",
+			"--full-detail=12","--low-detail=12",
+			"--simplify-only-low-zooms","--no-tiny-polygon-reduction",
+			"--no-feature-limit","--no-tile-size-limit",
+			"--name","Wien Gartenstraßen – Begrünungsanalyse",str(ndjson)]
 		subprocess.run(command,check=True)
 		qa["pmtiles"]=_verify_pmtiles(stage_pmtiles,expected_features=qa["features"])
 		final_meta={"schema":SCHEMA,"source":str(source),"source_sha256":source_sha,
