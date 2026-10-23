@@ -8,12 +8,33 @@ from unittest.mock import patch
 from pyproj import Transformer
 from shapely.geometry import box,mapping
 
-from scripts.analyze_cgal_sis_grm import analyze
+from scripts.analyze_cgal_sis_grm import analyze,_metric_geometry_for_statistics
 
 TO_WGS=Transformer.from_crs(31256,4326,always_xy=True).transform
 
 
 class CgalSisGrmTests(unittest.TestCase):
+	def test_metric_projection_repair_is_limited_and_preserves_source(self):
+		from shapely.geometry import Polygon
+		from shapely.ops import transform
+		source=box(1500,340000,1510,340010)
+		feature={"geometry":mapping(source)}
+		calls=[0]
+		def slight_invalid(_x,_y,_z=None):
+			return (_x,_y)
+		# A valid source with a tiny self-crossing after metric transform:
+		# the helper must not mutate its GeoJSON representation.
+		original=json.dumps(feature["geometry"],sort_keys=True)
+		result=_metric_geometry_for_statistics(feature,slight_invalid,"good")
+		self.assertTrue(result.is_valid)
+		self.assertEqual(json.dumps(feature["geometry"],sort_keys=True),original)
+
+	def test_reject_invalid_source_before_reprojection(self):
+		from shapely.geometry import Polygon
+		bowtie=Polygon([(0,0),(2,2),(0,2),(2,0),(0,0)])
+		with self.assertRaisesRegex(ValueError,"SIS-Quellgeometrie ungültig"):
+			_metric_geometry_for_statistics({"geometry":mapping(bowtie)},lambda x,y:(x,y),"bad")
+
 	def test_independent_ground_canopy_and_shared_area(self):
 		with TemporaryDirectory() as folder:
 			root=Path(folder)
