@@ -24,6 +24,42 @@ ohne Stichprobenpunkte oder Nearest-Heuristik.
 Aktueller Export ohne SIS:
 `output/cgal_original_segment_sites_pre_sis_wien.geojson`.
 
+## Robuste Vertex-Konstruktion im Face-Exporter
+
+`cgal_voronoi_faces` behält den gefilterten Double-Kernel für den
+Segment-Delaunay-Graphen und dessen Topologie bei. CGAL 5.6 kann jedoch bei
+zwei nahezu kollinearen Segmenten mit gemeinsamem Endpunkt und einer dritten
+Punkt-Site in der gefilterten `Field_with_sqrt`-Konstruktion einen
+nicht endlichen Voronoi-Vertex liefern. Die Intervallkonstruktion wirft dabei
+keine Unsicherheits-Exception; CGALs normaler exakter Fallback wird deshalb
+nicht erreicht.
+
+Nur wenn diese Konstruktion tatsächlich `NaN` oder `Inf` ergibt, wird derselbe
+Vertex mit `Exact_predicates_exact_constructions_kernel_with_sqrt` algebraisch
+exakt neu konstruiert und anschließend einmal nach `double` konvertiert. Das
+ändert weder Delaunay-Prädikate noch Topologie oder Generatoridentität. Eine
+rein rationale Ring-Konstruktion ist hier nicht ausreichend: Sie erzeugt zwar
+endliche, für die bekannten Fälle aber nicht äquidistante Punkte.
+
+Vor dem Schreiben werden sämtliche Koordinaten in `F`, `P`, `H`, `S`, `R`
+und `L` geprüft. Ein verbleibender ungültiger Wert bricht den Export mit Face,
+Generator, Halfedge und Berechnungsstelle ab. Die JSON-Statistik enthält
+`exact_vertex_fallbacks`.
+
+Regressionstest:
+
+```bash
+cmake -S code/cgal -B build/cgal -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build/cgal --parallel 2
+ctest --test-dir build/cgal --output-on-failure
+```
+
+Die Fixtures unter `tests/data/nonfinite_group_{a,b}.txt` enthalten die beiden
+minimalen Wiener Konstellationen einschließlich eines künstlichen Rahmens.
+Der Test prüft alle Stream-Koordinaten, die betroffenen Generatoren, die
+Face-Topologie sowie die Äquidistanz des gemeinsam konstruierten
+Voronoi-Vertex zu beiden Segmenten und zur Punkt-Site.
+
 
 ## Direkter nativer Face-Export
 
@@ -37,7 +73,8 @@ Umlaufrichtung als `H`-Records ausgegeben; darauf folgen die vom CGAL
 Renderer linearisierten Kanten als `S`-Records und Trennzeichen
 `E`, `Z`. `F` enthält das unterstützende Eingabesegment.
 
-Punkt-Faces werden absichtlich **gar nicht exportiert**.
+Punkt-Faces werden exportiert und in Python ausschließlich dann übernommen,
+wenn sie einem eindeutigen inneren Originalstützpunkt zugeordnet sind.
 Die künstlichen Rahmen-Faces werden durch die bekannte Input-Segment-
 Liste erkannt und nicht als LINEAR_USE ausgegeben. Die CCB-Geometrie
 wird zu einem Polygon pro nativer Segment-Face aufgebaut, erst danach

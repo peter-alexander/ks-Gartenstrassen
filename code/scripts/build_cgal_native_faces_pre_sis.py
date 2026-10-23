@@ -36,7 +36,9 @@ def _cache_paths(out):
 
 def _identity(cache,aoi,binary):
 	return {
-		"schema":"cgal-native-face-stream-v2-with-point-sites",
+		"schema":"cgal-native-face-stream-v3-exact-vertex-fallback",
+		"voronoi_vertex_construction":
+			"filtered-double-with-algebraic-exact-sqrt-on-nonfinite",
 		"source_sha256":checksum(cache),
 		"aoi_sha256":checksum(aoi),
 		"binary_sha256":checksum(binary),

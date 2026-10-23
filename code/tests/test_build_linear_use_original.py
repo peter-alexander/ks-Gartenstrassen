@@ -118,7 +118,7 @@ class LinearUseOriginalImportTests(unittest.TestCase):
 		doc=json.loads(self.geojson.read_text(encoding="utf-8"))
 		self.assertEqual(len(doc["features"]),4)
 		self.assertEqual([f["properties"]["object_id"] for f in doc["features"]],
-			["lu-a1","lu-a2","lu-b1"])
+            ["lu-a1","lu-a2","lu-b1","lu-radweg"])
 
 	def test_source_is_read_only_and_outputs_not_overwritten(self):
 		before=self.source.read_bytes()
