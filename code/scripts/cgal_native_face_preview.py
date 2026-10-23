@@ -21,12 +21,13 @@ from scripts.cgal_segment_input import SCALE
 from scripts.cgal_native_faces import _xy, _distance, _join_halfedge, MAX_JOIN_ERROR_M
 
 
-def _values(fields,line_number):
+def _values(fields,line_number,*,face_number=None,kind=None):
 	if len(fields)!=5:
 		raise ValueError(f"Nativer Face-Stream Zeile {line_number}: 4 Koordinaten erforderlich")
 	result=[float(value) for value in fields[1:]]
 	if not all(math.isfinite(value) for value in result):
-		raise ValueError(f"Nativer Face-Stream Zeile {line_number}: Koordinate nicht endlich")
+		raise ValueError(f"Nativer Face-Stream Zeile {line_number}, Face {face_number}, "
+			f"Typ {kind}: Koordinate nicht endlich; Rohwerte: {fields!r}")
 	return result
 
 
@@ -180,7 +181,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 						face_no+=1
 						generator_type="segment" if kind=="F" else "inner_point"
 						if kind=="F":
-							owner=owners.get(_supporting_key(_values(fields,lineno),lineno))
+							owner=owners.get(_supporting_key(_values(fields,lineno,face_number=face_no,kind=kind),lineno))
 						else:
 							if len(fields)!=3:
 								raise ValueError(f"CGAL-Vorschau Zeile {lineno}: Punkt-Site ohne 2 Koordinaten")
@@ -194,7 +195,7 @@ def write_preview(stream_path,owners,origin,aoi,out,report,*,progress=None,ident
 					elif kind=="H":
 						if state!="face":
 							raise ValueError(f"CGAL-Vorschau Zeile {lineno}: unerwartete Halfedge")
-						values=_values(fields,lineno)
+						values=_values(fields,lineno,face_number=face_no,kind=kind)
 						start=_xy(values[0],values[1],origin)
 						end=_xy(values[2],values[3],origin)
 						if owner is not None:
