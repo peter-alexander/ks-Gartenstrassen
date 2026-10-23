@@ -32,6 +32,11 @@ zu dieser Toolchain.
    GRM2023-Baumkronen sind davon unabhängig. Ihre Schnittfläche wird einmal
    abgezogen, sodass `Boden ∪ Krone` nie doppelt zählt.
 
+Die Prozentwerte `boden_begruent_pct`, `grm2023_baumkronen_pct` und
+`vegetation_boden_oder_krone_pct` beziehen sich jeweils auf die finale
+SIS-verschnittene Abschnittsfläche (0–100). Fehlende Felder blockieren
+den PMTiles-Export.
+
 ## Ausführung und Fortsetzung
 
 ```bash
@@ -60,7 +65,7 @@ werden.
 | --- | --- |
 | `output/cgal_native_faces_sis_wien.geojson` | vollständige CGAL/TURN_USE/SIS-Geometrie |
 | `output/cgal_native_faces_sis_grm_wien.geojson` | vollständiges Analyse-GeoJSON mit Boden-, Kronen- und Kombinationskennzahlen |
-| `output/gartenstrassen_wien.pmtiles` | Darstellungsarchiv, Layer `gartenstrassen_wien` |
+| `output/gartenstrassen.pmtiles` | Darstellungsarchiv, Layer `gartenstrassen_wien` |
 | `output/gartenstrassen_wien.metadata.json` | Quellen-/Methoden-Prüfsummen und Exportvertrag |
 | `output/gartenstrassen_wien.quality.json` | vollständiger Abschluss- und Flächenbericht |
 | `output/cgal_native_faces_inner_points_pre_sis_wien__dissolve_debug.geojson` | Debug vor SIS, nicht als Endprodukt verwenden |

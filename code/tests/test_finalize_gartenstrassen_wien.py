@@ -23,6 +23,9 @@ class FinalizationAuditTests(unittest.TestCase):
 				"boden_begruent_m2":60.,"grm2023_baumkronen_m2":40.,
 				"baumkronen_ueber_begruentem_boden_m2":20.,
 				"vegetation_boden_oder_krone_m2":80.,
+				"boden_begruent_pct":60.,
+				"grm2023_baumkronen_pct":40.,
+				"vegetation_boden_oder_krone_pct":80.,
 			},"geometry":mapping(transform(TO_WGS,metric))}
 			source=root/"input.geojson"
 			source.write_text(
@@ -36,6 +39,8 @@ class FinalizationAuditTests(unittest.TestCase):
 			self.assertEqual(report["features"],1)
 			self.assertEqual(report["positive_area_overlaps_count"],0)
 			self.assertEqual(out["properties"]["edge_id"],"a-valid-original-edge")
+			self.assertEqual(out["properties"]["boden_begruent_pct"],60.)
+			self.assertEqual(out["properties"]["grm2023_baumkronen_pct"],40.)
 			self.assertIsInstance(out["id"],int)
 			self.assertEqual(out["id"],out["properties"]["feature_id"])
 
