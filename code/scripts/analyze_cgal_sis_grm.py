@@ -53,7 +53,7 @@ def _sis_features(path):
 			if raw.startswith('],"metadata":'):
 				meta=json.loads('{"type":"FeatureCollection","features":[]'+raw[1:]).get("metadata",{})
 				if (meta.get("sis_provider")!="SISBELAGOGD"
-						and meta.get("schema")!="cgal-sis-grm-ground-v1"):
+						and meta.get("schema")!="cgal-sis-grm-ground-v2"):
 					raise ValueError("Eingabe enthält keinen fertigen SIS-Verschnitt")
 				found_metadata=True
 				break
@@ -252,8 +252,10 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 					props=dict(props)
 					props.update({
 						"boden_begruent_m2":ground_area,
+						"boden_begruent_pct":(100*ground_area/area if area>0 else 0.),
 						"boden_sonstig_m2":max(0.,area-ground_area),
 						"grm2023_baumkronen_m2":crown_area,
+						"grm2023_baumkronen_pct":(100*crown_area/area if area>0 else 0.),
 						"baumkronen_ueber_begruentem_boden_m2":overlap,
 						"vegetation_boden_oder_krone_m2":covered,
 						"vegetation_boden_oder_krone_pct":(
