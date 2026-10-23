@@ -6,7 +6,7 @@ from urllib.parse import quote
 from pyproj import CRS
 from shapely.wkb import loads
 
-BASE_TYPE=1
+BASE_TYPES=(1,2,6,7,8,9,33,34,35,36,51)
 
 def _readonly(path):
 	path=Path(path).resolve()
@@ -95,19 +95,19 @@ def _source_rows(db,geom_column,source_aoi_bounds):
 				l."{geom_column}"
 			FROM LINEAR_USE l
 			JOIN "{rtree}" r ON r.id=l."{pk}"
-			WHERE l.base_type=?
+			WHERE l.base_type IN ({','.join('?' for _ in BASE_TYPES)})
 				AND r.maxx>=? AND r.minx<=?
 				AND r.maxy>=? AND r.miny<=?
 			ORDER BY l.edge_id,l.object_id
 		"""
-		return db.execute(query,(BASE_TYPE,minx,maxx,miny,maxy)),True
+		return db.execute(query,(*BASE_TYPES,minx,maxx,miny,maxy)),True
 	query=f"""
 		SELECT object_id,edge_id,edge_percentage_from,edge_percentage_to,
 			base_type,length_m,feature_name,"{geom_column}"
 		FROM LINEAR_USE
-		WHERE base_type=?
+		WHERE base_type IN ({','.join('?' for _ in BASE_TYPES)})
 		ORDER BY edge_id,object_id
 	"""
-	return db.execute(query,(BASE_TYPE,)),False
+	return db.execute(query,BASE_TYPES),False
 
 
