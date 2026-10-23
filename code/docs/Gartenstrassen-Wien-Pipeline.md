@@ -7,7 +7,7 @@ zu dieser Toolchain.
 
 ## Fachlicher Vertrag
 
-1. **Quelle:** originale GIP-`LINEAR_USE`-Geometrien und unveränderte
+1. **Quelle:** originale GIP-`LINEAR_USE`-Geometrien der `base_type`-Werte `1,2,6,7,8,9,33,34,35,36,51` und unveränderte
    originale `edge_id`, metrisch in EPSG:31256.
 2. **Partition:** CGAL-Segment-Voronoi aus den genodeten Originalsegmenten.
    Zusätzlich kommen ausschließlich begrenzte native Punkt-Faces eindeutig
@@ -36,6 +36,8 @@ Die Prozentwerte `boden_begruent_pct`, `grm2023_baumkronen_pct` und
 `vegetation_boden_oder_krone_pct` beziehen sich jeweils auf die finale
 SIS-verschnittene Abschnittsfläche (0–100). Fehlende Felder blockieren
 den PMTiles-Export.
+
+Die erweiterte `base_type`-Auswahl ist zunächst ein Versuch. Mehrere Verkehrsarten können überlappende Quellsegmente mit unterschiedlichen `edge_id` erzeugen. Solche Mehrdeutigkeiten werden durch die CGAL-Aufbereitung bewusst als Fehler gemeldet. Vorhandene LINEAR_USE- und davon abhängige CGAL-Caches müssen für den Versuch archiviert und neu erstellt werden.
 
 ## Ausführung und Fortsetzung
 
