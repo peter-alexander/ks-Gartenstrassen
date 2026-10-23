@@ -84,8 +84,8 @@ def _verify_pmtiles(path,*,expected_features):
 	missing={"edge_id","feature_id",*REQUIRED_PERCENT_FIELDS}.difference(fields)
 	if missing:
 		raise ValueError(f"PMTiles-Layer verliert notwendige Properties: {sorted(missing)}")
-	if info["minzoom"]!=12 or info["maxzoom"]!=16:
-		raise ValueError(f"PMTiles-Zoomgrenzen nicht 12–16: {info['minzoom']}–{info['maxzoom']}")
+	if info["minzoom"]!=12 or info["maxzoom"]!=14:
+		raise ValueError(f"PMTiles-Zoomgrenzen nicht 12–14: {info['minzoom']}–{info['maxzoom']}")
 	return {"bytes":Path(path).stat().st_size,"minzoom":info["minzoom"],
 		"maxzoom":info["maxzoom"],"layer":LAYER,
 		"expected_features":expected_features,"fields":sorted(fields)}
@@ -212,7 +212,7 @@ def finalize(source,pmtiles,metadata,report,*,replace_existing=False):
 		qa=_audit_and_write_ndjson(source,ndjson)
 		stage_pmtiles=folder/pmtiles.name
 		command=["tippecanoe","-o",str(stage_pmtiles),"--force","-l",LAYER,
-			"--minimum-zoom=12","--maximum-zoom=16",
+			"--minimum-zoom=12","--maximum-zoom=14",
 			"--full-detail=12","--low-detail=12",
 			"--simplify-only-low-zooms","--no-tiny-polygon-reduction",
 			"--no-feature-limit","--no-tile-size-limit",
