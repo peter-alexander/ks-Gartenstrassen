@@ -25,9 +25,9 @@ from scripts.analyze_cgal_sis_grm import (
 from scripts.wienwide_grid import checksum
 
 
-SCHEMA="gartenstrassen-wien-finalization-v3"
+SCHEMA="gartenstrassen-wien-finalization-v4"
 REQUIRED_PERCENT_FIELDS=("boden_begruent_pct","grm2023_baumkronen_pct","vegetation_boden_oder_krone_pct")
-LAYER="gartenstrassen_wien"
+LAYER="gartenstrassen"
 MAX_NUMERIC_ID=(1<<53)-1
 
 
