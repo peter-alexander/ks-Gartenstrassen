@@ -33,8 +33,11 @@ def _source_records(cache):
 	with sqlite3.connect(f"file:{Path(cache).resolve()}?mode=ro",uri=True) as db:
 		schema=db.execute(
 			"SELECT value FROM metadata WHERE key='schema'").fetchone()
-		if schema is None or json.loads(schema[0])!="linear-use-original-segments-v1":
+		if schema is None or json.loads(schema[0])!="linear-use-original-segments-v2":
 			raise ValueError("Original-LINEAR_USE-Cache erforderlich")
+		types=db.execute("SELECT value FROM metadata WHERE key=\'base_types\'").fetchone()
+		if types is None or tuple(json.loads(types[0]))!=(1,2,6,7,8,9,33,34,35,36,51):
+			raise ValueError("LINEAR_USE-Cache mit falscher base_type-Auswahl")
 		rows=db.execute(
 			"SELECT object_id,edge_id,wkb FROM linear_use_segments "
 			"ORDER BY edge_id,object_id").fetchall()
