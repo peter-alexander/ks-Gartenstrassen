@@ -84,6 +84,41 @@ for ((i=start;i<=end;i++)); do
 		prepare)
 			bash "$REPO/code/scripts/run-sis-v2-wien.sh";;
 		cgal)
+			# An earlier base_type=1 cache cannot be reused for the expanded selection.
+			# Archive it and dependent CGAL previews before rebuilding.
+			if [[ -f "$CACHE" ]] && ! "$PYTHON" - "$CACHE" <<'PY'
+import json
+import sqlite3
+import sys
+
+with sqlite3.connect(f"file:{sys.argv[1]}?mode=ro",uri=True) as db:
+	metadata=dict(db.execute("SELECT key,value FROM metadata"))
+	valid=(json.loads(metadata.get("schema","null"))=="linear-use-original-segments-v2"
+		and json.loads(metadata.get("base_types","null"))==[1,2,6,7,8,9,33,34,35,36,51])
+sys.exit(0 if valid else 1)
+PY
+			then
+				archive="$REPO/cache/wien/old-base-types-$(date +%Y%m%d-%H%M%S)"
+				[[ ! -e "$archive" ]] || { echo "Archive already exists: $archive" >&2; exit 1; }
+				mkdir -p "$archive"
+				for file in \
+					"$CACHE" \
+					"$REPO/output/linear_use_original.geojson" \
+					"$REPO/cache/wien"/cgal_native_faces_inner_points_pre_sis_wien__native_faces.txt \
+					"$REPO/cache/wien"/cgal_native_faces_inner_points_pre_sis_wien__native_faces_meta.json \
+					"$REPO/cache/wien"/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson \
+					"$REPO/cache/wien"/cgal_native_faces_inner_points_pre_sis_wien__preview_report.json \
+					"$REPO/output"/cgal_native_faces_inner_points_pre_sis_wien__native_faces.txt \
+					"$REPO/output"/cgal_native_faces_inner_points_pre_sis_wien__native_faces_meta.json \
+					"$REPO/output"/cgal_native_faces_inner_points_pre_sis_wien__preview.geojson \
+					"$REPO/output"/cgal_native_faces_inner_points_pre_sis_wien__preview_report.json; do
+					if [[ -L "$file" ]]; then
+						echo "Refusing to archive symlink: $file" >&2; exit 1
+					fi
+					if [[ -f "$file" ]]; then mv -- "$file" "$archive/"; fi
+				done
+				echo "Archived old LINEAR_USE/CGAL inputs: $archive"
+			fi
 			if [[ ! -f "$CACHE" ]]; then
 				if [[ -e "$REPO/output/linear_use_original.geojson" ]]; then
 					echo "Original GeoJSON present but LINEAR_USE SQLite missing" >&2
