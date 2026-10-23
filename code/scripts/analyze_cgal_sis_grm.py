@@ -20,12 +20,35 @@ from shapely.geometry import box,shape
 from shapely.ops import transform
 from shapely.strtree import STRtree
 
-from scripts.clip_cgal_with_sis import _features,_validate_index
+from scripts.clip_cgal_with_sis import _validate_index
 from scripts.sis_belagsflaechen import VEGETATION_CODES
 from scripts.sis_wien_source import vegetation_mask
 from scripts.wienwide_grid import read_manifest,checksum
 from scripts.wienwide_grm2023 import read_mask,mask_path
 
+
+def _sis_features(path):
+	"""Iterate streamed finished SIS GeoJSON without loading all Vienna."""
+	with Path(path).open(encoding="utf-8") as stream:
+		if stream.readline().strip()!='{"type":"FeatureCollection","features":[':
+			raise ValueError("Erwartet zeilenweise geschriebenes fertiges SIS-GeoJSON")
+		found_metadata=False
+		for line in stream:
+			raw=line.strip()
+			if not raw:
+				continue
+			if raw.startswith('],"metadata":'):
+				meta=json.loads('{"type":"FeatureCollection","features":[]'+raw[1:]).get("metadata",{})
+				if meta.get("sis_provider")!="SISBELAGOGD":
+					raise ValueError("Eingabe enthält keinen fertigen SIS-Verschnitt")
+				found_metadata=True
+				break
+			feature=json.loads(raw[:-1] if raw.endswith(",") else raw)
+			if feature.get("type")!="Feature":
+				raise ValueError("Ungültiges Feature im SIS-GeoJSON")
+			yield feature
+		if not found_metadata:
+			raise ValueError("SIS-GeoJSON abgeschnitten, Metadaten fehlen")
 
 def _intersection_area(a,b):
 	if b is None or b.is_empty:
@@ -83,7 +106,7 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 				stage=Path(writer.name)
 				writer.write('{"type":"FeatureCollection","features":[\n')
 				first=True
-				for feature in _features(source):
+				for feature in _sis_features(source):
 					props=feature["properties"]
 					edge_id=props.get("edge_id")
 					if not edge_id or not props.get("sis_clipped"):
