@@ -29,6 +29,17 @@ from scripts.wienwide_grid import read_manifest,checksum
 from scripts.wienwide_grm2023 import read_mask,mask_path
 
 
+def _polygonal_parts(geometry):
+	"""Return all polygonal members without creating or reshaping surfaces."""
+	if geometry.geom_type in ("Polygon","MultiPolygon"):
+		return geometry
+	parts=[]
+	for member in getattr(geometry,"geoms",()):
+		if member.geom_type in ("Polygon","MultiPolygon"):
+			parts.extend(getattr(member,"geoms",(member,)))
+	return union_all(parts) if parts else None
+
+
 def _sis_features(path):
 	"""Iterate streamed finished SIS GeoJSON without loading all Vienna."""
 	with Path(path).open(encoding="utf-8") as stream:
@@ -41,7 +52,8 @@ def _sis_features(path):
 				continue
 			if raw.startswith('],"metadata":'):
 				meta=json.loads('{"type":"FeatureCollection","features":[]'+raw[1:]).get("metadata",{})
-				if meta.get("sis_provider")!="SISBELAGOGD":
+				if (meta.get("sis_provider")!="SISBELAGOGD"
+						and meta.get("schema")!="cgal-sis-grm-ground-v1"):
 					raise ValueError("Eingabe enthält keinen fertigen SIS-Verschnitt")
 				found_metadata=True
 				break
@@ -51,6 +63,35 @@ def _sis_features(path):
 			yield feature
 		if not found_metadata:
 			raise ValueError("SIS-GeoJSON abgeschnitten, Metadaten fehlen")
+
+
+def _read_finished_metadata(path):
+	"""Read the terminal metadata record of a streamed FeatureCollection."""
+	with Path(path).open(encoding="utf-8") as stream:
+		for line in stream:
+			if line.startswith('],"metadata":'):
+				return json.loads(
+					'{"type":"FeatureCollection","features":[]'+line[1:]
+				).get("metadata",{})
+	raise ValueError(f"Abgeschnittene GeoJSON-Ausgabe ohne Metadaten: {path}")
+
+
+def finished_output_is_current(source,out):
+	"""Whether a completed statistics cache belongs to this exact SIS input.
+
+	The old output format intentionally has no input digest.  Such a file is
+	usable for inspection, but must never be silently accepted as a resumable
+	statistics cache.
+	"""
+	source,out=Path(source),Path(out)
+	if not out.is_file():
+		return False
+	meta=_read_finished_metadata(out)
+	return (
+		meta.get("schema")=="cgal-sis-grm-ground-v1"
+		and meta.get("source_sha256")==checksum(source)
+		and isinstance(meta.get("statistics"),dict)
+	)
 
 def _metric_geometry_for_statistics(feature, to_metric, edge_id):
 	"""Safeguard against tiny invalid rings created by inverse CRS projection.
@@ -68,10 +109,19 @@ def _metric_geometry_for_statistics(feature, to_metric, edge_id):
 	if metric.is_valid:
 		return metric
 	reason=explain_validity(metric)
-	repaired=make_valid(metric)
-	if repaired.is_empty or not repaired.is_valid or repaired.geom_type not in ("Polygon","MultiPolygon"):
+	full_repair=make_valid(metric)
+	repaired=_polygonal_parts(full_repair)
+	if repaired is None or repaired.is_empty or not repaired.is_valid:
 		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
 			"keine rein polygonale Korrektur möglich")
+	# A GeometryCollection is acceptable only when make_valid added/remained
+	# line/point debris with exactly zero area.  Keep solely its polygonal
+	# members; this is not a buffer, simplification, or substitute geometry.
+	discarded=[member for member in getattr(full_repair,"geoms",())
+		if member.geom_type not in ("Polygon","MultiPolygon")]
+	if any(member.area!=0 for member in discarded):
+		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
+			"make_valid enthält flächenhaltige nichtpolygonale Bestandteile")
 	# A self-intersecting shape may lose topology. Do not silently count a
 	# materially different surface; repair only extremely small CRS artefacts.
 	delta=abs(repaired.area-metric.area)
@@ -79,8 +129,17 @@ def _metric_geometry_for_statistics(feature, to_metric, edge_id):
 	if delta>limit:
 		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
 			f"make_valid verändert Fläche um {delta:.6f} m² (Limit {limit:.6f} m²)")
+	try:
+		symmetric_difference=metric.symmetric_difference(repaired).area
+	except Exception as exc:
+		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
+			f"symmetrische Differenz nicht prüfbar: {exc}") from exc
+	if symmetric_difference>limit:
+		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
+			f"symmetrische Differenz {symmetric_difference:.6f} m² überschreitet "
+			f"{limit:.6f} m²")
 	shift=metric.boundary.hausdorff_distance(repaired.boundary)
-	if shift>.02:
+	if shift==shift and shift>.02:
 		raise ValueError(f"{edge_id}: metrische Rückprojektion ungültig ({reason}); "
 			f"Randverschiebung {shift:.6f} m überschreitet 0.02 m")
 	return repaired
@@ -126,7 +185,12 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 		if not p.is_file():
 			raise FileNotFoundError(p)
 	if out.exists() and not replace_existing:
-		raise FileExistsError(out)
+		if finished_output_is_current(source,out):
+			return _read_finished_metadata(out)["statistics"]
+		raise FileExistsError(
+			f"{out}: vorhandene Statistik-Ausgabe ist nicht mit der aktuellen "
+			"SIS-Eingabe kompatibel; --replace-existing ist erforderlich"
+		)
 	if out.is_symlink() or out.resolve()==source.resolve():
 		raise ValueError("Ausgabe darf Eingabe nicht überschreiben")
 	manifest,aoi=read_manifest(manifest_path)
@@ -211,6 +275,7 @@ def analyze(source,sis_db,manifest_path,grm_root,out,*,raw_root=None,
 				writer.write('\n],"metadata":')
 				json.dump({"schema":"cgal-sis-grm-ground-v1",
 					"source":str(source),
+					"source_sha256":checksum(source),
 					"sis_sha256":sis_meta["sha256"],
 					"grm_manifest_sha256":manifest_sha,
 					"grm_method":"grm2023-rgb-canopy-v1",

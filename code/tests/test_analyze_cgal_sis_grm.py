@@ -8,7 +8,9 @@ from unittest.mock import patch
 from pyproj import Transformer
 from shapely.geometry import box,mapping
 
-from scripts.analyze_cgal_sis_grm import analyze,_metric_geometry_for_statistics
+from scripts.analyze_cgal_sis_grm import (
+	analyze,_metric_geometry_for_statistics,_polygonal_parts,
+)
 
 TO_WGS=Transformer.from_crs(31256,4326,always_xy=True).transform
 
@@ -34,6 +36,17 @@ class CgalSisGrmTests(unittest.TestCase):
 		bowtie=Polygon([(0,0),(2,2),(0,2),(2,0),(0,0)])
 		with self.assertRaisesRegex(ValueError,"SIS-Quellgeometrie ungültig"):
 			_metric_geometry_for_statistics({"geometry":mapping(bowtie)},lambda x,y:(x,y),"bad")
+
+	def test_make_valid_geometry_collection_keeps_only_zero_area_line_debris(self):
+		from shapely import make_valid
+		from shapely.geometry import Polygon
+		# This known self-intersection becomes Polygon + MultiLineString.
+		# The line part has zero area and must not make an otherwise auditable
+		# projection artefact fatal.
+		invalid=Polygon([(0,0),(2,2),(0,2),(2,0),(1,1),(0,0)])
+		repaired=_polygonal_parts(make_valid(invalid))
+		self.assertEqual(repaired.geom_type,"Polygon")
+		self.assertAlmostEqual(repaired.area,1.)
 
 	def test_independent_ground_canopy_and_shared_area(self):
 		with TemporaryDirectory() as folder:
@@ -80,8 +93,9 @@ class CgalSisGrmTests(unittest.TestCase):
 			self.assertAlmostEqual(result["properties"]["grm2023_baumkronen_m2"],40,delta=0.05)
 			self.assertAlmostEqual(result["properties"]["baumkronen_ueber_begruentem_boden_m2"],20,delta=0.05)
 			self.assertAlmostEqual(result["properties"]["vegetation_boden_oder_krone_m2"],80,delta=0.05)
-			with self.assertRaises(FileExistsError):
-				analyze(source,index,manifest,cache,out)
+			# The finished output has an exact source digest and is therefore a
+			# valid resumable cache rather than a mere pre-existing file.
+			self.assertEqual(analyze(source,index,manifest,cache,out),stats)
 
 
 if __name__=="__main__":

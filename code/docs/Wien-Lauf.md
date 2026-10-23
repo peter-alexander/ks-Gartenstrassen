@@ -1,4 +1,8 @@
-# Wiener Vorbereitungslauf
+# Wiener Vorbereitungslauf (Phase `prepare`)
+
+> Der vollständige verbindliche Ablauf steht in
+> [Gartenstrassen-Wien-Pipeline.md](Gartenstrassen-Wien-Pipeline.md).
+> Diese Datei beschreibt nur die wiederverwendbare SIS-/GRM-Vorbereitung.
 
 Vom Repository-Root:
 
@@ -28,9 +32,9 @@ grm-fetch
 grm-build
 ```
 
-Es gibt bewusst keine GIP-, Voronoi-, Partitionierungs-, Trim-, QA-,
-Mess- oder PMTiles-Phase mehr. Ebenso werden keine Kreuzungen oder
-Knotenbereiche ausgeschnitten.
+Die nachfolgenden Produktionsphasen sind `cgal`, `stats` und `final` im
+zentralen `run-gartenstrassen-wien.sh`. Die CGAL-Phase behandelt
+TURN_USE-Kreuzungsflächen; ihre Regeln gehören nicht zur Vorbereitung.
 
 `work/` wird durch diesen Vorbereitungslauf derzeit nicht benötigt.
 Die neue Abschnittsmethode kann später ihre ausschließlich laufabhängigen

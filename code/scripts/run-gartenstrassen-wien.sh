@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wiener Gesamtpipeline: vorbereitete SIS/GRM-Daten -> CGAL/SIS -> Kennzahlen.
+# Wiener Gesamtpipeline: Rohdaten/Caches -> CGAL/SIS -> Kennzahlen -> PMTiles/QA.
 # --from allows resuming without recomputing expensive earlier phases.
 set -euo pipefail
 
@@ -13,19 +13,24 @@ RAW="${SIS_V2_RAW_ROOT:-$REPO/raw}"
 GRM_RAW="${SIS_V2_GRM_RAW_ROOT:-$RAW/grm2023}"
 SIS_OUTPUT="$REPO/output/cgal_native_faces_sis_wien.geojson"
 FINAL_OUTPUT="${GARTENSTRASSEN_FINAL_OUTPUT:-$REPO/output/cgal_native_faces_sis_grm_wien.geojson}"
-STAGES=(prepare cgal stats)
+PMTILES_OUTPUT="${GARTENSTRASSEN_PMTILES_OUTPUT:-$REPO/output/gartenstrassen_wien.pmtiles}"
+FINAL_METADATA="${GARTENSTRASSEN_FINAL_METADATA:-$REPO/output/gartenstrassen_wien.metadata.json}"
+FINAL_REPORT="${GARTENSTRASSEN_FINAL_REPORT:-$REPO/output/gartenstrassen_wien.quality.json}"
+STAGES=(prepare cgal stats final)
 FROM=prepare
-UNTIL=stats
+UNTIL=final
 REPLACE_STATS=0
+REPLACE_FINAL=0
 
 usage() {
 	cat <<'HELP'
-bash code/scripts/run-gartenstrassen-wien.sh [--from PHASE] [--until PHASE] [--replace-stats]
+bash code/scripts/run-gartenstrassen-wien.sh [--from PHASE] [--until PHASE] [--replace-stats] [--replace-final]
 
 Phases:
   prepare  SIS index, street-space and GRM2023 cache preparation
   cgal     LINEAR_USE -> CGAL -> TURN_USE -> SIS GeoJSON
   stats    SIS ground + GRM2023 canopy + overlap statistics
+  final    full GeoJSON quality audit, metadata and PMTiles export
 
 Existing SIS GeoJSON and complete SIS/GRM caches:
   bash code/scripts/run-gartenstrassen-wien.sh --from stats
@@ -34,10 +39,11 @@ Options:
   --from PHASE      Resume at phase (inclusive)
   --until PHASE     Stop after phase (inclusive)
   --replace-stats   Explicitly replace an existing statistics output
+  --replace-final   Explicitly replace existing PMTiles/QA final outputs
   -h, --help        Show this help
 
-The final statistics GeoJSON is separate from the SIS geometry source.
-No PMTiles export is run by this script.
+All reusable results carry input/method contracts.  A stale statistics or
+final cache is rejected rather than accepted merely because a file exists.
 HELP
 }
 
@@ -48,6 +54,7 @@ while (($#)); do
 			if [[ "$1" == --from ]]; then FROM="$2"; else UNTIL="$2"; fi
 			shift 2;;
 		--replace-stats) REPLACE_STATS=1; shift;;
+		--replace-final) REPLACE_FINAL=1; shift;;
 		-h|--help) usage; exit 0;;
 		*) echo "Unknown option: $1" >&2; usage >&2; exit 2;;
 	esac
@@ -105,6 +112,19 @@ for ((i=start;i<=end;i++)); do
 			)
 			((REPLACE_STATS == 0)) || args+=(--replace-existing)
 			(cd "$REPO/code" && "$PYTHON" -m scripts.analyze_cgal_sis_grm "${args[@]}");;
+		final)
+			[[ -s "$FINAL_OUTPUT" ]] || {
+				echo "Vollständiges SIS/GRM-GeoJSON fehlt: $FINAL_OUTPUT" >&2
+				exit 1
+			}
+			args=(
+				--source "$FINAL_OUTPUT"
+				--pmtiles "$PMTILES_OUTPUT"
+				--metadata "$FINAL_METADATA"
+				--report "$FINAL_REPORT"
+			)
+			((REPLACE_FINAL == 0)) || args+=(--replace-existing)
+			(cd "$REPO/code" && "$PYTHON" -m scripts.finalize_gartenstrassen_wien "${args[@]}");;
 	esac
 	echo "== $stage completed =="
 done

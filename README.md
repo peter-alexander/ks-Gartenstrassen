@@ -1,5 +1,10 @@
 # Gartenstraßen Wien
 
+> **Produktionsvertrag:**
+> [code/docs/Gartenstrassen-Wien-Pipeline.md](code/docs/Gartenstrassen-Wien-Pipeline.md).
+> Die folgenden Abschnitte sind historische Entwicklungsnotizen; bei einem
+> Widerspruch gilt ausschließlich der Produktionsvertrag.
+
 Aktuelle Forschungsstufe: Voronoi aus **originalen LINEAR_USE-Linien**
 (`base_type=1`) mit CGAL. Anders als bisher bleibt die Identität der
 Generatorsegmente im CGAL-Site-Export erhalten und wird auf die

@@ -1,4 +1,10 @@
-# Methodik – vor dem SIS-Verschnitt
+# Historische Methodik – vor dem SIS-Verschnitt
+
+> **Nicht der aktuelle Produktionsvertrag.** Die verbindliche, zuletzt
+> beschlossene Methode – einschließlich innerer originaler Stützpunkt-Faces,
+> TURN_USE, SIS, GRM2023 und Abschluss-Export – steht in
+> [Gartenstrassen-Wien-Pipeline.md](Gartenstrassen-Wien-Pipeline.md).
+> Diese Datei bewahrt nur den früheren Segment-Site-Zwischenstand.
 
 Die aktuelle Stufe berechnet CGAL-Segment-Voronoi aus originalen
 LINEAR_USE-Linien (`base_type=1`) in EPSG:31256.
