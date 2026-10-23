@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Standalone: LINEAR_USE base_type=1 -> unveränderte Originalgeometrien für CGAL.
+# Standalone: LINEAR_USE base_types=1,2,6,7,8,9,33,34,35,36,51 -> unveränderte Originalgeometrien für CGAL.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
