@@ -1,4 +1,4 @@
-"""Read untouched LINEAR_USE base_type=1 linework for the Vienna CGAL pipeline.
+"""Read untouched LINEAR_USE selected base_type linework for the Vienna CGAL pipeline.
 
 Only CRS conversion to EPSG:31256 is performed. Each original object_id
 remains a separate segment source with its own edge_id. No mean axes.
@@ -16,10 +16,10 @@ from shapely.ops import transform
 from shapely.wkb import dumps
 
 from scripts.linear_use_source import (
-	_readonly, _gpkg_wkb, _require_columns, _source_geometry_info, _source_rows)
+	_readonly, _gpkg_wkb, _require_columns, _source_geometry_info, _source_rows, BASE_TYPES)
 from scripts.wienwide_grid import checksum, load_aoi
 
-SCHEMA="linear-use-original-segments-v1"
+SCHEMA="linear-use-original-segments-v2"
 
 
 def build(source,aoi_path,output_db,geojson):
@@ -50,9 +50,9 @@ def build(source,aoi_path,output_db,geojson):
 			if metric.is_empty or not metric.is_valid or metric.length<=0:
 				raise ValueError(f"LINEAR_USE {object_id}: ungültige Projektion")
 			if metric.intersects(aoi):
-				records.append((edge_id,object_id,metric))
+				records.append((edge_id,object_id,int(_base_type),metric))
 	if not records:
-		raise ValueError("Keine LINEAR_USE base_type=1 Geometrien in Wien")
+		raise ValueError("Keine LINEAR_USE-Geometrien der ausgewählten base_types in Wien")
 	records.sort(key=lambda row:(row[0],row[1]))
 	if len({r[1] for r in records})!=len(records):
 		raise ValueError("LINEAR_USE: object_id nicht eindeutig")
@@ -67,14 +67,14 @@ def build(source,aoi_path,output_db,geojson):
 			db.executescript("""
 				CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 				CREATE TABLE linear_use_segments(
-					object_id TEXT PRIMARY KEY,edge_id TEXT NOT NULL,wkb BLOB NOT NULL);
+					object_id TEXT PRIMARY KEY,edge_id TEXT NOT NULL,base_type INTEGER NOT NULL,wkb BLOB NOT NULL);
 				CREATE INDEX linear_use_segments_edge ON linear_use_segments(edge_id);
 			""")
-			db.executemany("INSERT INTO linear_use_segments VALUES (?,?,?)",
-				[(object_id,edge_id,dumps(geom)) for edge_id,object_id,geom in records])
+			db.executemany("INSERT INTO linear_use_segments VALUES (?,?,?,?)",
+				[(object_id,edge_id,base_type,dumps(geom)) for edge_id,object_id,base_type,geom in records])
 			db.executemany("INSERT INTO metadata VALUES (?,?)",[
 				("schema",json.dumps(SCHEMA)),
-				("base_type",json.dumps(1)),
+				("base_types",json.dumps(BASE_TYPES)),
 				("target_crs",json.dumps("EPSG:31256")),
 				("source_sha256",json.dumps(source_sha)),
 				("aoi_sha256",json.dumps(aoi_sha))])
@@ -84,11 +84,11 @@ def build(source,aoi_path,output_db,geojson):
 				delete=False) as out:
 			temp_json=Path(out.name)
 			out.write('{"type":"FeatureCollection","features":[')
-			for i,(edge_id,object_id,geom) in enumerate(records):
+			for i,(edge_id,object_id,base_type,geom) in enumerate(records):
 				if i:
 					out.write(",\n")
 				out.write(json.dumps({"type":"Feature",
-					"properties":{"edge_id":edge_id,"object_id":object_id,"base_type":1},
+					"properties":{"edge_id":edge_id,"object_id":object_id,"base_type":base_type},
 					"geometry":mapping(transform(to_wgs,geom))},
 					ensure_ascii=False,separators=(",",":"),allow_nan=False))
 			out.write("]}\n")
